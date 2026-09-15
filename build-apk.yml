@@ -1,0 +1,86 @@
+name: Build Android APK (BIPIN AI)
+
+# ZAROORI SETUP STEP: Neeche "Capacitor config banao" step mein,
+# "YOUR-RENDER-URL" ko apni ASLI Render URL se badlo — 2 jagah hai
+# (is file mein), aur public/app-shell.html mein bhi 1 jagah.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout karo
+        uses: actions/checkout@v4
+
+      - name: Node.js setup karo
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Java setup karo
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: package.json banao
+        run: |
+          cat > capacitor-app/package.json << 'EOF'
+          {
+            "name": "bipin-ai-app",
+            "version": "1.0.0",
+            "dependencies": {
+              "@capacitor/core": "^6.0.0",
+              "@capacitor/android": "^6.0.0",
+              "@capacitor-community/inappbrowser": "^1.5.0"
+            }
+          }
+          EOF
+
+      - name: Capacitor config banao
+        run: |
+          cat > capacitor-app/capacitor.config.json << 'EOF'
+          {
+            "appId": "com.bipinai.app",
+            "appName": "BIPIN AI",
+            "webDir": "www",
+            "server": {
+              "url": "https://YOUR-RENDER-URL.onrender.com",
+              "cleartext": false
+            }
+          }
+          EOF
+
+      - name: Website files www folder mein copy karo (app-shell homepage banega)
+        run: |
+          mkdir -p capacitor-app/www
+          cp public/app-shell.html capacitor-app/www/index.html
+
+      - name: Capacitor install karo
+        run: npm install
+        working-directory: ./capacitor-app
+
+      - name: Android platform add karo
+        run: npx cap add android
+        working-directory: ./capacitor-app
+
+      - name: Capacitor sync karo
+        run: npx cap sync android
+        working-directory: ./capacitor-app
+
+      - name: Android SDK setup karo
+        uses: android-actions/setup-android@v3
+
+      - name: APK build karo
+        run: chmod +x gradlew && ./gradlew assembleDebug
+        working-directory: ./capacitor-app/android
+
+      - name: APK upload karo
+        uses: actions/upload-artifact@v4
+        with:
+          name: bipin-ai-app
+          path: capacitor-app/android/app/build/outputs/apk/debug/app-debug.apk
