@@ -49,7 +49,7 @@ jobs:
             "appName": "BIPIN AI",
             "webDir": "www",
             "server": {
-              "url": "https://YOUR-RENDER-URL.onrender.com",
+              "url": "https://hut-2igh.onrender.com",
               "cleartext": false
             }
           }
