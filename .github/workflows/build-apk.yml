@@ -1,9 +1,5 @@
 name: Build Android APK (BIPIN AI)
 
-# ZAROORI SETUP STEP: Neeche "Capacitor config banao" step mein,
-# "YOUR-RENDER-URL" ko apni ASLI Render URL se badlo — 2 jagah hai
-# (is file mein), aur public/app-shell.html mein bhi 1 jagah.
-
 on:
   push:
     branches: [main]
@@ -26,6 +22,9 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      - name: capacitor-app folder banao
+        run: mkdir -p capacitor-app
 
       - name: package.json banao
         run: |
@@ -55,7 +54,7 @@ jobs:
           }
           EOF
 
-      - name: Website files www folder mein copy karo (app-shell homepage banega)
+      - name: Website files www folder mein copy karo
         run: |
           mkdir -p capacitor-app/www
           cp public/app-shell.html capacitor-app/www/index.html
