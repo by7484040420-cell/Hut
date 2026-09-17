@@ -42,6 +42,9 @@ jobs:
               "@capacitor/core": "latest",
               "@capacitor/android": "latest",
               "@capgo/capacitor-inappbrowser": "latest"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "latest"
             }
           }
           EOF
