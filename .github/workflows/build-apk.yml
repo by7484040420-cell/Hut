@@ -33,9 +33,9 @@ jobs:
             "name": "bipin-ai-app",
             "version": "1.0.0",
             "dependencies": {
-              "@capacitor/core": "^6.0.0",
-              "@capacitor/android": "^6.0.0",
-              "@capacitor/inappbrowser": "latest"
+              "@capacitor/core": "latest",
+              "@capacitor/android": "latest",
+              "@capgo/capacitor-inappbrowser": "latest"
             }
           }
           EOF
