@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIPIN AI</title>
+<style>
+  body { font-family: sans-serif; background: #F4F1EA; margin: 0; padding: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+  .name { font-weight: 600; font-size: 13px; }
+  button.open { background: #12172B; color: #fff; border: none; padding: 6px 12px; border-radius: 14px; font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<h2>🇮🇳 BIPIN AI</h2>
+<div id="list"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@capacitor/core@6/dist/index.js"></script>
+<script>
+// Yeh Native App ke andar chalta hai. "Kholo" tap karte hi,
+// @capgo/capacitor-inappbrowser apna khud ka WebView kholta hai
+// (Custom Tab NAHI) — isliye AI script inject kar sakte hain,
+// aur iframe bhi nahi hai isliye X-Frame-Options block nahi karta.
+
+fetch('/api/portals').then(r => r.json()).then(portals => {
+  const list = document.getElementById('list');
+  portals.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div class="name">${p.name}</div><button class="open" data-url="${p.url}">Kholo</button>`;
+    card.querySelector('button').onclick = () => openInAppBrowser(p.url);
+    list.appendChild(card);
+  });
+});
+
+async function openInAppBrowser(url) {
+  const { CapgoInAppBrowser } = Capacitor.Plugins;
+  await CapgoInAppBrowser.openWebView({ url, title: 'BIPIN AI' });
+
+  // "AI Bharo" floating button, in-app WebView ke andar, HAMESHA
+  // dikhta hai — koi bookmark save karne ki zaroorat NAHI hai.
+  await CapgoInAppBrowser.executeScript({
+    code: `
+      if (!document.getElementById('bipin-native-fab')) {
+        var fab = document.createElement('div');
+        fab.id = 'bipin-native-fab';
+        fab.textContent = '🤖';
+        fab.style.cssText = 'position:fixed;bottom:20px;right:20px;width:52px;height:52px;background:#E8A93B;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.3);cursor:pointer;';
+        fab.onclick = function() {
+          var s = document.createElement('script');
+          s.src = 'https://hut-3igh.onrender.com/bipin-autofill.js?t=' + Date.now();
+          document.body.appendChild(s);
+          fab.remove();
+        };
+        document.body.appendChild(fab);
+      }
+    `,
+  });
+}
+</script>
+</body>
+</html>
