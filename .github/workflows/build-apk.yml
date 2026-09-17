@@ -13,10 +13,10 @@ jobs:
       - name: Code checkout karo
         uses: actions/checkout@v4
 
-      - name: Node.js 22 setup karo
+      - name: Node.js 21 setup karo
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '21'
 
       - name: Java 21 setup karo
         uses: actions/setup-java@v4
