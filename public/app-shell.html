@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIPIN AI</title>
+<style>
+  html, body { height: 100%; margin: 0; font-family: sans-serif; }
+  .list-screen { background: #F4F1EA; padding: 16px; height: 100%; overflow-y: auto; }
+  .card { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+  .name { font-weight: 600; font-size: 13px; }
+  button.open { background: #12172B; color: #fff; border: none; padding: 6px 12px; border-radius: 14px; font-size: 11px; margin-top: 6px; }
+
+  /* Split screen: hamara AI chat sirf LEFT half par rehta hai.
+     RIGHT half khaali (transparent) chhoda gaya hai — wahaan asli
+     government portal ka WebView, InAppBrowser se, sirf right-half
+     ke exact x/width/height ke saath khulta hai — dono EK SAATH,
+     live dikhte hain. */
+  .split-view { display: none; height: 100%; }
+  .ai-panel { width: 50%; height: 100%; background: #12172B; color: #fff; display: flex; flex-direction: column; }
+  .ai-panel .head { padding: 12px 14px; font-weight: 700; font-size: 13px; border-bottom: 1px solid #2a3050; }
+  .ai-log { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+  .bubble { max-width: 90%; padding: 7px 10px; border-radius: 10px; font-size: 11.5px; line-height: 1.35; }
+  .bubble.ai { background: #232a4a; align-self: flex-start; }
+  .bubble.user { background: #E8A93B; color: #12172B; align-self: flex-end; }
+  .ai-input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #2a3050; }
+  .ai-input-row input { flex: 1; border: none; border-radius: 8px; padding: 7px 9px; font-size: 11.5px; }
+  .ai-input-row button { background: #E8A93B; color: #12172B; border: none; border-radius: 8px; padding: 7px 10px; font-size: 11.5px; font-weight: 700; }
+  .placeholder-right { width: 50%; height: 100%; background: transparent; }
+</style>
+</head>
+<body>
+
+<div class="list-screen" id="listScreen">
+  <h2>🇮🇳 BIPIN AI</h2>
+  <div id="list"></div>
+</div>
+
+<div class="split-view" id="splitView">
+  <div class="ai-panel">
+    <div class="head">🤖 BIPIN AI</div>
+    <div class="ai-log" id="aiLog"></div>
+    <div class="ai-input-row"><input id="aiInput" placeholder="Type karo..."><button id="aiSend">Bhejo</button></div>
+  </div>
+  <div class="placeholder-right"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@capacitor/core@6/dist/index.js"></script>
+<script>
+let profileData = {};
+
+fetch('/api/portals').then(r => r.json()).then(portals => {
+  const list = document.getElementById('list');
+  portals.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div class="name">${p.name}</div><button class="open">Kholo</button>`;
+    card.querySelector('button').onclick = () => openSplitView(p.url, p.name);
+    list.appendChild(card);
+  });
+});
+
+function addMsg(text, from) {
+  const log = document.getElementById('aiLog');
+  const m = document.createElement('div');
+  m.className = 'bubble ' + from;
+  m.textContent = text;
+  log.appendChild(m);
+  log.scrollTop = log.scrollHeight;
+}
+
+function askUser(text) {
+  return new Promise((resolve) => {
+    addMsg(text, 'ai');
+    const input = document.getElementById('aiInput');
+    const send = document.getElementById('aiSend');
+    const handler = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      addMsg(v, 'user');
+      input.value = '';
+      send.removeEventListener('click', handler);
+      resolve(v);
+    };
+    send.addEventListener('click', handler);
+  });
+}
+
+async function openSplitView(url, name) {
+  // ZAROORI: List screen hatao, split-view dikhao (left = hamara AI,
+  // right = khaali jagah jahan asli portal ka WebView aayega)
+  document.getElementById('listScreen').style.display = 'none';
+  document.getElementById('splitView').style.display = 'flex';
+
+  const screenWidth = window.innerWidth;
+  const screenHeight = window.innerHeight;
+  const rightHalfWidth = Math.floor(screenWidth / 2);
+
+  const { InAppBrowser } = Capacitor.Plugins;
+
+  // Portal ko SIRF right-half mein, exact size/position ke saath kholo —
+  // yeh humare left-half AI panel ko cover NAHI karega, dono ek saath
+  // dikhenge, jaisa real split-screen mein hota hai.
+  await InAppBrowser.openWebView({
+    url,
+    title: name,
+    width: rightHalfWidth,
+    height: screenHeight,
+    x: rightHalfWidth,
+    y: 0,
+    toolbarType: 'blank', // koi address bar nahi, seedha content
+  });
+
+  addMsg(`${name} ke liye kuch details chahiye. Poora naam?`, 'ai');
+  const nameVal = await askUser('__SKIP__');
+  profileData.name = nameVal;
+
+  const father = await askUser("Pita ka naam?");
+  profileData.father = father;
+
+  const dob = await askUser('Janam tithi (DD/MM/YYYY)?');
+  profileData.dob = dob;
+
+  addMsg('Sab mil gaya! Ab dayeen taraf portal mein fields bhar raha hoon...', 'ai');
+
+  // Ab AI, right-half ke WebView ke ANDAR, script inject karke fields bharta hai
+  await InAppBrowser.executeScript({
+    code: `
+      (function() {
+        var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+        var data = ${JSON.stringify(profileData)};
+        inputs.forEach(function(inp) {
+          var label = (inp.placeholder || inp.name || '').toLowerCase();
+          if (label.includes('name') && !label.includes('father')) inp.value = data.name;
+          if (label.includes('father')) inp.value = data.father;
+          if (label.includes('dob') || label.includes('birth')) inp.value = data.dob;
+        });
+      })();
+    `,
+  });
+
+  addMsg('Fields bhar diye — dayeen taraf check karo. Captcha/OTP/Payment tum khud karoge.', 'ai');
+}
+</script>
+</body>
+</html>
