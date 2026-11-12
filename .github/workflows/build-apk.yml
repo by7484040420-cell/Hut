@@ -1,4 +1,4 @@
-name: Build Android APK (BIPIN AI)
+name: Build Android APK (VibeRoom)
 
 on:
   push:
@@ -10,79 +10,65 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Code checkout karo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Node.js 22 setup karo
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Java 21 setup karo
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: capacitor-app folder banao
-        run: mkdir -p capacitor-app
-
-      - name: package.json banao
+      - name: Build web bundle
         run: |
+          npm install
+          npm run build
+
+      - name: Create Capacitor Android wrapper
+        run: |
+          mkdir -p capacitor-app/www
+          cp -r dist/* capacitor-app/www/
           cat > capacitor-app/package.json << 'EOF'
           {
-            "name": "bipin-ai-app",
+            "name": "viberoom-apk",
             "version": "1.0.0",
             "private": true,
             "dependencies": {
               "@capacitor/core": "^8.0.0",
-              "@capacitor/android": "^8.0.0",
-              "@capgo/capacitor-inappbrowser": "^8.0.0"
+              "@capacitor/android": "^8.0.0"
             },
             "devDependencies": {
               "@capacitor/cli": "^8.0.0"
             }
           }
           EOF
-
-      - name: Capacitor config banao
-        run: |
           cat > capacitor-app/capacitor.config.json << 'EOF'
           {
-            "appId": "com.bipinai.app",
-            "appName": "BIPIN AI",
-            "webDir": "www",
-            "server": {
-              "url": "https://hut-3igh.onrender.com",
-              "cleartext": false
-            }
+            "appId": "com.viberoom.app",
+            "appName": "VibeRoom",
+            "webDir": "www"
           }
           EOF
 
-      - name: Website files www folder mein copy karo
+      - name: Install Capacitor & sync Android
+        working-directory: ./capacitor-app
         run: |
-          mkdir -p capacitor-app/www
-          cp public/app-shell.html capacitor-app/www/index.html
+          npm install
+          npx cap add android
+          npx cap sync android
 
-      - name: Capacitor install karo
-        run: npm install
-        working-directory: ./capacitor-app
-
-      - name: Android platform add karo
-        run: npx cap add android
-        working-directory: ./capacitor-app
-
-      - name: Capacitor sync karo
-        run: npx cap sync android
-        working-directory: ./capacitor-app
-
-      - name: Android SDK setup karo
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: ''
           accept-android-sdk-licenses: true
 
-      - name: Required Android SDK packages install karo
+      - name: Install Android SDK packages
         shell: bash
         run: |
           set -e
@@ -91,21 +77,21 @@ jobs:
             "platforms;android-36" \
             "build-tools;36.0.0"
 
-      - name: Android SDK licenses accept karo
+      - name: Accept Android SDK licenses
         shell: bash
         run: |
           set +o pipefail
           yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null
           set -o pipefail
 
-      - name: APK build karo
+      - name: Build Debug APK
+        working-directory: ./capacitor-app/android
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
-        working-directory: ./capacitor-app/android
 
-      - name: APK upload karo
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bipin-ai-app
+          name: viberoom-apk
           path: capacitor-app/android/app/build/outputs/apk/debug/app-debug.apk

@@ -1,1 +1,32 @@
-{"name":"bipin-ai-app","version":"1.0.0","scripts":{"start":"node server.js"}}
+{
+  "name": "viberoom-app",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --ignore data --ignore uploads --ignore dist server.ts",
+    "build": "vite build",
+    "lint": "tsc --noEmit",
+    "start": "NODE_ENV=production tsx server.ts"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "express": "^5.3.0",
+    "lucide-react": "^1.72.0",
+    "multer": "^2.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-pwa": "^2.0.0",
+    "ws": "^8.22.2"
+  }
+}
