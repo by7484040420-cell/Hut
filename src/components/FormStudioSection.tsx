@@ -37,8 +37,8 @@ interface FormStudioSectionProps {
 const CATEGORIES: { id: AppCategory; label: string; placeholder: string }[] = [
   {
     id: 'job',
-    label: 'Job Application (Army / SSC / Private)',
-    placeholder: 'e.g. Join Indian Army Agniveer / SSC MTS / Police Bharti form fill karo',
+    label: 'Job Application (SSC / Army / Railway)',
+    placeholder: 'e.g. SSC GD / Join Indian Army / RRB Group D direct form fill karo',
   },
   {
     id: 'court_block',
@@ -82,8 +82,6 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
   selectedId,
   ephemeralDocs,
   zeroSave,
-  onToggleZeroSave,
-  onAddEphemeralDoc,
   onWipeEphemeralDocs,
   onSelectId,
   onApplicationsChange,
@@ -277,15 +275,15 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
   return (
     <div className="space-y-5">
       {ephemeralDocs.length > 0 && (
-        <div className="bg-[#111827] border border-emerald-500/30 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className="text-emerald-300">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="text-emerald-900 font-medium">
             Active OCR Docs in RAM ({ephemeralDocs.length}):{' '}
             {ephemeralDocs.map((d) => d.documentType).join(', ')} (Not saved to disk)
           </span>
           <button
             type="button"
             onClick={onWipeEphemeralDocs}
-            className="text-rose-300 hover:text-rose-200 underline"
+            className="text-rose-700 font-semibold hover:underline"
           >
             Wipe RAM
           </button>
@@ -295,29 +293,29 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
       {/* AI Form Generator Card */}
       <form
         onSubmit={handleGenerate}
-        className="bg-[#111827] border border-slate-800/80 rounded-2xl p-5 space-y-4"
+        className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-base font-semibold text-slate-100">
+            <h1 className="text-base font-bold text-slate-900">
               AI Smart Auto-Fill Form Studio
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-600 mt-0.5">
               {zeroSave
                 ? 'Zero-Save RAM Mode · Document details won’t be stored permanently'
                 : 'Live internet research + automatic form filling from your Profile Vault'}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 bg-[#0B0F17] border border-slate-800 rounded-xl p-1">
+          <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-1">
             {(['hinglish', 'hindi', 'english'] as const).map((lang) => (
               <button
                 key={lang}
                 type="button"
                 onClick={() => setLanguage(lang)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
                   language === lang
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-[#0F172A] text-white'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {lang}
@@ -328,13 +326,13 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div className="md:col-span-4">
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Application Category
             </label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value as AppCategory)}
-              className="w-full min-h-[44px] px-3 rounded-xl bg-[#0B0F17] border border-slate-700/80 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
+              className="w-full min-h-[44px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
             >
               {CATEGORIES.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -345,20 +343,20 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
           </div>
 
           <div className="md:col-span-8">
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Optional Specific Portal URL
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Optional Direct Portal URL
             </label>
             <input
               type="url"
               value={targetUrl}
               onChange={(e) => setTargetUrl(e.target.value)}
-              placeholder="https://... (leave blank so AI searches the official portal automatically)"
-              className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#0B0F17] border border-slate-700/80 text-sm font-mono text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              placeholder="https://... (leave blank so AI picks the direct form URL automatically)"
+              className="w-full min-h-[44px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:bg-white focus:outline-none"
             />
           </div>
 
           <div className="md:col-span-10">
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               What should SarthiAI prepare &amp; fill?
             </label>
             <input
@@ -366,7 +364,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
               placeholder={activeCategoryMeta.placeholder}
-              className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#0B0F17] border border-slate-700/80 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              className="w-full min-h-[44px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:bg-white focus:outline-none"
             />
           </div>
 
@@ -374,12 +372,12 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
             <button
               type="submit"
               disabled={generating || !goal.trim()}
-              className="w-full min-h-[44px] px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-semibold text-sm inline-flex items-center justify-center gap-2 transition-colors"
+              className="w-full min-h-[44px] px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 transition-colors"
             >
               {generating ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Sparkles className="w-4 h-4" />
+                <Sparkles className="w-4 h-4 text-rose-400" />
               )}
               Auto-Fill
             </button>
@@ -387,7 +385,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
         </div>
 
         {error && (
-          <div className="px-4 py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+          <div className="px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
             {error}
           </div>
         )}
@@ -397,14 +395,14 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <aside className="lg:col-span-4 space-y-2.5">
           <div className="flex items-center justify-between px-1">
-            <h2 className="text-sm font-semibold text-slate-100">
+            <h2 className="text-sm font-bold text-slate-900">
               Prepared Forms ({applications.length})
             </h2>
           </div>
 
           {applications.length === 0 ? (
-            <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-5 text-xs text-slate-400 leading-relaxed">
-              Abhi koi form draft nahi hai. Upar category select karke request bhejein — AI internet se portal dhundh kar aapka form auto-fill kar dega.
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 text-xs text-slate-600 leading-relaxed">
+              Abhi koi form draft nahi hai. Upar category select karke request bhejein — AI direct portal dhundh kar aapka form auto-fill kar dega.
             </div>
           ) : (
             <div className="space-y-2">
@@ -413,22 +411,22 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className={`rounded-2xl border p-3.5 transition-colors cursor-pointer ${
+                    className={`rounded-2xl border p-3.5 transition-colors cursor-pointer bg-white ${
                       isActive
-                        ? 'bg-[#111827] border-emerald-500/60'
-                        : 'bg-[#111827] border-slate-800/80 hover:border-slate-700'
+                        ? 'border-slate-900'
+                        : 'border-slate-200 hover:border-slate-400'
                     }`}
                     onClick={() => onSelectId(item.id)}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-emerald-400">
+                        <div className="text-xs font-semibold text-emerald-700">
                           {CATEGORY_LABELS[item.category]}
                         </div>
-                        <div className="text-sm font-semibold text-slate-100 truncate mt-0.5">
+                        <div className="text-sm font-bold text-slate-900 truncate mt-0.5">
                           {item.title}
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-1">
+                        <div className="text-[11px] text-slate-500 mt-1">
                           {item.portalName} · {formatIsoTime(item.updatedAt)}
                         </div>
                       </div>
@@ -439,7 +437,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                           deleteDraft(item.id);
                         }}
                         aria-label="Delete draft"
-                        className="p-1.5 text-slate-500 hover:text-rose-400 shrink-0"
+                        className="p-1.5 text-slate-400 hover:text-rose-600 shrink-0"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -454,20 +452,20 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
         {/* Selected Application Detail */}
         <section className="lg:col-span-8">
           {!selected ? (
-            <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-10 text-center text-sm text-slate-400">
-              Select a form draft to review, edit, print, or open in Mini Browser.
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-sm text-slate-500">
+              Select a form draft to review, edit, print, or open its direct page in Live Browser.
             </div>
           ) : (
-            <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-5 space-y-5">
-              <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-slate-800">
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-5">
+              <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-slate-200">
                 <div className="space-y-1">
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-slate-600">
                     {CATEGORY_LABELS[selected.category]} · {selected.portalName} ·{' '}
                     <span
                       className={
                         selected.status === 'draft_ready'
-                          ? 'text-emerald-400'
-                          : 'text-amber-400'
+                          ? 'text-emerald-700 font-semibold'
+                          : 'text-amber-700 font-semibold'
                       }
                     >
                       {selected.status === 'draft_ready'
@@ -475,8 +473,8 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                         : 'Needs Review'}
                     </span>
                   </div>
-                  <h2 className="text-lg font-semibold text-slate-100">{selected.title}</h2>
-                  <p className="text-xs text-slate-300 leading-relaxed">{selected.summary}</p>
+                  <h2 className="text-lg font-bold text-slate-900">{selected.title}</h2>
+                  <p className="text-xs text-slate-600 leading-relaxed">{selected.summary}</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -485,18 +483,18 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                     onClick={() =>
                       onOpenBrowser(
                         selected.portalUrl,
-                        `Open ${selected.portalName} and fill fields for "${selected.title}" using my details. Pause at CAPTCHA/OTP for me.`
+                        `Open direct form page at ${selected.portalUrl} for "${selected.title}" and auto-fill fields. Pause at CAPTCHA/OTP.`
                       )
                     }
-                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5"
+                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
                   >
                     <Compass className="w-3.5 h-3.5" />
-                    Run Live in Browser
+                    Open Direct Form
                   </button>
                   <button
                     type="button"
                     onClick={() => downloadDraftTxt(selected)}
-                    className="min-h-[40px] px-3 py-2 rounded-xl bg-[#0B0F17] border border-slate-700 hover:border-slate-500 text-xs font-medium text-slate-200 inline-flex items-center gap-1.5"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Export .TXT
@@ -504,7 +502,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                   <button
                     type="button"
                     onClick={() => window.print()}
-                    className="min-h-[40px] px-3 py-2 rounded-xl bg-[#0B0F17] border border-slate-700 hover:border-slate-500 text-xs font-medium text-slate-200 inline-flex items-center gap-1.5"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5"
                   >
                     <Printer className="w-3.5 h-3.5" />
                     Print
@@ -515,14 +513,14 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
               {/* Editable Auto-Filled Form Fields */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-100">
+                  <h3 className="text-sm font-bold text-slate-900">
                     Auto-Filled Form Fields
                   </h3>
                   <button
                     type="button"
                     onClick={saveDraftEdits}
                     disabled={saving}
-                    className="min-h-[36px] px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-xs font-medium text-emerald-300 inline-flex items-center gap-1.5"
+                    className="min-h-[36px] px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-xs font-semibold text-emerald-800 inline-flex items-center gap-1.5"
                   >
                     <Save className="w-3.5 h-3.5" />
                     {saving ? 'Saving...' : 'Save Changes'}
@@ -533,21 +531,21 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                   {selected.fields.map((field, idx) => (
                     <div
                       key={`${field.key}-${idx}`}
-                      className="p-3 rounded-xl bg-[#0B0F17] border border-slate-800 space-y-1.5"
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <label className="text-xs font-medium text-slate-300">
+                        <label className="text-xs font-semibold text-slate-700">
                           {field.label}
                         </label>
                         <button
                           type="button"
                           onClick={() => copyText(`f-${idx}`, field.value)}
                           disabled={!field.value}
-                          className="text-[11px] text-slate-400 hover:text-emerald-300 inline-flex items-center gap-1 disabled:opacity-40"
+                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 disabled:opacity-40"
                         >
                           {copiedId === `f-${idx}` ? (
                             <>
-                              <Check className="w-3 h-3 text-emerald-400" />
+                              <Check className="w-3 h-3 text-emerald-600" />
                               Copied
                             </>
                           ) : (
@@ -563,10 +561,10 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                         value={field.value}
                         onChange={(e) => updateSelectedField(idx, e.target.value)}
                         placeholder={field.notes || 'Enter missing value'}
-                        className={`w-full min-h-[38px] px-3 rounded-lg bg-[#111827] border text-xs text-slate-100 focus:outline-none ${
+                        className={`w-full min-h-[38px] px-3 rounded-lg bg-white border text-xs text-slate-900 focus:outline-none ${
                           field.value.trim()
-                            ? 'border-slate-700 focus:border-emerald-500'
-                            : 'border-amber-500/50 focus:border-amber-400'
+                            ? 'border-slate-200 focus:border-slate-900'
+                            : 'border-amber-400 focus:border-amber-600'
                         }`}
                       />
                     </div>
@@ -574,21 +572,20 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                 </div>
               </div>
 
-              {/* Formal Application / Letter (Court / Block / Job) */}
               {selected.formalLetterText !== undefined && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-slate-100 inline-flex items-center gap-1.5">
-                      <FileText className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-slate-900 inline-flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-emerald-700" />
                       Ready Application Letter (Court / Block / Office)
                     </h3>
                     <button
                       type="button"
                       onClick={() => copyText('letter', selected.formalLetterText || '')}
-                      className="min-h-[34px] px-3 rounded-lg bg-[#0B0F17] border border-slate-700 text-xs text-slate-200 inline-flex items-center gap-1.5"
+                      className="min-h-[34px] px-3 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5"
                     >
                       {copiedId === 'letter' ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
                       ) : (
                         <Copy className="w-3.5 h-3.5" />
                       )}
@@ -599,19 +596,18 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                     rows={8}
                     value={selected.formalLetterText}
                     onChange={(e) => updateLetterText(e.target.value)}
-                    className="w-full p-3.5 rounded-xl bg-[#0B0F17] border border-slate-800 focus:border-emerald-500 focus:outline-none text-xs leading-relaxed text-slate-100"
+                    className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs leading-relaxed text-slate-900"
                   />
                 </div>
               )}
 
-              {/* Checklist, Steps & Human Confirmation Gates */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {selected.documentChecklist.length > 0 && (
-                  <div className="p-4 rounded-xl bg-[#0B0F17] border border-slate-800 space-y-2">
-                    <div className="text-xs font-semibold text-slate-200">
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="text-xs font-bold text-slate-900">
                       Documents Required
                     </div>
-                    <ul className="space-y-1.5 text-xs text-slate-300 list-disc pl-4">
+                    <ul className="space-y-1.5 text-xs text-slate-700 list-disc pl-4">
                       {selected.documentChecklist.map((doc, i) => (
                         <li key={i}>{doc}</li>
                       ))}
@@ -620,11 +616,11 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                 )}
 
                 {selected.actionSteps.length > 0 && (
-                  <div className="p-4 rounded-xl bg-[#0B0F17] border border-slate-800 space-y-2">
-                    <div className="text-xs font-semibold text-slate-200">
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="text-xs font-bold text-slate-900">
                       Submission Guide
                     </div>
-                    <ol className="space-y-1.5 text-xs text-slate-300 list-decimal pl-4">
+                    <ol className="space-y-1.5 text-xs text-slate-700 list-decimal pl-4">
                       {selected.actionSteps.map((step, i) => (
                         <li key={i}>{step}</li>
                       ))}
@@ -634,12 +630,12 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
               </div>
 
               {selected.humanVerificationNotes.length > 0 && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
-                  <div className="text-xs font-semibold text-amber-300 inline-flex items-center gap-1.5">
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
+                  <div className="text-xs font-bold text-amber-900 inline-flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4" />
                     Final User Verification Steps (OTP / CAPTCHA / Payment)
                   </div>
-                  <ul className="space-y-1 text-xs text-amber-100/90 list-disc pl-4">
+                  <ul className="space-y-1 text-xs text-amber-950 list-disc pl-4">
                     {selected.humanVerificationNotes.map((note, i) => (
                       <li key={i}>{note}</li>
                     ))}
@@ -648,9 +644,9 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
               )}
 
               {selected.sources && selected.sources.length > 0 && (
-                <div className="pt-2 border-t border-slate-800 space-y-1.5">
-                  <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                    Verified Internet Links
+                <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                  <div className="text-[11px] font-semibold text-slate-500">
+                    Verified Direct Links
                   </div>
                   <div className="flex flex-wrap gap-3">
                     {selected.sources.map((src) => (
@@ -658,7 +654,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                         key={src.uri}
                         type="button"
                         onClick={() => onOpenBrowser(src.uri)}
-                        className="text-xs text-sky-400 hover:text-sky-300 underline underline-offset-2 inline-flex items-center gap-1"
+                        className="text-xs text-sky-700 hover:text-sky-900 underline underline-offset-2 inline-flex items-center gap-1"
                       >
                         <span className="truncate max-w-[260px]">{src.title}</span>
                         <ArrowUpRight className="w-3 h-3 shrink-0" />

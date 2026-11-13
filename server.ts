@@ -18,6 +18,7 @@ import {
   extractDocumentWithOCR,
   formatGeminiError,
   generateAutoFilledApplication,
+  getServiceBriefWithAI,
   inspectUrlWithAI,
   isGeminiConfigured,
   runLiveAgentChat,
@@ -517,6 +518,22 @@ app.post('/api/browser/inspect', async (req, res) => {
     const formatted = formatGeminiError(err);
     res.status(formatted.status).json({ error: formatted.message });
   }
+});
+
+// ---- Service Pre-Flight AI Brief (Fee, Required Docs & Direct Form URL) ----
+
+app.post('/api/service/brief', async (req, res) => {
+  const serviceId = String(req.body?.serviceId || '').trim() || undefined;
+  const query = String(req.body?.query || '').trim();
+  if (!query && !serviceId) {
+    res.status(400).json({ error: 'Service ID or query is required' });
+    return;
+  }
+  const brief = await getServiceBriefWithAI({
+    serviceId,
+    query: query || serviceId || '',
+  });
+  res.json({ brief });
 });
 
 // ---- Real Live Chromium Browser + Ad-Blocker + OCR+AI Vision Copilot ----

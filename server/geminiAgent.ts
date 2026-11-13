@@ -16,7 +16,13 @@ import type {
   GroundingSource,
   ProfileVault,
   RequestedDocumentSpec,
+  ServiceBrief,
+  ServiceCatalogItem,
 } from '../src/types.js';
+import {
+  buildFallbackServiceBrief,
+  findServiceByIdOrQuery,
+} from '../src/lib/serviceCatalog.js';
 
 const PRIMARY_MODEL = 'gemini-4-hydrogen';
 const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
@@ -1032,7 +1038,7 @@ export async function decideLiveBrowserStep(params: {
     '',
     'UNIVERSAL WEBSITE RULES:',
     '1. Look carefully at the live screenshot, PAGE VISIBLE TEXT SUMMARY, and INTERACTIVE ELEMENTS.',
-    '2. If the current page is about:blank or needs to visit an official portal, return action="navigate" with the exact HTTPS URL in `value`.',
+    '2. DIRECT FORM PAGE RULE: Never stay idle on a portal homepage! If the current page is about:blank OR is a general homepage/landing page with a link/button like "Apply Online", "New Registration", "Candidate Login", "One Time Registration", "Form 49A", "Book Ticket", click/navigate directly to the actual form page.',
     '3. DYNAMIC DOCUMENT REQUEST RULE: Inspect the form/page currently visible on this website. If this website asks for fields or documents that are MISSING from USER DETAILS AVAILABLE RIGHT NOW (for example, Passport form needs Aadhaar + 10th Marksheet, or an unknown website asks for Bank Passbook / Income Certificate / Roll Number that the user has not uploaded yet), return action="request_documents" with `neededDocuments` listing ONLY the exact missing documents needed for THIS website, and a clear `humanPrompt` in Hinglish telling the user what to upload inline!',
     '4. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` (matching `[idx]`) and `(x, y)`, plus the exact text in `value`.',
     '5. For `<select>` dropdowns, return action="select" with `elementIndex`, `(x, y)`, and the matching option label/value in `value`.',
@@ -1113,6 +1119,145 @@ export async function decideLiveBrowserStep(params: {
           .filter((d) => d.name.length > 0)
       : undefined,
   };
+}
+
+export async function getServiceBriefWithAI(params: {
+  serviceId?: string;
+  query: string;
+}): Promise<ServiceBrief> {
+  const catalogItem: ServiceCatalogItem | null = findServiceByIdOrQuery(
+    params.serviceId,
+    params.query
+  );
+  const fallback = buildFallbackServiceBrief(params.query, catalogItem);
+
+  if (!isGeminiConfigured()) {
+    return fallback;
+  }
+
+  try {
+    const ai = getGeminiClient();
+    const researchPrompt = [
+      `Find exact live Indian portal details for user request: "${params.query}"`,
+      catalogItem ? `Known portal: ${catalogItem.portalName} (${catalogItem.directFormUrl})` : '',
+      'Find and verify:',
+      '1. Exact Direct Application / Registration / Form URL (NOT generic homepage, get the direct apply/form page URL).',
+      '2. Exact Official Fee (kitna paisa lagega category-wise in INR).',
+      '3. Exact Eligibility & Documents required.',
+      '4. Key steps and time required.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    let sources: GroundingSource[] = [...fallback.sources];
+    let researchNotes = '';
+    try {
+      const res1 = await generateContentResilient(ai, {
+        contents: researchPrompt,
+        config: { tools: [{ googleSearch: {} }] },
+      });
+      const liveSources = extractGroundingSources(res1);
+      if (liveSources.length > 0) sources = liveSources;
+      researchNotes = res1.text?.trim() || '';
+    } catch {
+      return fallback;
+    }
+
+    const res2 = await generateContentResilient(ai, {
+      contents: [
+        `Create a clean Hinglish pre-flight brief for "${params.query}" BEFORE opening the direct form page.`,
+        catalogItem ? `Verified Direct Form URL fallback: ${catalogItem.directFormUrl}` : '',
+        `LIVE INTERNET RESEARCH:\n${researchNotes}`,
+        'Return crisp Hinglish explanations: kitna paisa (feeSummary), kitna time (processingTime), eligibilitySummary, 3-4 keyHighlights, requiredDocuments (ONLY docs strictly needed for this task), 3 short formSteps, and the exact directFormUrl (never a generic homepage if a direct apply/form URL exists).',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            portalName: { type: Type.STRING },
+            directFormUrl: { type: Type.STRING },
+            feeSummary: { type: Type.STRING },
+            processingTime: { type: Type.STRING },
+            eligibilitySummary: { type: Type.STRING },
+            keyHighlights: { type: Type.ARRAY, items: { type: Type.STRING } },
+            requiredDocuments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  reason: { type: Type.STRING },
+                },
+                required: ['name', 'reason'],
+              },
+            },
+            formSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+            humanCheckNotes: { type: Type.STRING },
+            directFormGoal: { type: Type.STRING },
+          },
+          required: [
+            'title',
+            'portalName',
+            'directFormUrl',
+            'feeSummary',
+            'processingTime',
+            'eligibilitySummary',
+            'requiredDocuments',
+            'formSteps',
+            'directFormGoal',
+          ],
+        },
+      },
+    });
+
+    const parsed = JSON.parse((res2.text ?? '{}').trim()) as Partial<ServiceBrief> & {
+      requiredDocuments?: { name: string; reason: string }[];
+    };
+
+    const directUrl =
+      parsed.directFormUrl && parsed.directFormUrl.startsWith('http')
+        ? parsed.directFormUrl
+        : fallback.directFormUrl;
+
+    const reqDocs =
+      Array.isArray(parsed.requiredDocuments) && parsed.requiredDocuments.length > 0
+        ? parsed.requiredDocuments.map((d, i) => ({
+            id: `${fallback.serviceId}-doc-${i + 1}`,
+            name: String(d.name || 'Required Document'),
+            reason: String(d.reason || 'Form auto-fill details ke liye'),
+          }))
+        : fallback.requiredDocuments;
+
+    return {
+      serviceId: fallback.serviceId,
+      title: String(parsed.title || fallback.title),
+      category: fallback.category,
+      portalName: String(parsed.portalName || fallback.portalName),
+      directFormUrl: catalogItem ? catalogItem.directFormUrl : directUrl,
+      feeSummary: String(parsed.feeSummary || fallback.feeSummary),
+      processingTime: String(parsed.processingTime || fallback.processingTime),
+      eligibilitySummary: String(parsed.eligibilitySummary || fallback.eligibilitySummary),
+      keyHighlights:
+        Array.isArray(parsed.keyHighlights) && parsed.keyHighlights.length > 0
+          ? parsed.keyHighlights.map(String)
+          : fallback.keyHighlights,
+      requiredDocuments: reqDocs,
+      formSteps:
+        Array.isArray(parsed.formSteps) && parsed.formSteps.length > 0
+          ? parsed.formSteps.map(String)
+          : fallback.formSteps,
+      humanCheckNotes: String(parsed.humanCheckNotes || fallback.humanCheckNotes),
+      directFormGoal: String(parsed.directFormGoal || fallback.directFormGoal),
+      sources,
+      fromLiveAi: true,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 

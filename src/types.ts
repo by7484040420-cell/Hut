@@ -146,6 +146,42 @@ export interface LiveBrowserStatus {
   lastStepLogs: string[];
 }
 
+export interface ServiceCatalogItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  category: AppCategory | 'admit_card' | 'result' | 'yojana' | 'tax_epf';
+  actionLabel: string;
+  iconLetter: string;
+  tint: 'blue' | 'purple' | 'rose' | 'emerald' | 'indigo' | 'amber' | 'teal';
+  directFormUrl: string;
+  portalName: string;
+  defaultFee: string;
+  defaultProcessingTime: string;
+  defaultEligibility: string;
+  defaultDocuments: { name: string; reason: string }[];
+  defaultFormGoal: string;
+  badgeText?: string;
+}
+
+export interface ServiceBrief {
+  serviceId: string;
+  title: string;
+  category: string;
+  portalName: string;
+  directFormUrl: string;
+  feeSummary: string;
+  processingTime: string;
+  eligibilitySummary: string;
+  keyHighlights: string[];
+  requiredDocuments: { id: string; name: string; reason: string }[];
+  formSteps: string[];
+  humanCheckNotes: string;
+  directFormGoal: string;
+  sources: GroundingSource[];
+  fromLiveAi: boolean;
+}
+
 export interface WorkspaceBootstrap {
   profile: ProfileVault;
   applications: ApplicationDraft[];

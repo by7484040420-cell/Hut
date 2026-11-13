@@ -3,12 +3,11 @@ import {
   Bot,
   Compass,
   FileSpreadsheet,
+  Home,
   Loader2,
   Server,
   ShieldCheck,
   UserCheck,
-  Wifi,
-  WifiOff,
 } from 'lucide-react';
 import type {
   ApplicationDraft,
@@ -18,12 +17,12 @@ import type {
   ProfileVault,
   WorkspaceBootstrap,
 } from './types';
+import { HomePortalSection } from './components/HomePortalSection';
 import { AiAgentSection } from './components/AiAgentSection';
 import { FormStudioSection } from './components/FormStudioSection';
 import { MiniBrowserSection } from './components/MiniBrowserSection';
 import { ProfileVaultSection } from './components/ProfileVaultSection';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { useOnlineStatus } from './hooks/usePWAInstall';
 import {
   apiFetchJson,
   BackendUnavailableError,
@@ -34,10 +33,10 @@ import {
   setSavedBackendUrl,
 } from './lib/api';
 
-type TabKey = 'agent' | 'forms' | 'browser' | 'vault';
+type TabKey = 'home' | 'agent' | 'browser' | 'forms' | 'vault';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>('agent');
+  const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serverOfflineMode, setServerOfflineMode] = useState(false);
@@ -48,12 +47,11 @@ export function App() {
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [queuedBrowserUrl, setQueuedBrowserUrl] = useState<string | null>(null);
   const [queuedBrowserGoal, setQueuedBrowserGoal] = useState<string | null>(null);
+  const [queuedAiPrompt, setQueuedAiPrompt] = useState<string | null>(null);
 
   // Ephemeral RAM-only document extractions & Zero-Save privacy toggle (default ON)
   const [zeroSave, setZeroSave] = useState(true);
   const [ephemeralDocs, setEphemeralDocs] = useState<EphemeralDocumentExtract[]>([]);
-
-  const isOnline = useOnlineStatus();
 
   const loadWorkspaceData = useCallback(async () => {
     setLoading(true);
@@ -114,6 +112,11 @@ export function App() {
     setQueuedBrowserUrl(url);
     setQueuedBrowserGoal(goal || null);
     setActiveTab('browser');
+  };
+
+  const openAiWithPrompt = (prompt?: string) => {
+    if (prompt) setQueuedAiPrompt(prompt);
+    setActiveTab('agent');
   };
 
   const openDraftInStudio = (draftId: string) => {
@@ -184,47 +187,39 @@ export function App() {
     null;
 
   const navItems: { key: TabKey; label: string; shortLabel: string; icon: React.ReactNode }[] = [
-    { key: 'agent', label: 'AI Autopilot', shortLabel: 'AI Agent', icon: <Bot className="w-4 h-4" /> },
-    {
-      key: 'browser',
-      label: 'Live Browser',
-      shortLabel: 'Browser',
-      icon: <Compass className="w-4 h-4" />,
-    },
+    { key: 'home', label: 'Home', shortLabel: 'Home', icon: <Home className="w-4 h-4" /> },
+    { key: 'agent', label: 'AI Agent', shortLabel: 'AI Agent', icon: <Bot className="w-4 h-4" /> },
+    { key: 'browser', label: 'Live Browser', shortLabel: 'Browser', icon: <Compass className="w-4 h-4" /> },
     {
       key: 'forms',
-      label: `Form Studio (${workspace?.applications.length ?? 0})`,
+      label: `Forms (${workspace?.applications.length ?? 0})`,
       shortLabel: 'Forms',
       icon: <FileSpreadsheet className="w-4 h-4" />,
     },
-    {
-      key: 'vault',
-      label: 'Profile Vault',
-      shortLabel: 'Vault',
-      icon: <UserCheck className="w-4 h-4" />,
-    },
+    { key: 'vault', label: 'Profile Vault', shortLabel: 'Vault', icon: <UserCheck className="w-4 h-4" /> },
   ];
 
   return (
-    <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col pb-20 md:pb-0">
-      {/* 3-Zone Top Header */}
-      <header className="sticky top-0 z-30 bg-[#0B0F17]/95 backdrop-blur border-b border-slate-800/80 pt-safe">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-          {/* Zone 1: Brand */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <img src="/icon.svg" alt="SarthiAI" className="w-8 h-8 rounded-lg" />
-            <div>
-              <div className="font-display font-bold text-base tracking-tight text-white leading-none">
-                SarthiAI
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">
-                Live Browser · OCR+AI · Ad-Block
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen bg-[#F6F8FB] text-slate-900 flex flex-col pb-20 md:pb-0">
+      {/* Crisp 3-Zone Navy Header matching Reference Screenshot */}
+      <header className="sticky top-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 pt-safe">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-8">
+          {/* Zone 1: Brand Wordmark */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('home')}
+            className="flex items-center gap-2.5 shrink-0 whitespace-nowrap"
+          >
+            <span className="w-8 h-8 rounded-lg bg-rose-600 text-white font-display font-bold text-sm flex items-center justify-center">
+              S
+            </span>
+            <span className="font-display font-bold text-base tracking-tight text-white">
+              SarthiAI
+            </span>
+          </button>
 
-          {/* Zone 2: Primary Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-1.5">
+          {/* Zone 2: Clean Single-Line Navigation Links */}
+          <nav className="hidden md:flex items-center gap-6">
             {navItems.map((item) => {
               const active = activeTab === item.key;
               return (
@@ -232,10 +227,10 @@ export function App() {
                   key={item.key}
                   type="button"
                   onClick={() => setActiveTab(item.key)}
-                  className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2 transition-colors whitespace-nowrap ${
+                  className={`min-h-[40px] py-2 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 transition-colors ${
                     active
-                      ? 'bg-emerald-500 text-slate-950 font-semibold'
-                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                      ? 'border-rose-500 text-white'
+                      : 'border-transparent text-slate-300 hover:text-white'
                   }`}
                 >
                   {item.icon}
@@ -245,30 +240,21 @@ export function App() {
             })}
           </nav>
 
-          {/* Zone 3: Zero-Save Status, Network & PWA Install */}
+          {/* Zone 3: Single Primary Action */}
           <div className="flex items-center gap-2.5 shrink-0">
             <button
               type="button"
               onClick={() => setZeroSave((v) => !v)}
               title="Toggle Zero-Save RAM-only privacy mode"
-              className={`min-h-[34px] px-2.5 py-1 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors ${
+              className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 zeroSave
-                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-slate-900 border-slate-700 text-slate-300'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Zero-Save</span> {zeroSave ? 'ON' : 'OFF'}
+              Zero-Save {zeroSave ? 'ON' : 'OFF'}
             </button>
-
-            <span
-              className={`hidden lg:inline-flex items-center gap-1.5 text-xs ${
-                isOnline ? 'text-emerald-400' : 'text-amber-400'
-              }`}
-            >
-              {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              {isOnline ? 'Online' : 'Offline'}
-            </span>
             <PWAInstallButton />
           </div>
         </div>
@@ -279,15 +265,14 @@ export function App() {
         {serverOfflineMode && (
           <form
             onSubmit={handleConnectServer}
-            className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center gap-2.5"
+            className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center gap-2.5"
           >
             <div className="flex items-start gap-2 flex-1 min-w-0">
-              <Server className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-100 leading-relaxed">
-                <span className="font-semibold text-amber-300">APK Standalone Mode:</span>{' '}
-                AI Autopilot, OCR aur Live Chromium Browser chalane ke liye apna deployed SarthiAI Server URL connect karein.
+              <Server className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-950 leading-relaxed">
+                <span className="font-bold">APK Standalone Mode:</span> Live AI, OCR aur Chromium Browser chalane ke liye apna deployed SarthiAI Server URL connect karein.
                 {serverConnectError && (
-                  <div className="text-[11px] text-amber-200/80 mt-0.5">{serverConnectError}</div>
+                  <div className="text-[11px] text-amber-800 mt-0.5">{serverConnectError}</div>
                 )}
               </div>
             </div>
@@ -297,12 +282,12 @@ export function App() {
                 value={serverUrlInput}
                 onChange={(e) => setServerUrlInput(e.target.value)}
                 placeholder="https://your-sarthiai-server.app"
-                className="min-h-[38px] w-full sm:w-64 px-3 rounded-xl bg-[#0B0F17] border border-slate-700 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:border-amber-400 focus:outline-none"
+                className="min-h-[38px] w-full sm:w-64 px-3 rounded-xl bg-white border border-amber-300 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={connectingServer || !serverUrlInput.trim()}
-                className="min-h-[38px] px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
+                className="min-h-[38px] px-3.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
               >
                 {connectingServer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Connect'}
               </button>
@@ -311,16 +296,27 @@ export function App() {
         )}
 
         {loading ? (
-          <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
-            <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
-            Loading SarthiAI Workspace...
+          <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-600 text-sm">
+            <Loader2 className="w-6 h-6 animate-spin text-rose-600" />
+            Loading SarthiAI Portal...
           </div>
         ) : loadError || !workspace ? (
-          <div className="max-w-lg mx-auto mt-12 p-6 rounded-2xl bg-[#111827] border border-rose-500/40 text-sm text-rose-300">
+          <div className="max-w-lg mx-auto mt-12 p-6 rounded-2xl bg-white border border-rose-300 text-sm text-rose-700">
             {loadError || 'Workspace failed to load.'}
           </div>
         ) : (
           <>
+            {activeTab === 'home' && (
+              <HomePortalSection
+                ephemeralDocs={ephemeralDocs}
+                zeroSave={zeroSave}
+                onAddEphemeralDoc={handleAddEphemeralDoc}
+                onOpenDirectFormBrowser={openUrlInLiveBrowser}
+                onOpenAiChat={openAiWithPrompt}
+                onOpenFormStudio={() => setActiveTab('forms')}
+              />
+            )}
+
             {activeTab === 'agent' && (
               <AiAgentSection
                 profile={workspace.profile}
@@ -328,6 +324,8 @@ export function App() {
                 aiConfigured={workspace.aiConfigured}
                 ephemeralDocs={ephemeralDocs}
                 zeroSave={zeroSave}
+                initialPrompt={queuedAiPrompt}
+                onConsumeInitialPrompt={() => setQueuedAiPrompt(null)}
                 onToggleZeroSave={setZeroSave}
                 onAddEphemeralDoc={handleAddEphemeralDoc}
                 onWipeEphemeralDocs={handleWipeEphemeralDocs}
@@ -383,8 +381,8 @@ export function App() {
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#0B0F17]/95 backdrop-blur border-t border-slate-800 pb-safe">
-        <div className="grid grid-cols-4 gap-1 px-2 py-1.5">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
+        <div className="grid grid-cols-5 gap-1 px-1.5 py-1.5">
           {navItems.map((item) => {
             const active = activeTab === item.key;
             return (
@@ -392,14 +390,14 @@ export function App() {
                 key={item.key}
                 type="button"
                 onClick={() => setActiveTab(item.key)}
-                className={`min-h-[48px] rounded-xl flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
+                className={`min-h-[48px] rounded-xl flex flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-colors ${
                   active
-                    ? 'bg-emerald-500/15 text-emerald-400'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {item.icon}
-                <span>{item.shortLabel}</span>
+                <span className="truncate max-w-full px-1">{item.shortLabel}</span>
               </button>
             );
           })}

@@ -85,12 +85,12 @@ jobs:
 
                   // Prevent Android status bar clock/icons from overlapping the SarthiAI top header
                   WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
-                  getWindow().setStatusBarColor(Color.parseColor("#0B0F17"));
-                  getWindow().setNavigationBarColor(Color.parseColor("#0B0F17"));
+                  getWindow().setStatusBarColor(Color.parseColor("#0F172A"));
+                  getWindow().setNavigationBarColor(Color.parseColor("#FFFFFF"));
                   WindowInsetsControllerCompat insetsController =
                       new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
                   insetsController.setAppearanceLightStatusBars(false);
-                  insetsController.setAppearanceLightNavigationBars(false);
+                  insetsController.setAppearanceLightNavigationBars(true);
 
                   if (this.bridge != null && this.bridge.getWebView() != null) {
                       WebSettings settings = this.bridge.getWebView().getSettings();

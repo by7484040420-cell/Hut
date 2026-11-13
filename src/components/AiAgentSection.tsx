@@ -28,6 +28,8 @@ interface AiAgentSectionProps {
   aiConfigured: boolean;
   ephemeralDocs: EphemeralDocumentExtract[];
   zeroSave: boolean;
+  initialPrompt?: string | null;
+  onConsumeInitialPrompt?: () => void;
   onToggleZeroSave: (val: boolean) => void;
   onAddEphemeralDoc: (doc: EphemeralDocumentExtract) => void;
   onWipeEphemeralDocs: () => void;
@@ -39,42 +41,42 @@ interface AiAgentSectionProps {
 
 const LIVE_BROWSER_PRESETS = [
   {
-    label: 'IRCTC Account + Ticket (Live)',
-    url: 'https://www.irctc.co.in',
-    goal: 'IRCTC portal par account registration ya mere gaon ke liye train ticket booking page kholo aur meri details fill karo. CAPTCHA aur OTP main khud screen par dalunga.',
+    label: 'IRCTC Train Search & Booking (Direct)',
+    url: 'https://www.irctc.co.in/nget/train-search',
+    goal: 'IRCTC Train Search direct page kholo aur mere gaon ke liye train search / ticket fill karo. CAPTCHA aur OTP main khud dalunga.',
   },
   {
-    label: 'PAN Card Form 49A (Live)',
+    label: 'PAN Card Form 49A (Direct)',
     url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
-    goal: 'NSDL PAN Card Form 49A kholo, jo documents/details chahiye wo mango aur form auto-fill karo. CAPTCHA aur OTP main dalunga.',
+    goal: 'NSDL PAN Card Form 49A direct application page kholo, jo details chahiye auto-fill karo. CAPTCHA aur OTP main dalunga.',
   },
   {
-    label: 'Passport Seva Portal (Live)',
-    url: 'https://www.passportindia.gov.in',
-    goal: 'Passport Seva portal kholo, jo documents/details chahiye wo mango aur form fill karo. CAPTCHA/OTP main dalunga.',
+    label: 'SSC Candidate OTR / Apply (Direct)',
+    url: 'https://ssc.gov.in/candidate-portal/one-time-registration/home-page',
+    goal: 'SSC Candidate OTR / Apply direct form page par meri details fill karo. CAPTCHA/OTP main dalunga.',
   },
 ];
 
 const QUICK_TASKS = [
   {
-    label: 'PAN Card Banwana Hai (Form 49A)',
+    label: 'PAN Card (Fee, Docs & Form 49A)',
     prompt:
-      'Mujhe naya PAN Card banwana hai. Dekho kaun-kaun se documents chahiye, mujhse maango aur OCR se form fill karke NSDL portal link do.',
+      'Mujhe naya PAN Card banwana hai. Pehle batao kitna paisa aur kya document lagega, mujhse upload maango aur direct Form 49A link do.',
   },
   {
-    label: 'Gaon Jaane Ka Train Ticket + IRCTC',
+    label: 'Gaon Jaane Ka Train Ticket (IRCTC)',
     prompt:
-      'Mujhe apne gaon jaane ke liye train ticket book karna hai (aur zarurat ho toh IRCTC account bhi banana hai). Batao kya details aur station/date chahiye.',
+      'Mujhe apne gaon jaane ke liye train ticket book karna hai. Kitna kiraya aur kya details chahiye batao, aur direct train booking page link do.',
   },
   {
-    label: 'Passport / DL Banwana Hai',
+    label: 'SSC CGL / GD / Army Job Form',
     prompt:
-      'Mujhe naya Indian Passport ya Driving License banwana hai. Dekho kya-kya documents aur details chahiye, mujhse maango aur OCR se fill karo.',
+      'Mujhe SSC ya Army job form bharna hai. Exact fee, eligibility aur required documents batao, main document upload karunga toh OCR se direct form bhar dena.',
   },
   {
-    label: 'Army / Sarkari Job / Court Form',
+    label: 'Court / Block / Aay-Niwas Form',
     prompt:
-      'Mujhe Army / SSC sarkari job ya Court/Block ka form bharna hai. Batao kaun-kaun se documents chahiye, main upload karunga toh details nikal kar form fill kar dena.',
+      'Mujhe Block/Tehsil ya Court ke liye application ya certificate apply karna hai. Kitna fee aur kya documents lagega batao aur direct form तैयार karo.',
   },
 ];
 
@@ -84,6 +86,8 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
   aiConfigured,
   ephemeralDocs,
   zeroSave,
+  initialPrompt,
+  onConsumeInitialPrompt,
   onAddEphemeralDoc,
   onWipeEphemeralDocs,
   onChatUpdate,
@@ -157,6 +161,15 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (initialPrompt && initialPrompt.trim()) {
+      const p = initialPrompt.trim();
+      onConsumeInitialPrompt?.();
+      void sendMessage(p);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
+
   const triggerSlotUpload = (slotId: string, docName: string, triggerAutoFill: boolean) => {
     pendingSlotRef.current = { slotId, docName, triggerAutoFill };
     slotInputRef.current?.click();
@@ -194,7 +207,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
           .map((f) => `${f.label}: ${f.value}`)
           .join(', ');
         await sendMessage(
-          `Maine "${slot.docName}" (${extracted.documentType}) upload kar diya hai. OCR se yeh details mili hain: ${fieldsPreview}. Ab in details se mera requested form auto-fill karke draft ready karo aur official portal link do (Zero-Save mode).`,
+          `Maine "${slot.docName}" (${extracted.documentType}) upload kar diya hai. OCR se yeh details mili hain: ${fieldsPreview}. Ab in details se mera requested form auto-fill karke draft ready karo aur seedha direct form page ka link do (Zero-Save mode).`,
           nextDocs,
           chatHistory
         );
@@ -213,7 +226,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
         {
           id: `msg-${Date.now()}`,
           role: 'assistant',
-          text: 'Zero-Save session active hai. Batayein kaunsa form bharna hai ya kaunsi website kholni hai — zarurat ke hisab se main khud document maang lunga!',
+          text: 'Zero-Save session active hai. Batayein kaunsa form bharna hai — main fee, documents aur direct form page link nikal kar fill kar dunga!',
           createdAt: new Date().toISOString(),
         },
       ]);
@@ -241,23 +254,23 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
         className="hidden"
       />
 
-      {/* Left column: Quick Workflows & Live Browser Launchers */}
+      {/* Left column: Quick Workflows & Direct Form Launchers */}
       <aside className="lg:col-span-4 space-y-4">
-        <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-100">Quick AI Workflows</h2>
+            <h2 className="text-sm font-bold text-slate-900">Quick AI Workflows</h2>
             {!zeroSave && (
               <button
                 type="button"
                 onClick={onGoToVault}
-                className="text-[11px] text-emerald-400 hover:underline"
+                className="text-xs font-semibold text-emerald-700 hover:underline"
               >
                 Vault {completion.percent}%
               </button>
             )}
           </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Bas kaam batayein — AI khud check karega ki kya documents chahiye aur wahin chat me maang kar OCR se form bhar dega.
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Bas kaam batayein — AI pehle fee aur documents batayega, phir OCR se details nikal kar direct form page kholega.
           </p>
           <div className="space-y-2">
             {QUICK_TASKS.map((task) => (
@@ -266,24 +279,22 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 type="button"
                 disabled={sending}
                 onClick={() => sendMessage(task.prompt)}
-                className="w-full text-left min-h-[42px] px-3.5 py-2 rounded-xl bg-[#0B0F17] border border-slate-800 hover:border-emerald-500/50 text-xs font-medium text-slate-200 transition-colors flex items-center justify-between gap-2 disabled:opacity-50"
+                className="w-full text-left min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 transition-colors flex items-center justify-between gap-2 disabled:opacity-50"
               >
                 <span>{task.label}</span>
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <Sparkles className="w-3.5 h-3.5 text-rose-600 shrink-0" />
               </button>
             ))}
           </div>
         </div>
 
-        <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-100">
-              Launch Live Browser Copilot
-            </h2>
-            <span className="text-[11px] font-mono text-sky-400">Any Website</span>
+            <h2 className="text-sm font-bold text-slate-900">Direct Form Browser</h2>
+            <span className="text-xs font-mono text-sky-700">No Homepage</span>
           </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Real ad-blocked Chromium screen par koi bhi website chalegi — CAPTCHA aur OTP aap live screen par dalenge.
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Seedha form wale page par jaata hai — CAPTCHA aur OTP aap live screen par dalenge.
           </p>
           <div className="space-y-2">
             {LIVE_BROWSER_PRESETS.map((p) => (
@@ -291,20 +302,19 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 key={p.label}
                 type="button"
                 onClick={() => onOpenBrowser(p.url, p.goal)}
-                className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-sky-500/15 border border-sky-500/40 hover:bg-sky-500/25 text-xs font-medium text-sky-200 flex items-center justify-between gap-2 transition-colors"
+                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-sky-50 border border-sky-200 hover:bg-sky-100 text-xs font-semibold text-sky-900 flex items-center justify-between gap-2 transition-colors text-left"
               >
                 <span>{p.label}</span>
-                <Compass className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <Compass className="w-3.5 h-3.5 text-sky-700 shrink-0" />
               </button>
             ))}
           </div>
         </div>
 
-        {/* Active RAM Documents Pill (only visible once documents are uploaded in this session) */}
         {ephemeralDocs.length > 0 && (
-          <div className="bg-[#111827] border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+          <div className="bg-white border border-emerald-300 rounded-2xl p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-emerald-300">
+              <span className="text-xs font-bold text-emerald-800">
                 Active RAM Docs ({ephemeralDocs.length})
               </span>
               <button
@@ -313,7 +323,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                   onWipeEphemeralDocs();
                   setCompletedSlots({});
                 }}
-                className="text-xs text-rose-300 hover:text-rose-200 inline-flex items-center gap-1"
+                className="text-xs font-semibold text-rose-700 hover:text-rose-800 inline-flex items-center gap-1"
               >
                 <Eraser className="w-3.5 h-3.5" />
                 Wipe RAM
@@ -323,9 +333,9 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
               {ephemeralDocs.map((d) => (
                 <div
                   key={d.id}
-                  className="text-[11px] text-slate-300 truncate bg-[#0B0F17] px-2.5 py-1.5 rounded-lg border border-slate-800"
+                  className="text-[11px] text-slate-700 truncate bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200"
                 >
-                  {d.documentType} · {d.fields.length} fields extracted (Not Saved)
+                  {d.documentType} · {d.fields.length} fields (RAM Only)
                 </div>
               ))}
             </div>
@@ -333,33 +343,33 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
         )}
       </aside>
 
-      {/* Right column: Live Internet AI Chat Console with Inline Dynamic Document Requests */}
-      <section className="lg:col-span-8 bg-[#111827] border border-slate-800/80 rounded-2xl flex flex-col min-h-[580px] max-h-[78vh]">
-        <div className="px-5 py-3.5 border-b border-slate-800/80 flex items-center justify-between gap-3">
+      {/* Right column: Live Internet AI Chat Console */}
+      <section className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl flex flex-col min-h-[580px] max-h-[78vh]">
+        <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Globe className="w-4 h-4 text-sky-400 shrink-0" />
-              <h1 className="text-base font-semibold text-slate-100 truncate">
+              <Globe className="w-4 h-4 text-sky-700 shrink-0" />
+              <h1 className="text-base font-bold text-slate-900 truncate">
                 SarthiAI Live Internet + OCR Agent
               </h1>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5">
               {zeroSave ? 'Zero-Save RAM Only' : 'Profile Vault Active'} · Dynamic Document OCR ·{' '}
-              {aiConfigured ? 'AI Ready' : 'Check GEMINI_API_KEY in Settings > Secrets'}
+              {aiConfigured ? 'AI Ready' : 'Standalone Mode'}
             </p>
           </div>
           <button
             type="button"
             onClick={clearChat}
             title="Clear conversation"
-            className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700 text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1.5 shrink-0"
+            className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5 shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Clear
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/60">
           {chatHistory.map((msg) => {
             const isUser = msg.role === 'user';
             return (
@@ -370,17 +380,16 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 <div
                   className={`max-w-[94%] sm:max-w-[84%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
                     isUser
-                      ? 'bg-emerald-500 text-slate-950 font-medium'
-                      : 'bg-[#0B0F17] border border-slate-800 text-slate-200'
+                      ? 'bg-[#0F172A] text-white font-medium'
+                      : 'bg-white border border-slate-200 text-slate-800'
                   }`}
                 >
                   {msg.text}
 
-                  {/* Contextual Inline Document Upload Requests (Only what THIS task needs!) */}
                   {!isUser && msg.requestedDocuments && msg.requestedDocuments.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-800 space-y-2">
-                      <div className="text-xs font-semibold text-emerald-300">
-                        Is kaam ke liye sirf yeh document upload karein (OCR auto-extract karega, save nahi hoga):
+                    <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                      <div className="text-xs font-bold text-emerald-800">
+                        Is kaam ke liye yeh document upload karein (OCR auto-extract karega, save nahi hoga):
                       </div>
                       <div className="space-y-2">
                         {msg.requestedDocuments.map((docReq) => {
@@ -389,13 +398,13 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                           return (
                             <div
                               key={docReq.id}
-                              className="p-2.5 rounded-xl bg-[#111827] border border-slate-800 flex flex-wrap items-center justify-between gap-2"
+                              className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2"
                             >
                               <div className="min-w-0 flex-1">
-                                <div className="text-xs font-semibold text-slate-100">
+                                <div className="text-xs font-bold text-slate-900">
                                   {docReq.name}
                                 </div>
-                                <div className="text-[11px] text-slate-400">
+                                <div className="text-[11px] text-slate-600">
                                   {docReq.reason}
                                 </div>
                               </div>
@@ -405,8 +414,8 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                                 onClick={() => triggerSlotUpload(docReq.id, docReq.name, true)}
                                 className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 ${
                                   uploadedName
-                                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-                                    : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                                    ? 'bg-emerald-100 border border-emerald-300 text-emerald-800'
+                                    : 'bg-[#0F172A] hover:bg-slate-800 text-white'
                                 }`}
                               >
                                 {isUploading ? (
@@ -434,12 +443,12 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                   )}
 
                   {!isUser && (msg.linkedApplicationId || msg.suggestedUrl) && (
-                    <div className="mt-3 pt-3 border-t border-slate-800 flex flex-wrap gap-2">
+                    <div className="mt-3 pt-3 border-t border-slate-200 flex flex-wrap gap-2">
                       {msg.linkedApplicationId && (
                         <button
                           type="button"
                           onClick={() => onOpenDraft(msg.linkedApplicationId!)}
-                          className="min-h-[38px] px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-xs font-medium text-emerald-300 inline-flex items-center gap-1.5"
+                          className="min-h-[38px] px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 inline-flex items-center gap-1.5"
                         >
                           <FileCheck2 className="w-3.5 h-3.5" />
                           View Auto-Filled Form
@@ -451,22 +460,22 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                           onClick={() =>
                             onOpenBrowser(
                               msg.suggestedUrl!,
-                              'Open this portal and auto-fill using my details. Pause at CAPTCHA or OTP so I can enter it.'
+                              'Open this direct form page and auto-fill using my details. Pause at CAPTCHA or OTP so I can enter it.'
                             )
                           }
-                          className="min-h-[38px] px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/40 hover:bg-sky-500/25 text-xs font-medium text-sky-300 inline-flex items-center gap-1.5"
+                          className="min-h-[38px] px-3 py-1.5 rounded-lg bg-sky-50 border border-sky-300 hover:bg-sky-100 text-xs font-semibold text-sky-900 inline-flex items-center gap-1.5"
                         >
                           <Compass className="w-3.5 h-3.5" />
-                          Run Live in Browser
+                          Open Direct Form Page
                         </button>
                       )}
                     </div>
                   )}
 
                   {!isUser && msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-1.5">
-                      <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                        Live Internet Sources
+                    <div className="mt-3 pt-2.5 border-t border-slate-200 space-y-1.5">
+                      <div className="text-[11px] font-semibold text-slate-500">
+                        Verified Direct Links
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {msg.sources.slice(0, 6).map((src) => (
@@ -474,7 +483,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                             key={src.uri}
                             type="button"
                             onClick={() => onOpenBrowser(src.uri)}
-                            className="text-left text-xs text-sky-400 hover:text-sky-300 underline underline-offset-2 inline-flex items-center gap-1 max-w-full truncate"
+                            className="text-left text-xs text-sky-700 hover:text-sky-900 underline underline-offset-2 inline-flex items-center gap-1 max-w-full truncate"
                           >
                             <span className="truncate max-w-[240px]">{src.title}</span>
                             <ArrowUpRight className="w-3 h-3 shrink-0" />
@@ -493,16 +502,16 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
 
           {sending && (
             <div className="flex items-start">
-              <div className="rounded-2xl px-4 py-3 bg-[#0B0F17] border border-slate-800 text-xs text-slate-300 inline-flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                Live internet par check aur OCR+AI processing chal raha hai...
+              <div className="rounded-2xl px-4 py-3 bg-white border border-slate-200 text-xs text-slate-700 inline-flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                Live internet par fee, documents aur direct form link check ho raha hai...
               </div>
             </div>
           )}
         </div>
 
         {error && (
-          <div className="mx-5 mb-3 px-4 py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+          <div className="mx-5 my-2 px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
             {error}
           </div>
         )}
@@ -512,14 +521,14 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
             e.preventDefault();
             void sendMessage();
           }}
-          className="p-4 border-t border-slate-800/80 flex items-end gap-2"
+          className="p-4 border-t border-slate-200 bg-white flex items-end gap-2 rounded-b-2xl"
         >
           <button
             type="button"
             title="Attach a document directly for OCR"
             disabled={sending || uploadingSlotId !== null}
             onClick={() => triggerSlotUpload(`manual-${Date.now()}`, 'Attached Document', false)}
-            className="min-h-[48px] min-w-[44px] rounded-xl bg-[#0B0F17] border border-slate-700/80 hover:border-emerald-500/60 text-slate-300 hover:text-emerald-300 flex items-center justify-center shrink-0"
+            className="min-h-[48px] min-w-[44px] rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-slate-700 flex items-center justify-center shrink-0"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -533,13 +542,13 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 void sendMessage();
               }
             }}
-            placeholder="AI ko batayein: 'Mujhe Passport banwana hai' ya 'https://... website ka form bharna hai'..."
-            className="flex-1 resize-none rounded-xl bg-[#0B0F17] border border-slate-700/80 focus:border-emerald-500 focus:outline-none px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-500"
+            placeholder="AI ko batayein: 'SSC GD form bharna hai' ya 'PAN card Form 49A fill karo'..."
+            className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
           />
           <button
             type="submit"
             disabled={sending || !input.trim()}
-            className="min-h-[48px] px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-semibold text-sm inline-flex items-center gap-2 shrink-0 transition-colors"
+            className="min-h-[48px] px-4 py-2.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center gap-2 shrink-0 transition-colors"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             <span className="hidden sm:inline">Run AI</span>

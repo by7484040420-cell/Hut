@@ -62,24 +62,24 @@ const DEFAULT_STATUS: LiveBrowserStatus = {
 
 const QUICK_MISSIONS = [
   {
-    label: 'IRCTC Account + Ticket',
-    url: 'https://www.irctc.co.in',
-    goal: 'IRCTC portal kholo, agar account banana hai toh Register page kholkar meri details bharo (CAPTCHA aur OTP main khud dalunga), ya train ticket search karo.',
+    label: 'IRCTC Train Search (Direct)',
+    url: 'https://www.irctc.co.in/nget/train-search',
+    goal: 'IRCTC Train Search direct page kholo aur mere gaon ke liye train search / ticket fill karo. CAPTCHA aur OTP main dalunga.',
   },
   {
-    label: 'Join Indian Army Form',
-    url: 'https://joinindianarmy.nic.in',
-    goal: 'Join Indian Army portal kholo, CAPTCHA screen aane par mujhe dikhao taki main CAPTCHA dalu, aur aage meri document details auto-fill karo.',
-  },
-  {
-    label: 'PAN Card Form 49A',
+    label: 'PAN Form 49A (Direct)',
     url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
-    goal: 'NSDL PAN Card Form 49A page par meri details (Name, DOB, Email, Mobile) fill karo aur CAPTCHA ke liye ruko.',
+    goal: 'NSDL PAN Card Form 49A direct page par meri details (Name, DOB, Email, Mobile) fill karo aur CAPTCHA ke liye ruko.',
   },
   {
-    label: 'Passport Seva',
-    url: 'https://www.passportindia.gov.in',
-    goal: 'Passport Seva portal kholo aur Registration / Login page par le chalo.',
+    label: 'SSC Candidate OTR (Direct)',
+    url: 'https://ssc.gov.in/candidate-portal/one-time-registration/home-page',
+    goal: 'SSC Candidate One-Time Registration direct form kholo aur meri details fill karo.',
+  },
+  {
+    label: 'Passport Registration (Direct)',
+    url: 'https://portal2.passportindia.gov.in/AppOnlineProject/user/RegistrationBaseAction',
+    goal: 'Passport Seva User Registration direct form kholo aur details auto-fill karo.',
   },
 ];
 
@@ -99,7 +99,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [status, setStatus] = useState<LiveBrowserStatus>(DEFAULT_STATUS);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const [addressInput, setAddressInput] = useState('https://www.irctc.co.in');
+  const [addressInput, setAddressInput] = useState(
+    'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html'
+  );
   const [agentGoal, setAgentGoal] = useState('');
   const [typeBox, setTypeBox] = useState('');
   const [clickMarker, setClickMarker] = useState<{ xPct: number; yPct: number } | null>(null);
@@ -128,7 +130,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       ws.onclose = () => {
         if (!closed) {
           setWsConnected(false);
-          reconnectTimer = window.setTimeout(connect, 1500);
+          reconnectTimer = window.setTimeout(connect, 1800);
         }
       };
       ws.onmessage = (evt) => {
@@ -223,7 +225,6 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       const extracted = data.extracted;
       onAddEphemeralDoc(extracted);
       setUploadedReqMap((prev) => ({ ...prev, [reqId]: extracted.fileName }));
-      // Auto-resume Live AI with newly extracted RAM doc details
       const nextDocs = [extracted, ...ephemeralDocs];
       if (agentGoal.trim()) {
         await startLiveAgent(agentGoal, undefined, nextDocs);
@@ -342,7 +343,6 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     }
   };
 
-  // Combine Ephemeral OCR fields first + Vault fields (if Zero-Save is off)
   const quickFillEntries: { key: string; label: string; value: string; source: string }[] = [];
   for (const doc of ephemeralDocs) {
     for (const f of doc.fields) {
@@ -376,16 +376,16 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Official Bookmarks Strip */}
-      <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-3.5 space-y-2.5">
+      {/* Status & Bookmarks Strip */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 space-y-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs text-slate-300">
-            <span className="font-semibold text-white">Real Chromium Live Browser</span> ·{' '}
-            <span className={wsConnected ? 'text-emerald-400' : 'text-amber-400'}>
-              {wsConnected ? 'Stream Connected' : 'Connecting...'}
+          <div className="text-xs text-slate-600">
+            <span className="font-bold text-slate-900">Real Chromium Direct Browser</span> ·{' '}
+            <span className={wsConnected ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>
+              {wsConnected ? 'Stream Connected' : 'Server Needed / Connecting'}
             </span>{' '}
             · Ad-Blocker{' '}
-            <span className="text-emerald-400 font-mono tabular-nums">
+            <span className="text-emerald-700 font-mono font-semibold tabular-nums">
               {status.adBlockEnabled ? `ON (${status.blockedAdsCount} blocked)` : 'OFF'}
             </span>
           </div>
@@ -393,10 +393,10 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             <button
               type="button"
               onClick={toggleAdBlock}
-              className={`min-h-[34px] px-3 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 ${
+              className={`min-h-[34px] px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 ${
                 status.adBlockEnabled
-                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-[#0B0F17] border-slate-700 text-slate-400'
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                  : 'bg-slate-50 border-slate-300 text-slate-700'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -405,7 +405,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             <button
               type="button"
               onClick={handleWipeBrowser}
-              className="min-h-[34px] px-3 rounded-lg bg-[#0B0F17] border border-rose-500/40 hover:bg-rose-500/15 text-xs font-medium text-rose-300 inline-flex items-center gap-1.5"
+              className="min-h-[34px] px-3 rounded-lg bg-rose-50 border border-rose-200 hover:bg-rose-100 text-xs font-semibold text-rose-800 inline-flex items-center gap-1.5"
             >
               <Eraser className="w-3.5 h-3.5" />
               Wipe Session
@@ -417,21 +417,21 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           {bookmarks.map((bm) => (
             <div
               key={bm.id}
-              className="shrink-0 flex items-center gap-1 rounded-xl bg-[#0B0F17] border border-slate-800 hover:border-sky-500/50"
+              className="shrink-0 flex items-center gap-1 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400"
             >
               <button
                 type="button"
                 onClick={() => navigateTo(bm.url)}
-                className="min-h-[36px] px-3 py-1 text-xs font-medium text-slate-200 hover:text-sky-300 inline-flex items-center gap-1.5"
+                className="min-h-[36px] px-3 py-1 text-xs font-semibold text-slate-800 hover:text-sky-700 inline-flex items-center gap-1.5"
               >
-                <Globe className="w-3.5 h-3.5 text-sky-400" />
+                <Globe className="w-3.5 h-3.5 text-sky-700" />
                 {bm.name}
               </button>
               <button
                 type="button"
                 onClick={() => deleteBookmark(bm.id)}
                 aria-label={`Remove ${bm.name}`}
-                className="pr-2 py-1 text-slate-600 hover:text-rose-400"
+                className="pr-2 py-1 text-slate-400 hover:text-rose-600"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -441,15 +441,15 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       </div>
 
       {/* Live AI + OCR Autopilot Mission Bar */}
-      <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-4 space-y-3">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-emerald-400" />
-            <span className="text-sm font-semibold text-slate-100">
-              Live OCR + AI Browser Autopilot
+            <Bot className="w-4 h-4 text-rose-600" />
+            <span className="text-sm font-bold text-slate-900">
+              Live OCR + AI Direct Form Autopilot
             </span>
           </div>
-          <span className="text-xs text-slate-400">{status.agentStatus}</span>
+          <span className="text-xs text-slate-600 font-medium">{status.agentStatus}</span>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -462,9 +462,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 setAgentGoal(m.goal);
                 void startLiveAgent(m.goal, m.url);
               }}
-              className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#0B0F17] border border-slate-800 hover:border-emerald-500/50 text-xs font-medium text-slate-200 inline-flex items-center gap-1.5 disabled:opacity-50"
+              className="min-h-[36px] px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 disabled:opacity-50"
             >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <Sparkles className="w-3.5 h-3.5 text-rose-600" />
               {m.label}
             </button>
           ))}
@@ -481,14 +481,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             type="text"
             value={agentGoal}
             onChange={(e) => setAgentGoal(e.target.value)}
-            placeholder="AI ko bolein: e.g. 'IRCTC par account register karo, CAPTCHA aur OTP main dalunga' ya 'Join Indian Army form fill karo'..."
-            className="flex-1 min-w-[240px] min-h-[42px] px-3.5 rounded-xl bg-[#0B0F17] border border-slate-700/80 focus:border-emerald-500 focus:outline-none text-xs text-slate-100 placeholder:text-slate-500"
+            placeholder="AI ko bolein: e.g. 'Direct form fields fill karo, CAPTCHA aur OTP par rukna'..."
+            className="flex-1 min-w-[240px] min-h-[42px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs text-slate-900 placeholder:text-slate-400"
           />
           {status.agentRunning ? (
             <button
               type="button"
               onClick={stopLiveAgent}
-              className="min-h-[42px] px-4 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5"
+              className="min-h-[42px] px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
             >
               <Square className="w-3.5 h-3.5" />
               Stop AI
@@ -497,9 +497,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             <button
               type="submit"
               disabled={!agentGoal.trim()}
-              className="min-h-[42px] px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5"
+              className="min-h-[42px] px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
               {status.waitingForHuman ? 'Resume AI' : 'Run Live AI'}
             </button>
           )}
@@ -514,13 +514,13 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         />
 
         {status.waitingForHuman && status.humanPrompt && (
-          <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-xs text-amber-200 space-y-2.5">
+          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2.5">
             <div className="flex items-start gap-2.5">
-              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
               <div>
-                <div className="font-semibold text-amber-300">
+                <div className="font-bold text-amber-900">
                   {status.requestedDocuments && status.requestedDocuments.length > 0
-                    ? 'Is Website Ke Liye Required Documents Upload Karein:'
+                    ? 'Is Form Ke Liye Required Documents Upload Karein:'
                     : 'Aapki Baari (CAPTCHA / OTP / Confirmation):'}
                 </div>
                 <p className="mt-0.5 leading-relaxed">{status.humanPrompt}</p>
@@ -535,13 +535,13 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   return (
                     <div
                       key={docReq.id}
-                      className="p-2.5 rounded-xl bg-[#0B0F17] border border-slate-800 flex items-center justify-between gap-2"
+                      className="p-2.5 rounded-xl bg-white border border-amber-200 flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-100 truncate">
+                        <div className="text-xs font-bold text-slate-900 truncate">
                           {docReq.name}
                         </div>
-                        <div className="text-[11px] text-slate-400 truncate">
+                        <div className="text-[11px] text-slate-600 truncate">
                           {docReq.reason}
                         </div>
                       </div>
@@ -552,12 +552,12 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                           pendingDocReqRef.current = docReq.id;
                           docFileRef.current?.click();
                         }}
-                        className="min-h-[34px] px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
+                        className="min-h-[34px] px-3 rounded-lg bg-[#0F172A] hover:bg-slate-800 text-white font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
                       >
                         {busy ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : done ? (
-                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                         ) : (
                           <Upload className="w-3.5 h-3.5" />
                         )}
@@ -572,7 +572,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         )}
 
         {error && (
-          <div className="px-3.5 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300">
+          <div className="px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
             {error}
           </div>
         )}
@@ -580,14 +580,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
       {/* Main Live Browser Screen + Side Helper */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-8 bg-[#111827] border border-slate-800/80 rounded-2xl overflow-hidden flex flex-col">
+        <div className="xl:col-span-8 bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col">
           {/* Address Bar */}
-          <div className="p-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
+          <div className="p-3 border-b border-slate-200 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => void apiFetchJson('/api/live-browser/back', { method: 'POST' }).catch(() => {})}
               aria-label="Back"
-              className="min-h-[40px] min-w-[40px] rounded-xl bg-[#0B0F17] border border-slate-800 text-slate-300 hover:text-white flex items-center justify-center"
+              className="min-h-[40px] min-w-[40px] rounded-xl bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 flex items-center justify-center"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -595,9 +595,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
               type="button"
               onClick={() => void apiFetchJson('/api/live-browser/reload', { method: 'POST' }).catch(() => {})}
               aria-label="Reload"
-              className="min-h-[40px] min-w-[40px] rounded-xl bg-[#0B0F17] border border-slate-800 text-slate-300 hover:text-white flex items-center justify-center"
+              className="min-h-[40px] min-w-[40px] rounded-xl bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 flex items-center justify-center"
             >
-              <RefreshCw className={`w-4 h-4 ${status.loading ? 'animate-spin text-sky-400' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${status.loading ? 'animate-spin text-sky-700' : ''}`} />
             </button>
 
             <form
@@ -611,12 +611,12 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 type="text"
                 value={addressInput}
                 onChange={(e) => setAddressInput(e.target.value)}
-                placeholder="https://www.irctc.co.in or search..."
-                className="w-full min-h-[40px] px-3.5 rounded-xl bg-[#0B0F17] border border-slate-700/80 focus:border-sky-500 focus:outline-none text-xs font-mono text-slate-100"
+                placeholder="https://... direct form URL"
+                className="w-full min-h-[40px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs font-mono text-slate-900"
               />
               <button
                 type="submit"
-                className="min-h-[40px] px-3.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs shrink-0"
+                className="min-h-[40px] px-3.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 text-white font-semibold text-xs shrink-0"
               >
                 Open
               </button>
@@ -627,7 +627,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 href={status.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[40px] px-3 rounded-xl bg-[#0B0F17] border border-slate-700 text-xs text-slate-300 hover:text-white inline-flex items-center gap-1.5"
+                className="min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 hover:text-slate-900 inline-flex items-center gap-1.5"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 External
@@ -636,7 +636,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           </div>
 
           {/* Live Chromium Stream Viewport */}
-          <div className="relative bg-[#070A10] aspect-video w-full flex items-center justify-center overflow-hidden select-none">
+          <div className="relative bg-[#0F172A] aspect-video w-full flex items-center justify-center overflow-hidden select-none">
             {frameSrc ? (
               <>
                 <img
@@ -655,18 +655,18 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 )}
               </>
             ) : (
-              <div className="p-8 text-center space-y-3">
+              <div className="p-8 text-center space-y-3 text-white">
                 <Globe className="w-8 h-8 text-sky-400 mx-auto" />
-                <p className="text-sm text-slate-200 font-medium">
-                  Real Ad-Blocked Chromium Browser Ready
+                <p className="text-sm font-semibold">
+                  Real Ad-Blocked Chromium Direct Browser Ready
                 </p>
-                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  Upar kisi portal button par click karein ya AI Copilot ko kaam bolein — poori live website yahin dikhegi aur aap khud click karke CAPTCHA/OTP daal sakenge.
+                <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                  Home page se kisi bhi job/PAN/ticket par click karein ya yahan &ldquo;Launch&rdquo; dabayein — seedha form page live dikhega.
                 </p>
                 <button
                   type="button"
                   onClick={() => navigateTo(addressInput)}
-                  className="min-h-[40px] px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5"
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
                 >
                   Launch {addressInput}
                 </button>
@@ -674,7 +674,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             )}
 
             {status.agentRunning && (
-              <div className="absolute top-3 left-3 px-3 py-1.5 rounded-lg bg-slate-950/85 border border-emerald-500/40 text-xs text-emerald-300 inline-flex items-center gap-2">
+              <div className="absolute top-3 left-3 px-3 py-1.5 rounded-lg bg-slate-950/90 border border-emerald-500/40 text-xs text-emerald-300 inline-flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 {status.agentStatus}
               </div>
@@ -682,22 +682,22 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           </div>
 
           {/* Direct Keyboard / CAPTCHA / OTP / Scroll Controls */}
-          <div className="p-3 border-t border-slate-800 bg-[#0B0F17] flex flex-wrap items-center gap-2">
+          <div className="p-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center gap-2">
             <form onSubmit={handleTypeSubmit} className="flex-1 min-w-[200px] flex items-center gap-2">
               <div className="relative flex-1">
-                <Keyboard className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Keyboard className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={typeBox}
                   onChange={(e) => setTypeBox(e.target.value)}
-                  placeholder="Live screen par box click karke yahan CAPTCHA / OTP / text type karein..."
-                  className="w-full min-h-[38px] pl-9 pr-3 rounded-xl bg-[#111827] border border-slate-700/80 focus:border-emerald-500 focus:outline-none text-xs text-slate-100 placeholder:text-slate-500"
+                  placeholder="Screen par box click karke yahan CAPTCHA / OTP / text type karein..."
+                  className="w-full min-h-[38px] pl-9 pr-3 rounded-xl bg-white border border-slate-200 focus:border-slate-900 focus:outline-none text-xs text-slate-900 placeholder:text-slate-400"
                 />
               </div>
               <button
                 type="submit"
                 disabled={!typeBox}
-                className="min-h-[38px] px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-semibold text-xs"
+                className="min-h-[38px] px-3.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 text-white font-semibold text-xs"
               >
                 Type
               </button>
@@ -707,14 +707,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
               <button
                 type="button"
                 onClick={() => sendWs({ type: 'key', key: 'Enter' })}
-                className="min-h-[38px] px-2.5 rounded-lg bg-[#111827] border border-slate-700 text-xs text-slate-200 hover:border-slate-500"
+                className="min-h-[38px] px-2.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-slate-400"
               >
                 Enter
               </button>
               <button
                 type="button"
                 onClick={() => sendWs({ type: 'key', key: 'Tab' })}
-                className="min-h-[38px] px-2.5 rounded-lg bg-[#111827] border border-slate-700 text-xs text-slate-200 hover:border-slate-500"
+                className="min-h-[38px] px-2.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-slate-400"
               >
                 Tab
               </button>
@@ -722,7 +722,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 type="button"
                 onClick={() => sendWs({ type: 'scroll', deltaY: -400 })}
                 aria-label="Scroll up"
-                className="min-h-[38px] min-w-[38px] rounded-lg bg-[#111827] border border-slate-700 text-slate-200 flex items-center justify-center"
+                className="min-h-[38px] min-w-[38px] rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
               </button>
@@ -730,7 +730,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 type="button"
                 onClick={() => sendWs({ type: 'scroll', deltaY: 400 })}
                 aria-label="Scroll down"
-                className="min-h-[38px] min-w-[38px] rounded-lg bg-[#111827] border border-slate-700 text-slate-200 flex items-center justify-center"
+                className="min-h-[38px] min-w-[38px] rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center"
               >
                 <ArrowDown className="w-3.5 h-3.5" />
               </button>
@@ -740,18 +740,18 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
         {/* Side Column: Live AI Step Logs + 1-Tap Type into Focused Field */}
         <aside className="xl:col-span-4 space-y-4">
-          <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-4 space-y-2.5">
-            <h3 className="text-sm font-semibold text-slate-100">Live AI Execution Log</h3>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
+            <h3 className="text-sm font-bold text-slate-900">Live AI Execution Log</h3>
             {status.lastStepLogs.length === 0 ? (
-              <p className="text-xs text-slate-400">
-                AI autopilot jab chalega tab har step (navigate, click, fill, CAPTCHA pause) yahan live dikhega.
+              <p className="text-xs text-slate-500">
+                AI autopilot jab chalega tab har step (direct form fill, CAPTCHA pause) yahan dikhega.
               </p>
             ) : (
               <div className="space-y-1.5 max-h-[200px] overflow-y-auto font-mono text-[11px]">
                 {status.lastStepLogs.map((log, i) => (
                   <div
                     key={i}
-                    className="p-2 rounded-lg bg-[#0B0F17] border border-slate-800 text-slate-300"
+                    className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-700"
                   >
                     {log}
                   </div>
@@ -760,19 +760,19 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             )}
           </div>
 
-          <div className="bg-[#111827] border border-slate-800/80 rounded-2xl p-4 space-y-2.5 max-h-[400px] overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5 max-h-[400px] overflow-y-auto">
             <div>
-              <h3 className="text-sm font-semibold text-slate-100">
+              <h3 className="text-sm font-bold text-slate-900">
                 1-Tap Fill / Copy ({zeroSave ? 'RAM Only' : 'OCR + Vault'})
               </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">
+              <p className="text-[11px] text-slate-500 mt-0.5">
                 Live page par input box click karein aur &ldquo;Type&rdquo; dabakar turant fill karein.
               </p>
             </div>
 
             {activeDraft && activeDraft.fields.some((f) => f.value.trim()) && (
-              <div className="space-y-1.5 pb-2 border-b border-slate-800">
-                <div className="text-[11px] font-semibold text-emerald-400 truncate">
+              <div className="space-y-1.5 pb-2 border-b border-slate-200">
+                <div className="text-[11px] font-bold text-emerald-700 truncate">
                   Draft: {activeDraft.title}
                 </div>
                 {activeDraft.fields
@@ -781,27 +781,27 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   .map((f) => (
                     <div
                       key={f.key}
-                      className="p-2 rounded-xl bg-[#0B0F17] border border-slate-800 flex items-center justify-between gap-2"
+                      className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-[10px] text-slate-400 truncate">{f.label}</div>
-                        <div className="text-xs text-slate-100 truncate">{f.value}</div>
+                        <div className="text-[10px] text-slate-500 truncate">{f.label}</div>
+                        <div className="text-xs font-medium text-slate-900 truncate">{f.value}</div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
                           onClick={() => sendTypedText(f.value)}
-                          className="px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
+                          className="px-2 py-1 rounded-md bg-emerald-50 border border-emerald-300 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
                         >
                           Type
                         </button>
                         <button
                           type="button"
                           onClick={() => copyVal(`d-${f.key}`, f.value)}
-                          className="p-1.5 text-slate-400 hover:text-white"
+                          className="p-1.5 text-slate-500 hover:text-slate-900"
                         >
                           {copiedKey === `d-${f.key}` ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
                           )}
@@ -813,9 +813,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             )}
 
             {quickFillEntries.length === 0 ? (
-              <p className="text-xs text-slate-400 py-2">
+              <p className="text-xs text-slate-500 py-2">
                 {zeroSave
-                  ? 'Zero-Save mode ON hai — AI Autopilot ya Form Studio me apna document scan karein, details RAM me yahan aa jayengi.'
+                  ? 'Home screen ya AI Agent me apna document scan karein — details yahan 1-tap Type ke liye ready milengi.'
                   : 'Profile Vault khaali hai ya koi document scan nahi kiya gaya.'}
               </p>
             ) : (
@@ -823,29 +823,29 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 {quickFillEntries.map((item) => (
                   <div
                     key={item.key}
-                    className="p-2 rounded-xl bg-[#0B0F17] border border-slate-800 flex items-center justify-between gap-2"
+                    className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0">
-                      <div className="text-[10px] text-slate-400 truncate">
+                      <div className="text-[10px] text-slate-500 truncate">
                         {item.label} · {item.source}
                       </div>
-                      <div className="text-xs text-slate-100 truncate">{item.value}</div>
+                      <div className="text-xs font-medium text-slate-900 truncate">{item.value}</div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => sendTypedText(item.value)}
-                        className="px-2 py-1 rounded-md bg-sky-500/15 border border-sky-500/40 text-[11px] text-sky-300 hover:bg-sky-500/25"
+                        className="px-2 py-1 rounded-md bg-sky-50 border border-sky-200 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
                       >
                         Type
                       </button>
                       <button
                         type="button"
                         onClick={() => copyVal(item.key, item.value)}
-                        className="p-1.5 text-slate-400 hover:text-white"
+                        className="p-1.5 text-slate-500 hover:text-slate-900"
                       >
                         {copiedKey === item.key ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
