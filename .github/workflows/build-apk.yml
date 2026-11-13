@@ -1,4 +1,4 @@
-name: Build Native Android APK (MochiClone)
+name: Build SarthiAI Android APK (With Ad-Blocker)
 
 on:
   push:
@@ -13,45 +13,82 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: ''
-          accept-android-sdk-licenses: true
+      - name: Install dependencies & build web bundle
+        run: |
+          npm install
+          npm run build
 
-      - name: Install Android SDK packages
+      - name: Initialize Capacitor Android wrapper
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap init "SarthiAI" "com.sarthiai.assistant" --web-dir dist
+          npx cap add android
+          npx cap sync android
+
+      - name: Configure Native WebView Ad-Blocker in MainActivity
         shell: bash
         run: |
-          set -e
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          MAIN_ACT="android/app/src/main/java/com/sarthiai/assistant/MainActivity.java"
+          cat << 'EOF' > "$MAIN_ACT"
+          package com.sarthiai.assistant;
 
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null
-          set -o pipefail
+          import android.os.Bundle;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebView;
+          import com.getcapacitor.BridgeActivity;
+          import com.getcapacitor.BridgeWebViewClient;
+          import java.io.ByteArrayInputStream;
+          import java.util.Arrays;
+          import java.util.List;
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
+          public class MainActivity extends BridgeActivity {
+              private static final List<String> AD_HOSTS = Arrays.asList(
+                  "doubleclick.net", "googlesyndication.com", "googleadservices.com",
+                  "adservice.google.", "taboola.com", "outbrain.com", "criteo.com",
+                  "pubmatic.com", "openx.net", "adnxs.com", "moatads.com",
+                  "scorecardresearch.com", "amazon-adsystem.com", "popads.net",
+                  "propellerads.com", "adsterra.com", "mgid.com", "revcontent.com"
+              );
 
-      - name: Build Native MochiClone APK
-        working-directory: ./native-android
-        run: gradle --no-daemon assembleDebug
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  if (this.bridge != null && this.bridge.getWebView() != null) {
+                      this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
+                          @Override
+                          public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                              String url = request.getUrl() != null ? request.getUrl().toString().toLowerCase() : "";
+                              for (String host : AD_HOSTS) {
+                                  if (url.contains(host)) {
+                                      return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+                                  }
+                              }
+                              return super.shouldInterceptRequest(view, request);
+                          }
+                      });
+                  }
+              }
+          }
+          EOF
 
-      - name: Upload Native APK Artifact
+      - name: Build Debug APK
+        working-directory: ./android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mochiclone-native-apk
-          path: native-android/app/build/outputs/apk/debug/app-debug.apk
+          name: sarthiai-android-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

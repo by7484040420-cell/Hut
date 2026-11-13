@@ -1,26 +1,57 @@
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const idx = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const val = bytes / 1024 ** idx;
-  return `${val.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
-}
+import type { AppCategory, ProfileVault } from '../types';
 
-export function formatStorageMb(mb: number): string {
-  if (!Number.isFinite(mb) || mb <= 0) return '0.0 MB';
-  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
-  return `${mb.toFixed(1)} MB`;
-}
+export const CATEGORY_LABELS: Record<AppCategory, string> = {
+  job: 'Job Application',
+  court_block: 'Court / Kachahari / Block',
+  pan: 'PAN Card',
+  passport: 'Passport',
+  dl: 'Driving License (DL)',
+  ticket: 'Train / Flight Ticket',
+  hotel: 'Hotel Booking',
+  custom: 'Custom Online Form',
+};
 
-export function formatRelativeTime(ts: number | null): string {
-  if (!ts) return 'Never launched';
+export function formatIsoTime(iso?: string): string {
+  if (!iso) return '';
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return '';
   const diff = Math.max(0, Date.now() - ts);
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return 'Just now';
-  const min = Math.floor(sec / 60);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'Just now';
   if (min < 60) return `${min}m ago`;
   const hr = Math.floor(min / 60);
   if (hr < 24) return `${hr}h ago`;
-  const days = Math.floor(hr / 24);
-  return `${days}d ago`;
+  return new Date(ts).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+export function getVaultCompletion(profile: ProfileVault): { filled: number; total: number; percent: number } {
+  const keys: (keyof ProfileVault)[] = [
+    'fullName',
+    'fatherName',
+    'motherName',
+    'dob',
+    'gender',
+    'mobile',
+    'email',
+    'addressLine',
+    'blockOrTehsil',
+    'district',
+    'state',
+    'pinCode',
+    'qualification',
+    'panNumber',
+  ];
+  const filled = keys.filter((k) => {
+    const val = profile[k];
+    return typeof val === 'string' && val.trim().length > 0;
+  }).length;
+  return {
+    filled,
+    total: keys.length,
+    percent: Math.round((filled / keys.length) * 100),
+  };
 }

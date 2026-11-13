@@ -1,160 +1,323 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Download,
-  FileArchive,
-  History,
-  Smartphone,
+  Bot,
+  Compass,
+  FileSpreadsheet,
+  Loader2,
+  ShieldCheck,
+  UserCheck,
+  Wifi,
   WifiOff,
 } from 'lucide-react';
-import type { AppTab, ClonedApkRecord } from './types';
+import type {
+  ApplicationDraft,
+  ChatMessage,
+  EphemeralDocumentExtract,
+  PortalBookmark,
+  ProfileVault,
+  WorkspaceBootstrap,
+} from './types';
+import { AiAgentSection } from './components/AiAgentSection';
+import { FormStudioSection } from './components/FormStudioSection';
+import { MiniBrowserSection } from './components/MiniBrowserSection';
+import { ProfileVaultSection } from './components/ProfileVaultSection';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { useOnlineStatus } from './hooks/usePWAInstall';
-import { ApkClonerSection } from './components/ApkClonerSection';
-import { NativePhoneAppSection } from './components/NativePhoneAppSection';
-import { ClonedHistorySection } from './components/ClonedHistorySection';
+
+type TabKey = 'agent' | 'forms' | 'browser' | 'vault';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>('native');
-  const [history, setHistory] = useState<ClonedApkRecord[]>([]);
+  const [activeTab, setActiveTab] = useState<TabKey>('agent');
   const [loading, setLoading] = useState(true);
-  const fileTriggerRef = useRef<(() => void) | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [queuedBrowserUrl, setQueuedBrowserUrl] = useState<string | null>(null);
+  const [queuedBrowserGoal, setQueuedBrowserGoal] = useState<string | null>(null);
+
+  // Ephemeral RAM-only document extractions & Zero-Save privacy toggle (default ON)
+  const [zeroSave, setZeroSave] = useState(true);
+  const [ephemeralDocs, setEphemeralDocs] = useState<EphemeralDocumentExtract[]>([]);
+
   const isOnline = useOnlineStatus();
 
   useEffect(() => {
-    let mounted = true;
+    let active = true;
     fetch('/api/bootstrap')
-      .then((r) => r.json())
-      .then((data) => {
-        if (!mounted) return;
-        setHistory(Array.isArray(data.history) ? (data.history as ClonedApkRecord[]) : []);
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Failed to load workspace');
+        return (await res.json()) as WorkspaceBootstrap;
       })
-      .catch(() => {
-        // ignore
+      .then((data) => {
+        if (!active) return;
+        setWorkspace(data);
+        if (data.applications.length > 0) {
+          setSelectedDraftId(data.applications[0].id);
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        setLoadError(err instanceof Error ? err.message : 'Unable to connect to server');
       })
       .finally(() => {
-        if (mounted) setLoading(false);
+        if (active) setLoading(false);
       });
+
     return () => {
-      mounted = false;
+      active = false;
     };
   }, []);
 
-  const handleDeleteRecord = async (id: string) => {
-    const res = await fetch(`/api/apk/history/${id}`, { method: 'DELETE' });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.history)) setHistory(data.history);
+  const openUrlInLiveBrowser = (url: string, goal?: string) => {
+    setQueuedBrowserUrl(url);
+    setQueuedBrowserGoal(goal || null);
+    setActiveTab('browser');
+  };
+
+  const openDraftInStudio = (draftId: string) => {
+    setSelectedDraftId(draftId);
+    setActiveTab('forms');
+  };
+
+  const handleChatUpdate = (messages: ChatMessage[], createdDraft?: ApplicationDraft) => {
+    setWorkspace((prev) => {
+      if (!prev) return prev;
+      const nextApps = createdDraft
+        ? [createdDraft, ...prev.applications.filter((a) => a.id !== createdDraft.id)]
+        : prev.applications;
+      return {
+        ...prev,
+        chatHistory: messages,
+        applications: nextApps,
+      };
+    });
+    if (createdDraft) {
+      setSelectedDraftId(createdDraft.id);
     }
   };
 
-  const navItems: Array<{
-    id: AppTab;
-    label: string;
-    mobileLabel: string;
-    icon: React.ComponentType<{ className?: string }>;
-  }> = [
-    { id: 'native', label: 'Phone Dual APK', mobileLabel: 'Phone APK', icon: Smartphone },
-    { id: 'cloner', label: 'Manual .APK Tool', mobileLabel: 'Patcher', icon: FileArchive },
-    { id: 'history', label: `Cloned APKs (${history.length})`, mobileLabel: 'Builds', icon: History },
+  const handleApplicationsChange = (applications: ApplicationDraft[]) => {
+    setWorkspace((prev) => (prev ? { ...prev, applications } : prev));
+  };
+
+  const handleBookmarksChange = (bookmarks: PortalBookmark[]) => {
+    setWorkspace((prev) => (prev ? { ...prev, bookmarks } : prev));
+  };
+
+  const handleProfileSaved = (profile: ProfileVault) => {
+    setWorkspace((prev) => (prev ? { ...prev, profile } : prev));
+  };
+
+  const handleAddEphemeralDoc = (doc: EphemeralDocumentExtract) => {
+    setEphemeralDocs((prev) => [doc, ...prev]);
+  };
+
+  const handleWipeEphemeralDocs = () => {
+    setEphemeralDocs([]);
+  };
+
+  const handleWipeAllSession = () => {
+    setEphemeralDocs([]);
+    if (zeroSave) {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              applications: prev.applications.filter((a) => !a.id.startsWith('temp-app-')),
+            }
+          : prev
+      );
+    }
+  };
+
+  const activeDraft =
+    workspace?.applications.find((a) => a.id === selectedDraftId) ||
+    workspace?.applications[0] ||
+    null;
+
+  const navItems: { key: TabKey; label: string; shortLabel: string; icon: React.ReactNode }[] = [
+    { key: 'agent', label: 'AI Autopilot', shortLabel: 'AI Agent', icon: <Bot className="w-4 h-4" /> },
+    {
+      key: 'browser',
+      label: 'Live Browser',
+      shortLabel: 'Browser',
+      icon: <Compass className="w-4 h-4" />,
+    },
+    {
+      key: 'forms',
+      label: `Form Studio (${workspace?.applications.length ?? 0})`,
+      shortLabel: 'Forms',
+      icon: <FileSpreadsheet className="w-4 h-4" />,
+    },
+    {
+      key: 'vault',
+      label: 'Profile Vault',
+      shortLabel: 'Vault',
+      icon: <UserCheck className="w-4 h-4" />,
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col">
-      {/* Top Bar — 3-Zone Contract */}
-      <header className="sticky top-0 z-30 h-[52px] md:h-16 bg-[#0B0F17]/90 backdrop-blur-md border-b border-slate-800/80">
-        <div className="max-w-7xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-8">
-          <button
-            type="button"
-            onClick={() => setActiveTab('native')}
-            className="text-lg font-display font-bold tracking-tight text-slate-100 hover:text-emerald-400 transition-colors whitespace-nowrap shrink-0"
-          >
-            MochiClone
-          </button>
+    <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col pb-20 md:pb-0">
+      {/* 3-Zone Top Header */}
+      <header className="sticky top-0 z-30 bg-[#0B0F17]/95 backdrop-blur border-b border-slate-800/80">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+          {/* Zone 1: Brand */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <img src="/icon.svg" alt="SarthiAI" className="w-8 h-8 rounded-lg" />
+            <div>
+              <div className="font-display font-bold text-base tracking-tight text-white leading-none">
+                SarthiAI
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                Live Browser · OCR+AI · Ad-Block
+              </div>
+            </div>
+          </div>
 
-          <nav className="hidden md:flex items-center gap-6">
+          {/* Zone 2: Primary Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-1.5">
             {navItems.map((item) => {
-              const active = activeTab === item.id;
+              const active = activeTab === item.key;
               return (
                 <button
-                  key={item.id}
+                  key={item.key}
                   type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`py-1.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+                  onClick={() => setActiveTab(item.key)}
+                  className={`min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-medium inline-flex items-center gap-2 transition-colors whitespace-nowrap ${
                     active
-                      ? 'border-emerald-500 text-slate-100'
-                      : 'border-transparent text-slate-400 hover:text-slate-100'
+                      ? 'bg-emerald-500 text-slate-950 font-semibold'
+                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
                   }`}
                 >
+                  {item.icon}
                   {item.label}
                 </button>
               );
             })}
           </nav>
 
-          <div className="flex items-center shrink-0">
-            <a
-              href="/api/native-android/zip"
-              download="mochiclone-native-android.zip"
-              className="min-h-[38px] md:min-h-[40px] px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs sm:text-sm inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+          {/* Zone 3: Zero-Save Status, Network & PWA Install */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setZeroSave((v) => !v)}
+              title="Toggle Zero-Save RAM-only privacy mode"
+              className={`min-h-[34px] px-2.5 py-1 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors ${
+                zeroSave
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  : 'bg-slate-900 border-slate-700 text-slate-300'
+              }`}
             >
-              <Download className="w-4 h-4" />
-              Get Phone APK Code
-            </a>
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Zero-Save</span> {zeroSave ? 'ON' : 'OFF'}
+            </button>
+
+            <span
+              className={`hidden lg:inline-flex items-center gap-1.5 text-xs ${
+                isOnline ? 'text-emerald-400' : 'text-amber-400'
+              }`}
+            >
+              {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+              {isOnline ? 'Online' : 'Offline'}
+            </span>
+            <PWAInstallButton />
           </div>
         </div>
       </header>
 
-      {!isOnline && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-300 flex items-center justify-center gap-2">
-          <WifiOff className="w-3.5 h-3.5" />
-          <span>Offline mode active.</span>
-        </div>
-      )}
-
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 pt-6 pb-24 md:pb-10">
+      {/* Main Content */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-5">
         {loading ? (
-          <div className="h-56 rounded-2xl bg-[#111827] border border-slate-800/80 animate-pulse" />
+          <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
+            <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
+            Loading SarthiAI Workspace...
+          </div>
+        ) : loadError || !workspace ? (
+          <div className="max-w-lg mx-auto mt-12 p-6 rounded-2xl bg-[#111827] border border-rose-500/40 text-sm text-rose-300">
+            {loadError || 'Workspace failed to load.'}
+          </div>
         ) : (
           <>
-            {activeTab === 'native' && (
-              <NativePhoneAppSection onOpenManualCloner={() => setActiveTab('cloner')} />
-            )}
-            {activeTab === 'cloner' && (
-              <ApkClonerSection
-                externalFileTriggerRef={fileTriggerRef}
-                onApkCloned={(_record, allHistory) => setHistory(allHistory)}
+            {activeTab === 'agent' && (
+              <AiAgentSection
+                profile={workspace.profile}
+                chatHistory={workspace.chatHistory}
+                aiConfigured={workspace.aiConfigured}
+                ephemeralDocs={ephemeralDocs}
+                zeroSave={zeroSave}
+                onToggleZeroSave={setZeroSave}
+                onAddEphemeralDoc={handleAddEphemeralDoc}
+                onWipeEphemeralDocs={handleWipeEphemeralDocs}
+                onChatUpdate={handleChatUpdate}
+                onOpenBrowser={openUrlInLiveBrowser}
+                onOpenDraft={openDraftInStudio}
+                onGoToVault={() => setActiveTab('vault')}
               />
             )}
-            {activeTab === 'history' && (
-              <ClonedHistorySection
-                history={history}
-                onDelete={handleDeleteRecord}
-                onGoToCloner={() => setActiveTab('cloner')}
+
+            {activeTab === 'browser' && (
+              <MiniBrowserSection
+                initialUrl={queuedBrowserUrl}
+                initialGoal={queuedBrowserGoal}
+                onConsumeInitial={() => {
+                  setQueuedBrowserUrl(null);
+                  setQueuedBrowserGoal(null);
+                }}
+                bookmarks={workspace.bookmarks}
+                profile={workspace.profile}
+                ephemeralDocs={ephemeralDocs}
+                zeroSave={zeroSave}
+                activeDraft={activeDraft}
+                onBookmarksChange={handleBookmarksChange}
+                onAddEphemeralDoc={handleAddEphemeralDoc}
+                onWipeAllSession={handleWipeAllSession}
+              />
+            )}
+
+            {activeTab === 'forms' && (
+              <FormStudioSection
+                applications={workspace.applications}
+                selectedId={selectedDraftId}
+                ephemeralDocs={ephemeralDocs}
+                zeroSave={zeroSave}
+                onToggleZeroSave={setZeroSave}
+                onAddEphemeralDoc={handleAddEphemeralDoc}
+                onWipeEphemeralDocs={handleWipeEphemeralDocs}
+                onSelectId={setSelectedDraftId}
+                onApplicationsChange={handleApplicationsChange}
+                onOpenBrowser={openUrlInLiveBrowser}
+              />
+            )}
+
+            {activeTab === 'vault' && (
+              <ProfileVaultSection
+                profile={workspace.profile}
+                onProfileSaved={handleProfileSaved}
               />
             )}
           </>
         )}
       </main>
 
-      {/* Mobile Bottom Tab Bar */}
-      <nav
-        aria-label="Mobile navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0B0F17]/95 backdrop-blur-md border-t border-slate-800/90 pb-safe"
-      >
-        <div className="grid grid-cols-3 items-center h-16">
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-[#0B0F17]/95 backdrop-blur border-t border-slate-800 pb-safe">
+        <div className="grid grid-cols-4 gap-1 px-2 py-1.5">
           {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeTab === item.id;
+            const active = activeTab === item.key;
             return (
               <button
-                key={item.id}
+                key={item.key}
                 type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`min-h-[44px] flex flex-col items-center justify-center gap-1 transition-colors ${
-                  active ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+                onClick={() => setActiveTab(item.key)}
+                className={`min-h-[48px] rounded-xl flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
+                  active
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="text-[10px] font-medium tracking-tight">{item.mobileLabel}</span>
+                {item.icon}
+                <span>{item.shortLabel}</span>
               </button>
             );
           })}

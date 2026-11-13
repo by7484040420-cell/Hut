@@ -58,7 +58,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ prominent = 
             <div className="w-full max-w-sm bg-[#111827] border border-slate-800 rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <h3 className="text-base font-semibold text-slate-100">
-                  Install MochiClone on Device
+                  Install SarthiAI on Device
                 </h3>
                 <button
                   type="button"
@@ -78,7 +78,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ prominent = 
               ) : (
                 <p className="text-sm text-slate-300 leading-relaxed">
                   Open your browser menu (three dots) and tap <strong>Install app</strong> or{' '}
-                  <strong>Add to Home screen</strong> to launch MochiClone in full-screen standalone mode, or build the Android APK from the APK tab.
+                  <strong>Add to Home screen</strong> to launch SarthiAI in full-screen standalone mode.
                 </p>
               )}
               <button

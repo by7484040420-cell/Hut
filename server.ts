@@ -2,182 +2,579 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import multer from 'multer';
 import crypto from 'crypto';
-import AdmZip from 'adm-zip';
+import multer from 'multer';
+import { WebSocketServer } from 'ws';
+import type {
+  AppCategory,
+  ApplicationDraft,
+  ChatMessage,
+  EphemeralDocumentExtract,
+  PortalBookmark,
+  ProfileVault,
+  WorkspaceBootstrap,
+} from './src/types.ts';
 import {
-  cloneAndSignApkBuffer,
-  inspectRealApkBuffer,
-} from './server/apkEngine.ts';
-import type { ClonedApkRecord } from './src/types.ts';
+  extractDocumentWithOCR,
+  formatGeminiError,
+  generateAutoFilledApplication,
+  inspectUrlWithAI,
+  isGeminiConfigured,
+  runLiveAgentChat,
+} from './server/geminiAgent.ts';
+import { LiveBrowserController } from './server/liveBrowser.ts';
 
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 const DATA_DIR = path.resolve('data');
-const UPLOAD_DIR = path.resolve('uploads');
-const CLONED_DIR = path.join(UPLOAD_DIR, 'cloned');
-const HISTORY_FILE = path.join(DATA_DIR, 'apk-history.json');
+const WORKSPACE_FILE = path.join(DATA_DIR, 'workspace.json');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(CLONED_DIR, { recursive: true });
 
-function loadHistory(): ClonedApkRecord[] {
+interface WorkspaceData {
+  profile: ProfileVault;
+  applications: ApplicationDraft[];
+  chatHistory: ChatMessage[];
+  bookmarks: PortalBookmark[];
+}
+
+function createEmptyProfile(): ProfileVault {
+  return {
+    fullName: '',
+    fatherName: '',
+    motherName: '',
+    dob: '',
+    gender: '',
+    category: 'General',
+    maritalStatus: 'Unmarried',
+    mobile: '',
+    alternateMobile: '',
+    email: '',
+    addressLine: '',
+    villageOrWard: '',
+    postOffice: '',
+    policeStation: '',
+    blockOrTehsil: '',
+    district: '',
+    state: '',
+    pinCode: '',
+    qualification: '',
+    boardOrUniversity: '',
+    passingYear: '',
+    percentageOrGrade: '',
+    panNumber: '',
+    aadhaarLast4: '',
+    passportNumber: '',
+    dlNumber: '',
+    voterId: '',
+    preferredDepartureCity: '',
+    preferredTrainClass: '3A (AC 3 Tier)',
+    customFields: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function createDefaultBookmarks(): PortalBookmark[] {
+  return [
+    {
+      id: 'bm-ncs',
+      name: 'National Career Service (Govt Jobs)',
+      category: 'job',
+      url: 'https://www.ncs.gov.in',
+      description: 'Official Ministry of Labour & Employment job portal',
+    },
+    {
+      id: 'bm-ssc',
+      name: 'SSC Portal (Sarkari Bharti)',
+      category: 'job',
+      url: 'https://ssc.gov.in',
+      description: 'Staff Selection Commission jobs & OTR registration',
+    },
+    {
+      id: 'bm-ecourts',
+      name: 'eCourts India Services',
+      category: 'court_block',
+      url: 'https://services.ecourts.gov.in',
+      description: 'District & High Court case status, cause lists & orders',
+    },
+    {
+      id: 'bm-umang',
+      name: 'UMANG & Block / Citizen Services',
+      category: 'court_block',
+      url: 'https://web.umang.gov.in',
+      description: 'Unified portal for Block, Ration, Caste/Income/Residence certificates',
+    },
+    {
+      id: 'bm-pan',
+      name: 'Protean (NSDL) PAN Portal',
+      category: 'pan',
+      url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
+      description: 'New PAN Card (Form 49A) & PAN correction portal',
+    },
+    {
+      id: 'bm-passport',
+      name: 'Passport Seva (MEA India)',
+      category: 'passport',
+      url: 'https://www.passportindia.gov.in',
+      description: 'Fresh/Re-issue Indian Passport & PSK appointment booking',
+    },
+    {
+      id: 'bm-parivahan',
+      name: 'Parivahan Sarathi (Driving License)',
+      category: 'dl',
+      url: 'https://sarathi.parivahan.gov.in',
+      description: 'Learner License (LL), Driving License (DL) & renewal',
+    },
+    {
+      id: 'bm-army',
+      name: 'Join Indian Army (Agniveer / Officer)',
+      category: 'job',
+      url: 'https://joinindianarmy.nic.in',
+      description: 'Official Indian Army recruitment & rally application portal',
+    },
+    {
+      id: 'bm-irctc',
+      name: 'IRCTC Train Tickets & Account',
+      category: 'ticket',
+      url: 'https://www.irctc.co.in',
+      description: 'Official Indian Railways account registration & e-ticketing portal',
+    },
+    {
+      id: 'bm-india',
+      name: 'India.gov.in National Portal',
+      category: 'general',
+      url: 'https://www.india.gov.in',
+      description: 'Directory of all Central & State Government online services',
+    },
+  ];
+}
+
+function loadWorkspace(): WorkspaceData {
   try {
-    if (fs.existsSync(HISTORY_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
-      if (Array.isArray(parsed)) return parsed as ClonedApkRecord[];
+    if (fs.existsSync(WORKSPACE_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(WORKSPACE_FILE, 'utf-8')) as Partial<WorkspaceData>;
+      return {
+        profile: { ...createEmptyProfile(), ...(parsed.profile || {}) },
+        applications: Array.isArray(parsed.applications) ? parsed.applications : [],
+        chatHistory: Array.isArray(parsed.chatHistory) ? parsed.chatHistory : [],
+        bookmarks:
+          Array.isArray(parsed.bookmarks) && parsed.bookmarks.length > 0
+            ? parsed.bookmarks
+            : createDefaultBookmarks(),
+      };
     }
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-function saveHistory(records: ClonedApkRecord[]) {
-  try {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(records, null, 2));
   } catch (err) {
-    console.warn('Failed to write apk-history.json:', err);
+    console.warn('Failed to load workspace.json, starting fresh:', err);
+  }
+  return {
+    profile: createEmptyProfile(),
+    applications: [],
+    chatHistory: [
+      {
+        id: 'msg-welcome',
+        role: 'assistant',
+        text:
+          'Namaste! Main SarthiAI hoon — aapka live internet-connected AI form-filler aur web assistant. Pehle "Profile Vault" me apni basic details save kar dein, fir mujhse koi bhi kaam bolein:\n• Sarkari ya private job form bharna\n• Court, Kachahari, ya Block office ki application likhna\n• PAN Card, Passport, ya Driving License (DL) form ready karna\n• Train/Flight ticket ya Hotel options search karke booking plan banana\n• Mini Browser me kisi bhi official portal ko kholna',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    bookmarks: createDefaultBookmarks(),
+  };
+}
+
+function saveWorkspace(data: WorkspaceData) {
+  try {
+    fs.writeFileSync(WORKSPACE_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.warn('Failed to write workspace.json:', err);
   }
 }
 
-let history: ClonedApkRecord[] = loadHistory();
+let workspace: WorkspaceData = loadWorkspace();
+
+function makeId(prefix: string): string {
+  return `${prefix}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+function addApplicationDraft(
+  draftInput: Omit<ApplicationDraft, 'id' | 'createdAt' | 'updatedAt'>
+): ApplicationDraft {
+  const now = new Date().toISOString();
+  const draft: ApplicationDraft = {
+    ...draftInput,
+    id: makeId('app'),
+    createdAt: now,
+    updatedAt: now,
+  };
+  workspace.applications.unshift(draft);
+  if (workspace.applications.length > 50) {
+    workspace.applications = workspace.applications.slice(0, 50);
+  }
+  saveWorkspace(workspace);
+  return draft;
+}
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '6mb' }));
 
-const upload = multer({
+const uploadMemory = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 },
+  limits: { fileSize: 12 * 1024 * 1024 },
 });
 
 const httpServer = http.createServer(app);
+const liveBrowser = new LiveBrowserController();
+const wss = new WebSocketServer({ server: httpServer, path: '/ws/browser' });
+liveBrowser.attachWebSocketServer(wss);
 
-// ---- Real APK Inspection & Binary Cloning API ----
+// ---- Workspace Bootstrap & Profile Vault ----
 
 app.get('/api/bootstrap', (_req, res) => {
-  // Only return records whose output APK file still exists on disk
-  const valid = history.filter((item) => {
-    const filename = path.basename(item.downloadUrl);
-    return fs.existsSync(path.join(CLONED_DIR, filename));
-  });
-  if (valid.length !== history.length) {
-    history = valid;
-    saveHistory(history);
-  }
-  res.json({ history });
+  const payload: WorkspaceBootstrap = {
+    profile: workspace.profile,
+    applications: workspace.applications,
+    chatHistory: workspace.chatHistory,
+    bookmarks: workspace.bookmarks,
+    aiConfigured: isGeminiConfigured(),
+    liveBrowserAvailable: true,
+  };
+  res.json(payload);
 });
 
-app.post('/api/apk/inspect', upload.single('apk'), (req, res) => {
+app.patch('/api/profile', (req, res) => {
+  const incoming = (req.body || {}) as Partial<ProfileVault>;
+  workspace.profile = {
+    ...workspace.profile,
+    ...incoming,
+    customFields: Array.isArray(incoming.customFields)
+      ? incoming.customFields
+      : workspace.profile.customFields,
+    updatedAt: new Date().toISOString(),
+  };
+  saveWorkspace(workspace);
+  res.json({ profile: workspace.profile });
+});
+
+// ---- Ephemeral Zero-Save Document OCR + AI Extractor ----
+
+app.post('/api/ocr/extract', uploadMemory.single('document'), async (req, res) => {
   if (!req.file) {
-    res.status(400).json({ error: 'Please select a .apk file' });
+    res.status(400).json({ error: 'Please select a document image or PDF.' });
     return;
   }
+  const mimeType = req.file.mimetype || 'image/jpeg';
+  const supported =
+    mimeType.startsWith('image/') || mimeType === 'application/pdf';
+  if (!supported) {
+    res.status(400).json({ error: 'Only image (JPG/PNG/WebP) or PDF documents are supported.' });
+    return;
+  }
+
   try {
-    const summary = inspectRealApkBuffer(req.file.originalname, req.file.buffer);
-    res.json(summary);
+    // Processed purely from RAM buffer; never written to disk
+    const extracted = await extractDocumentWithOCR({
+      buffer: req.file.buffer,
+      mimeType,
+      fileName: req.file.originalname,
+    });
+    res.json({ extracted });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to parse APK binary manifest';
-    res.status(400).json({ error: message });
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
   }
 });
 
-app.post('/api/apk/clone', upload.single('apk'), (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No .apk file uploaded' });
+// ---- AI Agent Chat with Live Internet Grounding ----
+
+app.post('/api/ai/chat', async (req, res) => {
+  const prompt = String(req.body?.prompt || '').trim();
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+
+  if (!prompt) {
+    res.status(400).json({ error: 'Please enter a message for SarthiAI.' });
     return;
   }
 
-  const newPackageName = String(req.body?.newPackageName || '').trim();
-  const newAppLabel = String(req.body?.newAppLabel || '').trim();
-  const renameAuthorities = req.body?.renameAuthorities !== 'false';
-  const renameCustomPermissions = req.body?.renameCustomPermissions !== 'false';
+  const userMsg: ChatMessage = {
+    id: makeId('msg'),
+    role: 'user',
+    text: prompt,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!zeroSave) {
+    workspace.chatHistory.push(userMsg);
+  }
 
   try {
-    const result = cloneAndSignApkBuffer(req.file.buffer, {
-      newPackageName,
-      newAppLabel: newAppLabel || undefined,
-      renameAuthorities,
-      renameCustomPermissions,
+    let createdDraft: ApplicationDraft | undefined;
+    const result = await runLiveAgentChat({
+      prompt,
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+      recentHistory: workspace.chatHistory.slice(-6),
+      onSaveDraft: (draftInput) => {
+        if (zeroSave) {
+          const now = new Date().toISOString();
+          createdDraft = {
+            ...draftInput,
+            id: makeId('temp-app'),
+            createdAt: now,
+            updatedAt: now,
+          };
+          return createdDraft;
+        }
+        createdDraft = addApplicationDraft(draftInput);
+        return createdDraft;
+      },
     });
 
-    const id = `apk-${crypto.randomBytes(4).toString('hex')}`;
-    const safeSlug = result.clonedPackageName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const outFileName = `${safeSlug}-${id}.apk`;
-    const outPath = path.join(CLONED_DIR, outFileName);
-    fs.writeFileSync(outPath, result.signedApk);
-
-    const record: ClonedApkRecord = {
-      id,
-      originalFileName: req.file.originalname,
-      originalPackage: result.originalManifest.packageName,
-      clonedPackage: result.clonedPackageName,
-      clonedLabel:
-        newAppLabel ||
-        result.originalManifest.appLabel ||
-        result.clonedPackageName,
-      versionName: result.originalManifest.versionName,
-      sizeBytes: result.signedApk.length,
-      downloadUrl: `/api/apk/download/${outFileName}`,
-      createdAt: Date.now(),
+    const assistantMsg: ChatMessage = {
+      id: makeId('msg'),
+      role: 'assistant',
+      text: result.replyText,
+      sources: result.sources,
+      linkedApplicationId: result.createdDraft?.id || createdDraft?.id,
+      suggestedUrl: result.suggestedUrl,
+      requestedDocuments: result.requestedDocuments,
+      createdAt: new Date().toISOString(),
     };
 
-    history.unshift(record);
-    if (history.length > 25) history = history.slice(0, 25);
-    saveHistory(history);
+    if (!zeroSave) {
+      workspace.chatHistory.push(assistantMsg);
+      if (workspace.chatHistory.length > 80) {
+        workspace.chatHistory = workspace.chatHistory.slice(-80);
+      }
+      saveWorkspace(workspace);
+    }
 
-    res.json({ record, history });
+    res.json({
+      message: assistantMsg,
+      userMessage: userMsg,
+      createdDraft: result.createdDraft || createdDraft,
+      applications: workspace.applications,
+      chatHistory: workspace.chatHistory,
+      zeroSave,
+    });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'APK cloning failed';
-    res.status(400).json({ error: message });
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
   }
 });
 
-app.get('/api/apk/download/:filename', (req, res) => {
-  const safeName = path.basename(req.params.filename);
-  const fullPath = path.join(CLONED_DIR, safeName);
-  if (!fs.existsSync(fullPath)) {
-    res.status(404).json({ error: 'Cloned APK file not found' });
+app.delete('/api/chat', (_req, res) => {
+  workspace.chatHistory = [
+    {
+      id: makeId('msg'),
+      role: 'assistant',
+      text: 'Chat clear kar di gayi hai. Naya kaam batayein — job form, court/block application, PAN/Passport/DL, ya ticket/hotel planning!',
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  saveWorkspace(workspace);
+  res.json({ chatHistory: workspace.chatHistory });
+});
+
+// ---- AI Smart Auto-Fill Form Generator ----
+
+app.post('/api/ai/autofill', async (req, res) => {
+  const category = String(req.body?.category || 'custom') as AppCategory;
+  const goal = String(req.body?.goal || '').trim();
+  const targetUrl = String(req.body?.targetUrl || '').trim() || undefined;
+  const language = (req.body?.language || 'hinglish') as 'hinglish' | 'hindi' | 'english';
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+
+  if (!goal) {
+    res.status(400).json({ error: 'Please describe the form or application you want AI to fill.' });
     return;
   }
-  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-  res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-  res.sendFile(fullPath);
+
+  try {
+    const draftInput = await generateAutoFilledApplication({
+      category,
+      goal,
+      targetUrl,
+      language,
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+    });
+    if (zeroSave) {
+      const now = new Date().toISOString();
+      const draft: ApplicationDraft = {
+        ...draftInput,
+        id: makeId('temp-app'),
+        createdAt: now,
+        updatedAt: now,
+      };
+      res.json({ draft, applications: workspace.applications, zeroSave: true });
+      return;
+    }
+    const draft = addApplicationDraft(draftInput);
+    res.json({ draft, applications: workspace.applications, zeroSave: false });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
 });
 
-app.delete('/api/apk/history/:id', (req, res) => {
-  const idx = history.findIndex((h) => h.id === req.params.id);
+app.patch('/api/applications/:id', (req, res) => {
+  const idx = workspace.applications.findIndex((a) => a.id === req.params.id);
   if (idx === -1) {
-    res.status(404).json({ error: 'Record not found' });
+    res.status(404).json({ error: 'Application draft not found' });
     return;
   }
-  const [removed] = history.splice(idx, 1);
-  const safeName = path.basename(removed.downloadUrl);
-  const fullPath = path.join(CLONED_DIR, safeName);
-  fs.unlink(fullPath, () => {});
-  saveHistory(history);
-  res.json({ history });
+  const updates = (req.body || {}) as Partial<ApplicationDraft>;
+  const existing = workspace.applications[idx];
+  const updated: ApplicationDraft = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+  workspace.applications[idx] = updated;
+  saveWorkspace(workspace);
+  res.json({ draft: updated, applications: workspace.applications });
 });
 
-app.get('/api/native-android/zip', (_req, res) => {
-  const nativeDir = path.resolve('native-android');
-  const workflowFile = path.resolve('.github/workflows/build-apk.yml');
-  if (!fs.existsSync(nativeDir)) {
-    res.status(404).json({ error: 'Native Android project not found' });
+app.delete('/api/applications/:id', (req, res) => {
+  const idx = workspace.applications.findIndex((a) => a.id === req.params.id);
+  if (idx === -1) {
+    res.status(404).json({ error: 'Application draft not found' });
+    return;
+  }
+  workspace.applications.splice(idx, 1);
+  saveWorkspace(workspace);
+  res.json({ applications: workspace.applications });
+});
+
+// ---- Mini Browser Bookmarks & Live AI URL Inspector ----
+
+app.post('/api/bookmarks', (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const url = String(req.body?.url || '').trim();
+  const category = (req.body?.category || 'general') as PortalBookmark['category'];
+  const description = String(req.body?.description || '').trim();
+
+  if (!name || !url.startsWith('http')) {
+    res.status(400).json({ error: 'Valid bookmark name and http(s) URL required.' });
     return;
   }
 
-  const zip = new AdmZip();
-  zip.addLocalFolder(nativeDir, 'native-android');
-  if (fs.existsSync(workflowFile)) {
-    zip.addLocalFile(workflowFile, '.github/workflows');
-  }
-  const buf = zip.toBuffer();
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', 'attachment; filename="mochiclone-native-android.zip"');
-  res.send(buf);
+  const bm: PortalBookmark = {
+    id: makeId('bm'),
+    name,
+    url,
+    category,
+    description: description || 'Saved portal bookmark',
+  };
+  workspace.bookmarks.unshift(bm);
+  saveWorkspace(workspace);
+  res.json({ bookmark: bm, bookmarks: workspace.bookmarks });
 });
+
+app.delete('/api/bookmarks/:id', (req, res) => {
+  workspace.bookmarks = workspace.bookmarks.filter((b) => b.id !== req.params.id);
+  saveWorkspace(workspace);
+  res.json({ bookmarks: workspace.bookmarks });
+});
+
+app.post('/api/browser/inspect', async (req, res) => {
+  const rawUrl = String(req.body?.url || '').trim();
+  if (!rawUrl) {
+    res.status(400).json({ error: 'URL is required' });
+    return;
+  }
+  const normalizedUrl =
+    rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+      ? rawUrl
+      : `https://${rawUrl}`;
+
+  try {
+    const inspection = await inspectUrlWithAI({
+      url: normalizedUrl,
+      profile: workspace.profile,
+    });
+    res.json(inspection);
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
+// ---- Real Live Chromium Browser + Ad-Blocker + OCR+AI Vision Copilot ----
+
+app.get('/api/live-browser/status', (_req, res) => {
+  res.json({ status: liveBrowser.getStatus() });
+});
+
+app.post('/api/live-browser/navigate', async (req, res) => {
+  const url = String(req.body?.url || '').trim();
+  if (!url) {
+    res.status(400).json({ error: 'URL is required' });
+    return;
+  }
+  const status = await liveBrowser.navigate(url);
+  res.json({ status });
+});
+
+app.post('/api/live-browser/back', async (_req, res) => {
+  await liveBrowser.goBack();
+  res.json({ status: liveBrowser.getStatus() });
+});
+
+app.post('/api/live-browser/reload', async (_req, res) => {
+  await liveBrowser.reload();
+  res.json({ status: liveBrowser.getStatus() });
+});
+
+app.post('/api/live-browser/adblock', (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  const status = liveBrowser.setAdBlock(enabled);
+  res.json({ status });
+});
+
+app.post('/api/live-browser/agent/start', (req, res) => {
+  const goal = String(req.body?.goal || '').trim();
+  const startUrl = String(req.body?.startUrl || '').trim() || undefined;
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+
+  if (!goal) {
+    res.status(400).json({ error: 'Please tell the Live AI Copilot what task to perform.' });
+    return;
+  }
+
+  void liveBrowser.startAgentLoop({
+    goal,
+    startUrl,
+    profile: zeroSave ? createEmptyProfile() : workspace.profile,
+    ephemeralDocs,
+  });
+
+  res.json({ status: liveBrowser.getStatus() });
+});
+
+app.post('/api/live-browser/agent/stop', (_req, res) => {
+  liveBrowser.stopAgent();
+  res.json({ status: liveBrowser.getStatus() });
+});
+
+app.post('/api/live-browser/wipe', async (_req, res) => {
+  const status = await liveBrowser.wipeSession();
+  res.json({ status });
+});
+
+// ---- Server Startup ----
 
 async function start() {
   if (!IS_PROD) {
@@ -196,7 +593,7 @@ async function start() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`MochiClone APK Engine running on http://0.0.0.0:${PORT}`);
+    console.log(`SarthiAI Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

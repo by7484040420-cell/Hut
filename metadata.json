@@ -1,0 +1,8 @@
+{
+  "name": "SarthiAI — Autonomous AI Form-Filler & Mini Browser",
+  "description": "AI-powered personal autopilot with live internet access, smart auto-fill for jobs, court/block applications, PAN/Passport/DL forms, travel planning, and a built-in mini browser.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

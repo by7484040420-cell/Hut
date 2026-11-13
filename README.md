@@ -1,9 +1,13 @@
-# MochiClone
+# SarthiAI — Autonomous AI Form-Filler, Live Web Agent & Mini Browser
 
-Next-generation multi-account app cloner, parallel dual-space sandbox, device camouflage manager, and privacy vault:
+SarthiAI is a full-stack AI personal assistant and built-in Mini Browser designed to automate form preparation, official application drafting, and live web research.
 
-- **Unlimited App & Game Cloning**: Spin up single or batch clones with isolated storage profiles, custom icons, and workspace organization.
-- **Per-Clone Device Camouflage & GPS Spoofing**: Mask device model, Android ID, IMEI, MAC address, canvas/WebGL fingerprint, timezone, and virtual GPS coordinates per clone.
-- **Dual Split-Screen Sandbox Runner**: Run two cloned app workspaces side-by-side with independent account slots, isolated local storage, embedded launcher, and one-tap cache wipe.
-- **PIN-Locked Stealth Vault**: Hide sensitive clones behind a 4-digit PIN and disguise app icons/names as Calculator, Notes, Weather, or Clock.
-- **Local APK Inspector & Android APK Workflow**: Inspect `.apk` files locally, install directly as a mobile PWA, or build a standalone Android APK via Capacitor & GitHub Actions.
+## Core Capabilities
+
+- **Live Internet AI Agent (`gemini-4-hydrogen` + Google Search & URL Context)**: Searches live official portals, current job openings, ticket/hotel options, and government procedures on the internet with clickable source links.
+- **Smart Auto-Fill Studio**: Uses your saved **Profile & Document Vault** to generate pre-filled drafts for Jobs, Court/Kachahari/Block applications, PAN Card, Passport, Driving License (DL), and Ticket/Hotel itineraries — ready to copy, print, or export.
+- **Built-in Mini Browser**: Multi-tab in-app browser with quick bookmarks for official portals (Passport Seva, NSDL PAN, Parivahan Sarathi, eCourts, NCS/SSC Jobs, IRCTC), live URL reader/summarizer (even when sites block iframes), and a 1-click Auto-Fill Clipboard Drawer.
+- **Profile & Document Vault**: Store your personal, family, address, education, and ID details once so every future application fills automatically.
+- **PWA + Android Ready**: Installable directly on mobile/desktop as a Progressive Web App.
+
+> Note on official portals: Where external government or booking portals require human OTPs, CAPTCHAs, Aadhaar e-Sign, or final payment checkout, SarthiAI prepares every field and opens the portal for your final confirmation.

@@ -12,9 +12,9 @@ export default defineConfig({
       includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         id: '/',
-        name: 'MochiClone — Multi-Account App Cloner & Privacy Vault',
-        short_name: 'MochiClone',
-        description: 'Clone apps into isolated parallel sandboxes with device camouflage, GPS spoofing, stealth vault, and dual split-screen runner.',
+        name: 'SarthiAI — Autonomous AI Form-Filler & Mini Browser',
+        short_name: 'SarthiAI',
+        description: 'AI-powered personal autopilot with live internet access, smart auto-fill for jobs, court/block applications, PAN/Passport/DL, travel planning, and a built-in mini browser.',
         theme_color: '#0B0F17',
         background_color: '#0B0F17',
         display: 'standalone',
