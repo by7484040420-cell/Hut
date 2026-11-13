@@ -27,6 +27,7 @@ import type {
   PortalBookmark,
   ProfileVault,
 } from '../types';
+import { apiFetchJson, buildWsUrl } from '../lib/api';
 
 interface MiniBrowserSectionProps {
   initialUrl: string | null;
@@ -118,8 +119,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
     const connect = () => {
       if (closed) return;
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${proto}//${window.location.host}/ws/browser`);
+      const ws = new WebSocket(buildWsUrl('/ws/browser'));
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -160,13 +160,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setError(null);
     setAddressInput(url);
     try {
-      const res = await fetch('/api/live-browser/navigate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to navigate');
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/navigate',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        }
+      );
       if (data.status) setStatus(data.status);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Navigation failed');
@@ -182,18 +183,19 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     if (!goal) return;
     setError(null);
     try {
-      const res = await fetch('/api/live-browser/agent/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          goal,
-          startUrl: urlOverride || (status.active ? undefined : addressInput),
-          zeroSave,
-          ephemeralDocs: docsOverride ?? ephemeralDocs,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not start AI Copilot');
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/agent/start',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goal,
+            startUrl: urlOverride || (status.active ? undefined : addressInput),
+            zeroSave,
+            ephemeralDocs: docsOverride ?? ephemeralDocs,
+          }),
+        }
+      );
       if (data.status) setStatus(data.status);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start AI Copilot');
@@ -211,13 +213,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     try {
       const formData = new FormData();
       formData.append('document', file);
-      const res = await fetch('/api/ocr/extract', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'OCR failed');
-      const extracted = data.extracted as EphemeralDocumentExtract;
+      const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+        '/api/ocr/extract',
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+      const extracted = data.extracted;
       onAddEphemeralDoc(extracted);
       setUploadedReqMap((prev) => ({ ...prev, [reqId]: extracted.fileName }));
       // Auto-resume Live AI with newly extracted RAM doc details
@@ -248,24 +251,36 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   }, [initialUrl, initialGoal]);
 
   const stopLiveAgent = async () => {
-    await fetch('/api/live-browser/agent/stop', { method: 'POST' }).catch(() => {});
+    await apiFetchJson('/api/live-browser/agent/stop', { method: 'POST' }).catch(() => {});
   };
 
   const toggleAdBlock = async () => {
-    const res = await fetch('/api/live-browser/adblock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: !status.adBlockEnabled }),
-    });
-    const data = await res.json();
-    if (res.ok && data.status) setStatus(data.status);
+    try {
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/adblock',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !status.adBlockEnabled }),
+        }
+      );
+      if (data.status) setStatus(data.status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not toggle ad-blocker');
+    }
   };
 
   const handleWipeBrowser = async () => {
     setFrameSrc(null);
-    const res = await fetch('/api/live-browser/wipe', { method: 'POST' });
-    const data = await res.json();
-    if (res.ok && data.status) setStatus(data.status);
+    try {
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/wipe',
+        { method: 'POST' }
+      );
+      if (data.status) setStatus(data.status);
+    } catch {
+      // still wipe local session
+    }
     onWipeAllSession();
   };
 
@@ -314,10 +329,16 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   };
 
   const deleteBookmark = async (id: string) => {
-    const res = await fetch(`/api/bookmarks/${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (res.ok && Array.isArray(data.bookmarks)) {
-      onBookmarksChange(data.bookmarks);
+    try {
+      const data = await apiFetchJson<{ bookmarks?: PortalBookmark[] }>(
+        `/api/bookmarks/${id}`,
+        { method: 'DELETE' }
+      );
+      if (Array.isArray(data.bookmarks)) {
+        onBookmarksChange(data.bookmarks);
+      }
+    } catch {
+      onBookmarksChange(bookmarks.filter((b) => b.id !== id));
     }
   };
 
@@ -564,7 +585,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           <div className="p-3 border-b border-slate-800 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => fetch('/api/live-browser/back', { method: 'POST' })}
+              onClick={() => void apiFetchJson('/api/live-browser/back', { method: 'POST' }).catch(() => {})}
               aria-label="Back"
               className="min-h-[40px] min-w-[40px] rounded-xl bg-[#0B0F17] border border-slate-800 text-slate-300 hover:text-white flex items-center justify-center"
             >
@@ -572,7 +593,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => fetch('/api/live-browser/reload', { method: 'POST' })}
+              onClick={() => void apiFetchJson('/api/live-browser/reload', { method: 'POST' }).catch(() => {})}
               aria-label="Reload"
               className="min-h-[40px] min-w-[40px] rounded-xl bg-[#0B0F17] border border-slate-800 text-slate-300 hover:text-white flex items-center justify-center"
             >

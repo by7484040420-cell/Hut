@@ -25,6 +25,8 @@ jobs:
           java-version: '21'
 
       - name: Install dependencies & build web bundle
+        env:
+          VITE_API_BASE_URL: ${{ vars.SARTHIAI_BACKEND_URL || '' }}
         run: |
           npm install
           npm run build
@@ -33,20 +35,35 @@ jobs:
         run: |
           npm install @capacitor/core @capacitor/cli @capacitor/android
           npx cap init "SarthiAI" "com.sarthiai.assistant" --web-dir dist
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.sarthiai.assistant",
+            "appName": "SarthiAI",
+            "webDir": "dist",
+            "server": {
+              "androidScheme": "https",
+              "allowNavigation": ["*"]
+            }
+          }
+          EOF
           npx cap add android
           npx cap sync android
 
-      - name: Configure Native WebView Ad-Blocker in MainActivity
+      - name: Configure Native WebView Ad-Blocker & Non-Overlapping StatusBar in MainActivity
         shell: bash
         run: |
           MAIN_ACT="android/app/src/main/java/com/sarthiai/assistant/MainActivity.java"
           cat << 'EOF' > "$MAIN_ACT"
           package com.sarthiai.assistant;
 
+          import android.graphics.Color;
           import android.os.Bundle;
           import android.webkit.WebResourceRequest;
           import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
           import android.webkit.WebView;
+          import androidx.core.view.WindowCompat;
+          import androidx.core.view.WindowInsetsControllerCompat;
           import com.getcapacitor.BridgeActivity;
           import com.getcapacitor.BridgeWebViewClient;
           import java.io.ByteArrayInputStream;
@@ -65,7 +82,19 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+
+                  // Prevent Android status bar clock/icons from overlapping the SarthiAI top header
+                  WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+                  getWindow().setStatusBarColor(Color.parseColor("#0B0F17"));
+                  getWindow().setNavigationBarColor(Color.parseColor("#0B0F17"));
+                  WindowInsetsControllerCompat insetsController =
+                      new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
+                  insetsController.setAppearanceLightStatusBars(false);
+                  insetsController.setAppearanceLightNavigationBars(false);
+
                   if (this.bridge != null && this.bridge.getWebView() != null) {
+                      WebSettings settings = this.bridge.getWebView().getSettings();
+                      settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
                       this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
                           @Override
                           public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {

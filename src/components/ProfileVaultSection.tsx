@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import type { ProfileVault } from '../types';
 import { getVaultCompletion } from '../lib/format';
+import { apiFetchJson, BackendUnavailableError } from '../lib/api';
 
 interface ProfileVaultSectionProps {
   profile: ProfileVault;
@@ -59,14 +60,19 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch('/api/profile', {
+      const data = await apiFetchJson<{ profile?: ProfileVault }>('/api/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = await res.json();
-      if (res.ok && data.profile) {
+      if (data.profile) {
         onProfileSaved(data.profile);
+        setSavedFlag(true);
+        setTimeout(() => setSavedFlag(false), 2200);
+      }
+    } catch (err) {
+      if (err instanceof BackendUnavailableError) {
+        onProfileSaved({ ...form, updatedAt: new Date().toISOString() });
         setSavedFlag(true);
         setTimeout(() => setSavedFlag(false), 2200);
       }

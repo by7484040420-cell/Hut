@@ -20,6 +20,7 @@ import type {
   ProfileVault,
 } from '../types';
 import { formatIsoTime, getVaultCompletion } from '../lib/format';
+import { apiFetchJson } from '../lib/api';
 
 interface AiAgentSectionProps {
   profile: ProfileVault;
@@ -124,7 +125,13 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
     const activeDocs = docsOverride ?? ephemeralDocs;
 
     try {
-      const res = await fetch('/api/ai/chat', {
+      const data = await apiFetchJson<{
+        zeroSave?: boolean;
+        userMessage: ChatMessage;
+        message: ChatMessage;
+        createdDraft?: ApplicationDraft;
+        chatHistory: ChatMessage[];
+      }>('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,10 +140,6 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
           ephemeralDocs: activeDocs,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'AI request failed');
-      }
       if (data.zeroSave) {
         const nextHistory: ChatMessage[] = [
           ...activeHistory,
@@ -170,15 +173,14 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
     try {
       const formData = new FormData();
       formData.append('document', file);
-      const res = await fetch('/api/ocr/extract', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Document OCR failed');
-      }
-      const extracted = data.extracted as EphemeralDocumentExtract;
+      const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+        '/api/ocr/extract',
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+      const extracted = data.extracted;
       onAddEphemeralDoc(extracted);
       setCompletedSlots((prev) => ({
         ...prev,
@@ -218,9 +220,10 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
       return;
     }
     try {
-      const res = await fetch('/api/chat', { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok && Array.isArray(data.chatHistory)) {
+      const data = await apiFetchJson<{ chatHistory?: ChatMessage[] }>('/api/chat', {
+        method: 'DELETE',
+      });
+      if (Array.isArray(data.chatHistory)) {
         onChatUpdate(data.chatHistory);
       }
     } catch {

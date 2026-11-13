@@ -217,6 +217,16 @@ function addApplicationDraft(
 
 const app = express();
 app.use(express.json({ limit: '6mb' }));
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 const uploadMemory = multer({
   storage: multer.memoryStorage(),

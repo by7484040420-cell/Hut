@@ -19,6 +19,7 @@ import type {
   EphemeralDocumentExtract,
 } from '../types';
 import { CATEGORY_LABELS, formatIsoTime } from '../lib/format';
+import { apiFetchJson } from '../lib/api';
 
 interface FormStudioSectionProps {
   applications: ApplicationDraft[];
@@ -109,7 +110,11 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
     setGenerating(true);
     setError(null);
     try {
-      const res = await fetch('/api/ai/autofill', {
+      const data = await apiFetchJson<{
+        zeroSave?: boolean;
+        draft?: ApplicationDraft;
+        applications?: ApplicationDraft[];
+      }>('/api/ai/autofill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,14 +126,10 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
           ephemeralDocs,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Auto-fill generation failed');
-      }
       if (data.zeroSave && data.draft) {
         onApplicationsChange([data.draft, ...applications]);
         onSelectId(data.draft.id);
-      } else {
+      } else if (Array.isArray(data.applications)) {
         onApplicationsChange(data.applications);
         if (data.draft?.id) {
           onSelectId(data.draft.id);
@@ -183,21 +184,25 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/applications/${selected.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: selected.fields,
-          formalLetterText: selected.formalLetterText,
-          status: selected.fields.some((f) => !f.value.trim())
-            ? 'needs_review'
-            : 'draft_ready',
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && Array.isArray(data.applications)) {
+      const data = await apiFetchJson<{ applications?: ApplicationDraft[] }>(
+        `/api/applications/${selected.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: selected.fields,
+            formalLetterText: selected.formalLetterText,
+            status: selected.fields.some((f) => !f.value.trim())
+              ? 'needs_review'
+              : 'draft_ready',
+          }),
+        }
+      );
+      if (Array.isArray(data.applications)) {
         onApplicationsChange(data.applications);
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save changes');
     } finally {
       setSaving(false);
     }
@@ -212,12 +217,22 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
       }
       return;
     }
-    const res = await fetch(`/api/applications/${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (res.ok && Array.isArray(data.applications)) {
-      onApplicationsChange(data.applications);
+    try {
+      const data = await apiFetchJson<{ applications?: ApplicationDraft[] }>(
+        `/api/applications/${id}`,
+        { method: 'DELETE' }
+      );
+      if (Array.isArray(data.applications)) {
+        onApplicationsChange(data.applications);
+        if (selectedId === id) {
+          onSelectId(data.applications[0]?.id || null);
+        }
+      }
+    } catch {
+      const next = applications.filter((a) => a.id !== id);
+      onApplicationsChange(next);
       if (selectedId === id) {
-        onSelectId(data.applications[0]?.id || null);
+        onSelectId(next[0]?.id || null);
       }
     }
   };

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Bot,
   Compass,
   FileSpreadsheet,
   Loader2,
+  Server,
   ShieldCheck,
   UserCheck,
   Wifi,
@@ -23,6 +24,15 @@ import { MiniBrowserSection } from './components/MiniBrowserSection';
 import { ProfileVaultSection } from './components/ProfileVaultSection';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { useOnlineStatus } from './hooks/usePWAInstall';
+import {
+  apiFetchJson,
+  BackendUnavailableError,
+  getSavedBackendUrl,
+  loadLocalFallbackBootstrap,
+  saveLocalFallbackBookmarks,
+  saveLocalFallbackProfile,
+  setSavedBackendUrl,
+} from './lib/api';
 
 type TabKey = 'agent' | 'forms' | 'browser' | 'vault';
 
@@ -30,6 +40,10 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('agent');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [serverOfflineMode, setServerOfflineMode] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState(() => getSavedBackendUrl());
+  const [connectingServer, setConnectingServer] = useState(false);
+  const [serverConnectError, setServerConnectError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [queuedBrowserUrl, setQueuedBrowserUrl] = useState<string | null>(null);
@@ -41,32 +55,60 @@ export function App() {
 
   const isOnline = useOnlineStatus();
 
-  useEffect(() => {
-    let active = true;
-    fetch('/api/bootstrap')
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Failed to load workspace');
-        return (await res.json()) as WorkspaceBootstrap;
-      })
-      .then((data) => {
-        if (!active) return;
-        setWorkspace(data);
-        if (data.applications.length > 0) {
-          setSelectedDraftId(data.applications[0].id);
-        }
-      })
-      .catch((err) => {
-        if (!active) return;
+  const loadWorkspaceData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    setServerConnectError(null);
+    try {
+      const data = await apiFetchJson<WorkspaceBootstrap>('/api/bootstrap');
+      setWorkspace(data);
+      setServerOfflineMode(false);
+      if (data.applications.length > 0) {
+        setSelectedDraftId((prev) => prev || data.applications[0].id);
+      }
+    } catch (err) {
+      if (err instanceof BackendUnavailableError) {
+        const localData = loadLocalFallbackBootstrap();
+        setWorkspace(localData);
+        setServerOfflineMode(true);
+        setServerConnectError(err.message);
+      } else {
         setLoadError(err instanceof Error ? err.message : 'Unable to connect to server');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadWorkspaceData();
+  }, [loadWorkspaceData]);
+
+  const handleConnectServer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (connectingServer) return;
+    setConnectingServer(true);
+    setServerConnectError(null);
+    const normalized = setSavedBackendUrl(serverUrlInput);
+    setServerUrlInput(normalized);
+    try {
+      const data = await apiFetchJson<WorkspaceBootstrap>('/api/bootstrap');
+      setWorkspace(data);
+      setServerOfflineMode(false);
+      if (data.applications.length > 0) {
+        setSelectedDraftId(data.applications[0].id);
+      }
+    } catch (err) {
+      setServerOfflineMode(true);
+      setServerConnectError(
+        err instanceof Error
+          ? err.message
+          : 'Server URL se connect nahi ho saka. Kripya live SarthiAI backend URL check karein.'
+      );
+    } finally {
+      setConnectingServer(false);
+    }
+  };
 
   const openUrlInLiveBrowser = (url: string, goal?: string) => {
     setQueuedBrowserUrl(url);
@@ -101,10 +143,16 @@ export function App() {
   };
 
   const handleBookmarksChange = (bookmarks: PortalBookmark[]) => {
+    if (serverOfflineMode) {
+      saveLocalFallbackBookmarks(bookmarks);
+    }
     setWorkspace((prev) => (prev ? { ...prev, bookmarks } : prev));
   };
 
   const handleProfileSaved = (profile: ProfileVault) => {
+    if (serverOfflineMode) {
+      saveLocalFallbackProfile(profile);
+    }
     setWorkspace((prev) => (prev ? { ...prev, profile } : prev));
   };
 
@@ -160,7 +208,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col pb-20 md:pb-0">
       {/* 3-Zone Top Header */}
-      <header className="sticky top-0 z-30 bg-[#0B0F17]/95 backdrop-blur border-b border-slate-800/80">
+      <header className="sticky top-0 z-30 bg-[#0B0F17]/95 backdrop-blur border-b border-slate-800/80 pt-safe">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           {/* Zone 1: Brand */}
           <div className="flex items-center gap-2.5 shrink-0">
@@ -227,7 +275,41 @@ export function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-5">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-5 space-y-4">
+        {serverOfflineMode && (
+          <form
+            onSubmit={handleConnectServer}
+            className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center gap-2.5"
+          >
+            <div className="flex items-start gap-2 flex-1 min-w-0">
+              <Server className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-100 leading-relaxed">
+                <span className="font-semibold text-amber-300">APK Standalone Mode:</span>{' '}
+                AI Autopilot, OCR aur Live Chromium Browser chalane ke liye apna deployed SarthiAI Server URL connect karein.
+                {serverConnectError && (
+                  <div className="text-[11px] text-amber-200/80 mt-0.5">{serverConnectError}</div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="url"
+                value={serverUrlInput}
+                onChange={(e) => setServerUrlInput(e.target.value)}
+                placeholder="https://your-sarthiai-server.app"
+                className="min-h-[38px] w-full sm:w-64 px-3 rounded-xl bg-[#0B0F17] border border-slate-700 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:border-amber-400 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={connectingServer || !serverUrlInput.trim()}
+                className="min-h-[38px] px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-slate-950 font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
+              >
+                {connectingServer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Connect'}
+              </button>
+            </div>
+          </form>
+        )}
+
         {loading ? (
           <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
             <Loader2 className="w-6 h-6 animate-spin text-emerald-400" />
