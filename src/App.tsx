@@ -5,8 +5,10 @@ import {
   FileSpreadsheet,
   Home,
   Loader2,
+  Monitor,
   Server,
   ShieldCheck,
+  Smartphone,
   UserCheck,
 } from 'lucide-react';
 import type {
@@ -27,10 +29,13 @@ import {
   apiFetchJson,
   BackendUnavailableError,
   getSavedBackendUrl,
+  getSavedViewMode,
   loadLocalFallbackBootstrap,
   saveLocalFallbackBookmarks,
   saveLocalFallbackProfile,
   setSavedBackendUrl,
+  setSavedViewMode,
+  type AppViewMode,
 } from './lib/api';
 
 type TabKey = 'home' | 'agent' | 'browser' | 'forms' | 'vault';
@@ -52,6 +57,13 @@ export function App() {
   // Ephemeral RAM-only document extractions & Zero-Save privacy toggle (default ON)
   const [zeroSave, setZeroSave] = useState(true);
   const [ephemeralDocs, setEphemeralDocs] = useState<EphemeralDocumentExtract[]>([]);
+  const [viewMode, setViewMode] = useState<AppViewMode>(() => getSavedViewMode());
+
+  const toggleViewMode = () => {
+    const next: AppViewMode = viewMode === 'desktop' ? 'mobile' : 'desktop';
+    setViewMode(next);
+    setSavedViewMode(next);
+  };
 
   const loadWorkspaceData = useCallback(async () => {
     setLoading(true);
@@ -69,7 +81,7 @@ export function App() {
         const localData = loadLocalFallbackBootstrap();
         setWorkspace(localData);
         setServerOfflineMode(true);
-        setServerConnectError(err.message);
+        setServerConnectError(null);
       } else {
         setLoadError(err instanceof Error ? err.message : 'Unable to connect to server');
       }
@@ -200,10 +212,14 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F6F8FB] text-slate-900 flex flex-col pb-20 md:pb-0">
+    <div
+      className={`min-h-screen bg-[#F6F8FB] text-slate-900 flex flex-col ${
+        viewMode === 'desktop' ? 'pb-4' : 'pb-20 md:pb-4'
+      }`}
+    >
       {/* Crisp 3-Zone Navy Header matching Reference Screenshot */}
       <header className="sticky top-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 pt-safe">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-8">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-6">
           {/* Zone 1: Brand Wordmark */}
           <button
             type="button"
@@ -240,8 +256,21 @@ export function App() {
             })}
           </nav>
 
-          {/* Zone 3: Single Primary Action */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          {/* Zone 3: View Mode & Zero-Save Controls */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={toggleViewMode}
+              title="Switch between Laptop Full-Display and Mobile layout"
+              className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+            >
+              {viewMode === 'desktop' ? (
+                <Monitor className="w-3.5 h-3.5 text-sky-400" />
+              ) : (
+                <Smartphone className="w-3.5 h-3.5 text-sky-400" />
+              )}
+              {viewMode === 'desktop' ? 'Laptop View' : 'Mobile View'}
+            </button>
             <button
               type="button"
               onClick={() => setZeroSave((v) => !v)}
@@ -270,9 +299,9 @@ export function App() {
             <div className="flex items-start gap-2 flex-1 min-w-0">
               <Server className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
               <div className="text-xs text-amber-950 leading-relaxed">
-                <span className="font-bold">APK Standalone Mode:</span> Live AI, OCR aur Chromium Browser chalane ke liye apna deployed SarthiAI Server URL connect karein.
+                <span className="font-bold">APK Standalone Mode:</span> Cloud AI Autopilot, OCR &amp; Live Chromium ke liye apna deployed SarthiAI Server URL connect karein — ya Direct Form links phone ke Ad-Blocked browser me kholein.
                 {serverConnectError && (
-                  <div className="text-[11px] text-amber-800 mt-0.5">{serverConnectError}</div>
+                  <div className="text-[11px] text-rose-700 mt-0.5">{serverConnectError}</div>
                 )}
               </div>
             </div>
@@ -282,14 +311,14 @@ export function App() {
                 value={serverUrlInput}
                 onChange={(e) => setServerUrlInput(e.target.value)}
                 placeholder="https://your-sarthiai-server.app"
-                className="min-h-[38px] w-full sm:w-64 px-3 rounded-xl bg-white border border-amber-300 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+                className="min-h-[38px] w-full sm:w-72 px-3 rounded-xl bg-white border border-amber-300 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={connectingServer || !serverUrlInput.trim()}
-                className="min-h-[38px] px-3.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
+                className="min-h-[38px] px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
               >
-                {connectingServer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Connect'}
+                {connectingServer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Connect Server'}
               </button>
             </div>
           </form>
@@ -348,6 +377,7 @@ export function App() {
                 profile={workspace.profile}
                 ephemeralDocs={ephemeralDocs}
                 zeroSave={zeroSave}
+                serverOfflineMode={serverOfflineMode}
                 activeDraft={activeDraft}
                 onBookmarksChange={handleBookmarksChange}
                 onAddEphemeralDoc={handleAddEphemeralDoc}

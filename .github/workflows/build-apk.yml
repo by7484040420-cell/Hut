@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Optional: Deployed SarthiAI Backend Server URL (e.g. https://sarthiai.onrender.com)'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -26,7 +31,7 @@ jobs:
 
       - name: Install dependencies & build web bundle
         env:
-          VITE_API_BASE_URL: ${{ vars.SARTHIAI_BACKEND_URL || '' }}
+          VITE_API_BASE_URL: ${{ github.event.inputs.backend_url || vars.SARTHIAI_BACKEND_URL || '' }}
         run: |
           npm install
           npm run build
@@ -49,9 +54,27 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: Configure Native WebView Ad-Blocker & Non-Overlapping StatusBar in MainActivity
+      - name: Configure Native Laptop-Scale WebView, Ad-Blocker & Readable StatusBar
         shell: bash
         run: |
+          STYLES_XML="android/app/src/main/res/values/styles.xml"
+          cat << 'EOF' > "$STYLES_XML"
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="colorPrimary">#0F172A</item>
+                  <item name="colorPrimaryDark">#F8FAFC</item>
+                  <item name="colorAccent">#E11D48</item>
+                  <item name="android:statusBarColor">#F8FAFC</item>
+                  <item name="android:windowLightStatusBar">true</item>
+                  <item name="android:navigationBarColor">#FFFFFF</item>
+                  <item name="android:windowLightNavigationBar">true</item>
+              </style>
+              <style name="AppTheme.NoActionBar" parent="AppTheme" />
+              <style name="AppTheme.NoActionBarLaunch" parent="AppTheme" />
+          </resources>
+          EOF
+
           MAIN_ACT="android/app/src/main/java/com/sarthiai/assistant/MainActivity.java"
           cat << 'EOF' > "$MAIN_ACT"
           package com.sarthiai.assistant;
@@ -79,21 +102,28 @@ jobs:
                   "propellerads.com", "adsterra.com", "mgid.com", "revcontent.com"
               );
 
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-
-                  // Prevent Android status bar clock/icons from overlapping the SarthiAI top header
+              private void applySystemBars() {
                   WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
-                  getWindow().setStatusBarColor(Color.parseColor("#0F172A"));
+                  getWindow().setStatusBarColor(Color.parseColor("#F8FAFC"));
                   getWindow().setNavigationBarColor(Color.parseColor("#FFFFFF"));
                   WindowInsetsControllerCompat insetsController =
                       new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
-                  insetsController.setAppearanceLightStatusBars(false);
+                  insetsController.setAppearanceLightStatusBars(true);
                   insetsController.setAppearanceLightNavigationBars(true);
+              }
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  applySystemBars();
 
                   if (this.bridge != null && this.bridge.getWebView() != null) {
                       WebSettings settings = this.bridge.getWebView().getSettings();
+                      settings.setUseWideViewPort(true);
+                      settings.setLoadWithOverviewMode(true);
+                      settings.setSupportZoom(true);
+                      settings.setBuiltInZoomControls(true);
+                      settings.setDisplayZoomControls(false);
                       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
                       this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
                           @Override
@@ -108,6 +138,12 @@ jobs:
                           }
                       });
                   }
+              }
+
+              @Override
+              public void onResume() {
+                  super.onResume();
+                  applySystemBars();
               }
           }
           EOF

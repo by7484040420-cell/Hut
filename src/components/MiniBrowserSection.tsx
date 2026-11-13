@@ -6,6 +6,7 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  Compass,
   Copy,
   Eraser,
   ExternalLink,
@@ -37,6 +38,7 @@ interface MiniBrowserSectionProps {
   profile: ProfileVault;
   ephemeralDocs: EphemeralDocumentExtract[];
   zeroSave: boolean;
+  serverOfflineMode?: boolean;
   activeDraft: ApplicationDraft | null;
   onBookmarksChange: (bookmarks: PortalBookmark[]) => void;
   onAddEphemeralDoc: (doc: EphemeralDocumentExtract) => void;
@@ -91,6 +93,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   profile,
   ephemeralDocs,
   zeroSave,
+  serverOfflineMode = false,
   activeDraft,
   onBookmarksChange,
   onAddEphemeralDoc,
@@ -240,16 +243,19 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   useEffect(() => {
     if (initialUrl || initialGoal) {
       if (initialUrl) setAddressInput(initialUrl);
-      if (initialGoal) {
-        setAgentGoal(initialGoal);
-        void startLiveAgent(initialGoal, initialUrl || undefined);
-      } else if (initialUrl) {
-        void navigateTo(initialUrl);
+      if (initialGoal) setAgentGoal(initialGoal);
+
+      if (!serverOfflineMode) {
+        if (initialGoal) {
+          void startLiveAgent(initialGoal, initialUrl || undefined);
+        } else if (initialUrl) {
+          void navigateTo(initialUrl);
+        }
       }
       onConsumeInitial();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialUrl, initialGoal]);
+  }, [initialUrl, initialGoal, serverOfflineMode]);
 
   const stopLiveAgent = async () => {
     await apiFetchJson('/api/live-browser/agent/stop', { method: 'POST' }).catch(() => {});
@@ -636,7 +642,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           </div>
 
           {/* Live Chromium Stream Viewport */}
-          <div className="relative bg-[#0F172A] aspect-video w-full flex items-center justify-center overflow-hidden select-none">
+          <div
+            className={`relative bg-[#0F172A] w-full flex items-center justify-center select-none ${
+              frameSrc ? 'aspect-video overflow-hidden' : 'min-h-[320px] px-5 py-8'
+            }`}
+          >
             {frameSrc ? (
               <>
                 <img
@@ -655,21 +665,40 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                 )}
               </>
             ) : (
-              <div className="p-8 text-center space-y-3 text-white">
-                <Globe className="w-8 h-8 text-sky-400 mx-auto" />
-                <p className="text-sm font-semibold">
+              <div className="w-full max-w-lg mx-auto text-center space-y-3.5 text-white">
+                <Globe className="w-9 h-9 text-sky-400 mx-auto" />
+                <p className="text-base font-bold leading-snug">
                   Real Ad-Blocked Chromium Direct Browser Ready
                 </p>
-                <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-                  Home page se kisi bhi job/PAN/ticket par click karein ya yahan &ldquo;Launch&rdquo; dabayein — seedha form page live dikhega.
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {serverOfflineMode
+                    ? 'APK standalone mode me aap direct form URL niche button se apne phone ke ad-blocked browser me khol sakte hain — ya Live Cloud AI Autopilot ke liye upar Server URL connect karein.'
+                    : 'Home page se kisi bhi job/PAN/ticket par click karein ya neeche “Launch Direct Form” dabayein — seedha form page live dikhega.'}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => navigateTo(addressInput)}
-                  className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
-                >
-                  Launch {addressInput}
-                </button>
+                <div className="px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-mono text-sky-300 break-all">
+                  {addressInput}
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+                  {!serverOfflineMode && (
+                    <button
+                      type="button"
+                      onClick={() => navigateTo(addressInput)}
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Compass className="w-4 h-4" />
+                      Launch Direct Form (Cloud Chromium)
+                    </button>
+                  )}
+                  <a
+                    href={addressInput}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Open Direct Form on Device
+                  </a>
+                </div>
               </div>
             )}
 

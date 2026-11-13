@@ -6,10 +6,46 @@ import type {
 
 const BACKEND_URL_STORAGE_KEY = 'sarthiai_backend_url';
 const LOCAL_WORKSPACE_STORAGE_KEY = 'sarthiai_local_workspace_v1';
+const VIEW_MODE_STORAGE_KEY = 'sarthiai_view_mode';
+
+export type AppViewMode = 'desktop' | 'mobile';
+
+export function getSavedViewMode(): AppViewMode {
+  try {
+    const raw = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    return raw === 'mobile' ? 'mobile' : 'desktop';
+  } catch {
+    return 'desktop';
+  }
+}
+
+export function setSavedViewMode(mode: AppViewMode): void {
+  try {
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    // ignore
+  }
+  const meta = document.getElementById('app-viewport');
+  if (!meta) return;
+  const screenW = Math.min(window.screen.width || window.innerWidth || 390, window.innerWidth || 9999);
+  if (mode === 'desktop' && screenW > 0 && screenW < 1100) {
+    const desktopWidth = 1200;
+    const scale = Math.max(0.25, Math.min(1, screenW / desktopWidth));
+    meta.setAttribute(
+      'content',
+      `width=${desktopWidth}, initial-scale=${scale.toFixed(4)}, minimum-scale=0.25, maximum-scale=3.0, viewport-fit=cover`
+    );
+  } else {
+    meta.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, viewport-fit=cover'
+    );
+  }
+}
 
 export class BackendUnavailableError extends Error {
   constructor(
-    message = 'Backend API server connected nahi hai. APK me AI Agent & Live Browser chalane ke liye apna deployed SarthiAI Server URL connect karein.'
+    message = 'Live Server connected nahi hai. Cloud AI Autopilot chalane ke liye upar "Connect" me apna live SarthiAI Server URL dalein.'
   ) {
     super(message);
     this.name = 'BackendUnavailableError';
@@ -91,8 +127,8 @@ export async function apiFetchJson<T = Record<string, unknown>>(
   } catch (err) {
     throw new BackendUnavailableError(
       err instanceof Error
-        ? `Server se connect nahi ho pa raha (${err.message}).`
-        : 'Server se connect nahi ho pa raha.'
+        ? `Live server se connect nahi ho pa raha (${err.message}).`
+        : 'Live server se connect nahi ho pa raha.'
     );
   }
 
@@ -107,7 +143,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
     trimmed.startsWith('<html')
   ) {
     throw new BackendUnavailableError(
-      'Yeh APK abhi bina live backend server ke khuli hai (HTML mila, JSON API nahi). Upar "Connect Live Server" me apna deployed SarthiAI Server URL dalein ya browser app URL kholein.'
+      'APK abhi offline/standalone mode me hai — Cloud AI & Live Chromium ke liye upar "Connect" me apna live SarthiAI Server URL dalein, ya seedha "Open Direct Form" use karein.'
     );
   }
 
