@@ -29,6 +29,11 @@ import type {
   ProfileVault,
 } from '../types';
 import { apiFetchJson, buildWsUrl } from '../lib/api';
+import {
+  hasNativePortalBridge,
+  launchNativeControlledPortal,
+  runNativeOnDeviceOcr,
+} from '../lib/nativeBrowserBridge';
 
 interface MiniBrowserSectionProps {
   initialUrl: string | null;
@@ -111,7 +116,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [uploadingReqId, setUploadingReqId] = useState<string | null>(null);
   const [uploadedReqMap, setUploadedReqMap] = useState<Record<string, string>>({});
+  const [nativePortalLogs, setNativePortalLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const nativeApkMode = hasNativePortalBridge();
 
   const wsRef = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -154,6 +161,17 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     };
 
     connect();
+    window.onSarthiNativePortalEvent = (eventJson: string) => {
+      try {
+        const parsed = JSON.parse(eventJson) as { message?: string; url?: string };
+        if (parsed.url) setAddressInput(parsed.url);
+        if (parsed.message) {
+          setNativePortalLogs((prev) => [parsed.message!, ...prev].slice(0, 30));
+        }
+      } catch {
+        // ignore
+      }
+    };
     return () => {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -164,6 +182,16 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const navigateTo = async (url: string) => {
     setError(null);
     setAddressInput(url);
+    if (nativeApkMode && serverOfflineMode) {
+      launchNativeControlledPortal({
+        url,
+        profile,
+        ephemeralDocs,
+        zeroSave,
+        goal: agentGoal,
+      });
+      return;
+    }
     try {
       const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
         '/api/live-browser/navigate',
@@ -175,6 +203,16 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       );
       if (data.status) setStatus(data.status);
     } catch (err) {
+      if (nativeApkMode) {
+        launchNativeControlledPortal({
+          url,
+          profile,
+          ephemeralDocs,
+          zeroSave,
+          goal: agentGoal,
+        });
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Navigation failed');
     }
   };
@@ -187,6 +225,17 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     const goal = (goalOverride ?? agentGoal).trim();
     if (!goal) return;
     setError(null);
+    const targetUrl = urlOverride || addressInput;
+    if (nativeApkMode && serverOfflineMode) {
+      launchNativeControlledPortal({
+        url: targetUrl,
+        profile,
+        ephemeralDocs: docsOverride ?? ephemeralDocs,
+        zeroSave,
+        goal,
+      });
+      return;
+    }
     try {
       const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
         '/api/live-browser/agent/start',
@@ -216,20 +265,27 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setUploadingReqId(reqId);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append('document', file);
-      const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
-        '/api/ocr/extract',
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-      const extracted = data.extracted;
+      let extracted: EphemeralDocumentExtract | null = null;
+      try {
+        const formData = new FormData();
+        formData.append('document', file);
+        const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+          '/api/ocr/extract',
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+        extracted = data.extracted;
+      } catch (serverErr) {
+        const nativeExtracted = await runNativeOnDeviceOcr(file);
+        if (!nativeExtracted) throw serverErr;
+        extracted = nativeExtracted;
+      }
       onAddEphemeralDoc(extracted);
       setUploadedReqMap((prev) => ({ ...prev, [reqId]: extracted.fileName }));
       const nextDocs = [extracted, ...ephemeralDocs];
-      if (agentGoal.trim()) {
+      if (agentGoal.trim() && !serverOfflineMode) {
         await startLiveAgent(agentGoal, undefined, nextDocs);
       }
     } catch (err) {
@@ -245,7 +301,15 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       if (initialUrl) setAddressInput(initialUrl);
       if (initialGoal) setAgentGoal(initialGoal);
 
-      if (!serverOfflineMode) {
+      if (nativeApkMode && initialUrl) {
+        launchNativeControlledPortal({
+          url: initialUrl,
+          profile,
+          ephemeralDocs,
+          zeroSave,
+          goal: initialGoal || undefined,
+        });
+      } else if (!serverOfflineMode) {
         if (initialGoal) {
           void startLiveAgent(initialGoal, initialUrl || undefined);
         } else if (initialUrl) {
@@ -255,7 +319,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       onConsumeInitial();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialUrl, initialGoal, serverOfflineMode]);
+  }, [initialUrl, initialGoal, serverOfflineMode, nativeApkMode]);
 
   const stopLiveAgent = async () => {
     await apiFetchJson('/api/live-browser/agent/stop', { method: 'POST' }).catch(() => {});
@@ -279,14 +343,18 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
   const handleWipeBrowser = async () => {
     setFrameSrc(null);
-    try {
-      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
-        '/api/live-browser/wipe',
-        { method: 'POST' }
-      );
-      if (data.status) setStatus(data.status);
-    } catch {
-      // still wipe local session
+    setNativePortalLogs([]);
+    window.SarthiNative?.wipePortalSession?.();
+    if (!serverOfflineMode) {
+      try {
+        const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+          '/api/live-browser/wipe',
+          { method: 'POST' }
+        );
+        if (data.status) setStatus(data.status);
+      } catch {
+        // still wipe local session
+      }
     }
     onWipeAllSession();
   };
@@ -679,6 +747,24 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   {addressInput}
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+                  {nativeApkMode && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        launchNativeControlledPortal({
+                          url: addressInput,
+                          profile,
+                          ephemeralDocs,
+                          zeroSave,
+                          goal: agentGoal,
+                        })
+                      }
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Bot className="w-4 h-4" />
+                      Open APK AI-Controlled WebView
+                    </button>
+                  )}
                   {!serverOfflineMode && (
                     <button
                       type="button"
@@ -771,13 +857,13 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         <aside className="xl:col-span-4 space-y-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
             <h3 className="text-sm font-bold text-slate-900">Live AI Execution Log</h3>
-            {status.lastStepLogs.length === 0 ? (
+            {nativePortalLogs.length === 0 && status.lastStepLogs.length === 0 ? (
               <p className="text-xs text-slate-500">
                 AI autopilot jab chalega tab har step (direct form fill, CAPTCHA pause) yahan dikhega.
               </p>
             ) : (
               <div className="space-y-1.5 max-h-[200px] overflow-y-auto font-mono text-[11px]">
-                {status.lastStepLogs.map((log, i) => (
+                {[...nativePortalLogs, ...status.lastStepLogs].map((log, i) => (
                   <div
                     key={i}
                     className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-700"

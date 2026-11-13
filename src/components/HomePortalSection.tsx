@@ -27,6 +27,7 @@ import {
   buildFallbackServiceBrief,
 } from '../lib/serviceCatalog';
 import { apiFetchJson } from '../lib/api';
+import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
 
 interface HomePortalSectionProps {
   ephemeralDocs: EphemeralDocumentExtract[];
@@ -116,19 +117,27 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     setUploadingDocId(docId);
     setSheetError(null);
     try {
-      const formData = new FormData();
-      formData.append('document', file);
-      const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
-        '/api/ocr/extract',
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-      onAddEphemeralDoc(data.extracted);
+      let extracted: EphemeralDocumentExtract | null = null;
+      try {
+        const formData = new FormData();
+        formData.append('document', file);
+        const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+          '/api/ocr/extract',
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+        extracted = data.extracted;
+      } catch (serverErr) {
+        const nativeExtracted = await runNativeOnDeviceOcr(file);
+        if (!nativeExtracted) throw serverErr;
+        extracted = nativeExtracted;
+      }
+      onAddEphemeralDoc(extracted);
       setUploadedDocsMap((prev) => ({
         ...prev,
-        [docId]: `${data.extracted.documentType} (${data.extracted.fields.length} fields)`,
+        [docId]: `${extracted.documentType} (${extracted.fields.length} fields)`,
       }));
     } catch (err) {
       setSheetError(

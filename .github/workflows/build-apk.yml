@@ -1,4 +1,4 @@
-name: Build SarthiAI Android APK (With Ad-Blocker)
+name: Build SarthiAI Android APK (AI-Controlled WebView + On-Device ML Kit OCR + Ad-Blocker)
 
 on:
   push:
@@ -54,7 +54,23 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: Configure Native Laptop-Scale WebView, Ad-Blocker & Readable StatusBar
+      - name: Add On-Device ML Kit OCR & AndroidX WebKit to Gradle
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+          gradle_path = Path("android/app/build.gradle")
+          text = gradle_path.read_text(encoding="utf-8")
+          deps = (
+              "    implementation 'com.google.mlkit:text-recognition:16.0.1'\n"
+              "    implementation 'androidx.webkit:webkit:1.12.1'\n"
+          )
+          if "com.google.mlkit:text-recognition" not in text:
+              target = "dependencies {"
+              assert target in text, "dependencies block not found in android/app/build.gradle"
+              text = text.replace(target, target + "\n" + deps, 1)
+              gradle_path.write_text(text, encoding="utf-8")
+
+      - name: Configure Native AI-Controlled WebView, ML Kit OCR, Ad-Blocker & Readable StatusBar
         shell: bash
         run: |
           STYLES_XML="android/app/src/main/res/values/styles.xml"
@@ -79,19 +95,42 @@ jobs:
           cat << 'EOF' > "$MAIN_ACT"
           package com.sarthiai.assistant;
 
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
           import android.graphics.Color;
           import android.os.Bundle;
+          import android.util.Base64;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.webkit.CookieManager;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebChromeClient;
           import android.webkit.WebResourceRequest;
           import android.webkit.WebResourceResponse;
           import android.webkit.WebSettings;
+          import android.webkit.WebStorage;
           import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Button;
+          import android.widget.FrameLayout;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
           import androidx.core.view.WindowCompat;
           import androidx.core.view.WindowInsetsControllerCompat;
           import com.getcapacitor.BridgeActivity;
           import com.getcapacitor.BridgeWebViewClient;
+          import com.google.mlkit.vision.common.InputImage;
+          import com.google.mlkit.vision.text.TextRecognition;
+          import com.google.mlkit.vision.text.TextRecognizer;
+          import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
           import java.io.ByteArrayInputStream;
           import java.util.Arrays;
           import java.util.List;
+          import java.util.regex.Matcher;
+          import java.util.regex.Pattern;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
 
           public class MainActivity extends BridgeActivity {
               private static final List<String> AD_HOSTS = Arrays.asList(
@@ -101,6 +140,16 @@ jobs:
                   "scorecardresearch.com", "amazon-adsystem.com", "popads.net",
                   "propellerads.com", "adsterra.com", "mgid.com", "revcontent.com"
               );
+
+              private static final String DESKTOP_UA =
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  + "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+              private LinearLayout portalOverlay;
+              private WebView portalWebView;
+              private TextView portalStatusView;
+              private String activePayloadJson = "{}";
+              private TextRecognizer textRecognizer;
 
               private void applySystemBars() {
                   WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
@@ -112,27 +161,411 @@ jobs:
                   insetsController.setAppearanceLightNavigationBars(true);
               }
 
+              private boolean isAdRequest(WebResourceRequest request) {
+                  String url = request.getUrl() != null ? request.getUrl().toString().toLowerCase() : "";
+                  for (String host : AD_HOSTS) {
+                      if (url.contains(host)) return true;
+                  }
+                  return false;
+              }
+
+              private void emitPortalEvent(String message, String url) {
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("message", message);
+                      if (url != null) obj.put("url", url);
+                      final String script =
+                          "window.onSarthiNativePortalEvent && window.onSarthiNativePortalEvent("
+                          + JSONObject.quote(obj.toString()) + ");";
+                      runOnUiThread(() -> {
+                          if (portalStatusView != null) {
+                              portalStatusView.setText(message);
+                          }
+                          if (bridge != null && bridge.getWebView() != null) {
+                              bridge.getWebView().evaluateJavascript(script, null);
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
+              private void ensurePortalOverlay() {
+                  if (portalOverlay != null) return;
+
+                  FrameLayout root = findViewById(android.R.id.content);
+                  portalOverlay = new LinearLayout(this);
+                  portalOverlay.setOrientation(LinearLayout.VERTICAL);
+                  portalOverlay.setBackgroundColor(Color.parseColor("#0F172A"));
+                  portalOverlay.setVisibility(View.GONE);
+                  portalOverlay.setLayoutParams(new FrameLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT,
+                      ViewGroup.LayoutParams.MATCH_PARENT
+                  ));
+
+                  LinearLayout bar = new LinearLayout(this);
+                  bar.setOrientation(LinearLayout.HORIZONTAL);
+                  bar.setGravity(Gravity.CENTER_VERTICAL);
+                  bar.setBackgroundColor(Color.parseColor("#0F172A"));
+                  int pad = (int) (8 * getResources().getDisplayMetrics().density);
+                  bar.setPadding(pad, pad, pad, pad);
+
+                  Button backBtn = new Button(this);
+                  backBtn.setText("< Back");
+                  backBtn.setTextSize(11f);
+                  backBtn.setTextColor(Color.WHITE);
+                  backBtn.setBackgroundColor(Color.parseColor("#1E293B"));
+                  backBtn.setOnClickListener(v -> {
+                      if (portalWebView != null && portalWebView.canGoBack()) {
+                          portalWebView.goBack();
+                      } else {
+                          portalOverlay.setVisibility(View.GONE);
+                      }
+                  });
+
+                  portalStatusView = new TextView(this);
+                  portalStatusView.setText("SarthiAI WebView Ready");
+                  portalStatusView.setTextColor(Color.parseColor("#E2E8F0"));
+                  portalStatusView.setTextSize(11f);
+                  portalStatusView.setSingleLine(true);
+                  LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                      0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+                  );
+                  statusParams.setMargins(pad, 0, pad, 0);
+                  portalStatusView.setLayoutParams(statusParams);
+
+                  Button fillBtn = new Button(this);
+                  fillBtn.setText("AI Fill");
+                  fillBtn.setTextSize(11f);
+                  fillBtn.setTextColor(Color.WHITE);
+                  fillBtn.setBackgroundColor(Color.parseColor("#059669"));
+                  fillBtn.setOnClickListener(v -> runAutoFillOnPortal());
+
+                  Button closeBtn = new Button(this);
+                  closeBtn.setText("Close");
+                  closeBtn.setTextSize(11f);
+                  closeBtn.setTextColor(Color.WHITE);
+                  closeBtn.setBackgroundColor(Color.parseColor("#E11D48"));
+                  LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                  );
+                  closeParams.setMargins(pad / 2, 0, 0, 0);
+                  closeBtn.setLayoutParams(closeParams);
+                  closeBtn.setOnClickListener(v -> {
+                      if (portalOverlay != null) portalOverlay.setVisibility(View.GONE);
+                  });
+
+                  bar.addView(backBtn);
+                  bar.addView(portalStatusView);
+                  bar.addView(fillBtn);
+                  bar.addView(closeBtn);
+
+                  portalWebView = new WebView(this);
+                  portalWebView.setLayoutParams(new LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+                  ));
+                  WebSettings ps = portalWebView.getSettings();
+                  ps.setJavaScriptEnabled(true);
+                  ps.setDomStorageEnabled(true);
+                  ps.setDatabaseEnabled(true);
+                  ps.setUseWideViewPort(true);
+                  ps.setLoadWithOverviewMode(true);
+                  ps.setSupportZoom(true);
+                  ps.setBuiltInZoomControls(true);
+                  ps.setDisplayZoomControls(false);
+                  ps.setUserAgentString(DESKTOP_UA);
+                  ps.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+
+                  CookieManager cm = CookieManager.getInstance();
+                  cm.setAcceptCookie(true);
+                  cm.setAcceptThirdPartyCookies(portalWebView, true);
+
+                  portalWebView.setWebChromeClient(new WebChromeClient());
+                  portalWebView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          if (isAdRequest(request)) {
+                              return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+                          }
+                          return super.shouldInterceptRequest(view, request);
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          super.onPageFinished(view, url);
+                          emitPortalEvent("Loaded: " + url, url);
+                          view.postDelayed(() -> runAutoFillOnPortal(), 900);
+                      }
+                  });
+
+                  portalOverlay.addView(bar);
+                  portalOverlay.addView(portalWebView);
+                  root.addView(portalOverlay);
+              }
+
+              private void runAutoFillOnPortal() {
+                  if (portalWebView == null) return;
+                  final String safePayload = JSONObject.quote(activePayloadJson == null ? "{}" : activePayloadJson);
+                  final String js = "(function(){"
+                      + "try{"
+                      + "var data=JSON.parse(" + safePayload + ");"
+                      + "var full=(data.fullName||'').trim();"
+                      + "var parts=full?full.split(/\\s+/):[];"
+                      + "var firstName=parts[0]||'';"
+                      + "var lastName=parts.length>1?parts[parts.length-1]:'';"
+                      + "var middleName=parts.length>2?parts.slice(1,-1).join(' '):'';"
+                      + "function setVal(el,val){"
+                      + "if(!val)return false;"
+                      + "if(el.tagName==='SELECT'){"
+                      + "var lv=val.toLowerCase();"
+                      + "for(var i=0;i<el.options.length;i++){"
+                      + "var o=el.options[i];"
+                      + "if((o.text||'').toLowerCase().indexOf(lv)>=0||(o.value||'').toLowerCase()===lv){"
+                      + "el.selectedIndex=i;el.dispatchEvent(new Event('change',{bubbles:true}));"
+                      + "el.style.outline='2px solid #10b981';return true;"
+                      + "}}"
+                      + "return false;"
+                      + "}"
+                      + "if(el.type==='date'&&/^\\d{2}[\\/\\-]\\d{2}[\\/\\-]\\d{4}$/.test(val)){"
+                      + "var p=val.split(/[\\/\\-]/);val=p[2]+'-'+p[1]+'-'+p[0];"
+                      + "}"
+                      + "el.focus();"
+                      + "var proto=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;"
+                      + "var desc=Object.getOwnPropertyDescriptor(proto,'value');"
+                      + "if(desc&&desc.set){desc.set.call(el,val);}else{el.value=val;}"
+                      + "el.dispatchEvent(new Event('input',{bubbles:true}));"
+                      + "el.dispatchEvent(new Event('change',{bubbles:true}));"
+                      + "el.dispatchEvent(new Event('blur',{bubbles:true}));"
+                      + "el.style.outline='2px solid #10b981';"
+                      + "return true;"
+                      + "}"
+                      + "var inputs=document.querySelectorAll('input,select,textarea');"
+                      + "var filled=0;var hasCaptcha=false;var hasOtp=false;"
+                      + "inputs.forEach(function(el){"
+                      + "if(el.disabled||el.readOnly||el.type==='hidden'||el.type==='submit'||el.type==='button')return;"
+                      + "var lbl='';"
+                      + "if(el.id){var lb=document.querySelector('label[for=\"'+el.id+'\"]');if(lb)lbl=lb.innerText||'';}"
+                      + "if(!lbl&&el.closest('label'))lbl=el.closest('label').innerText||'';"
+                      + "var hint=((el.name||'')+' '+(el.id||'')+' '+(el.placeholder||'')+' '+(el.getAttribute('aria-label')||'')+' '+lbl).toLowerCase();"
+                      + "if(hint.indexOf('captcha')>=0||hint.indexOf('security code')>=0){hasCaptcha=true;el.style.outline='2px solid #f59e0b';return;}"
+                      + "if(hint.indexOf('otp')>=0){hasOtp=true;el.style.outline='2px solid #f59e0b';return;}"
+                      + "if(el.value&&String(el.value).trim().length>0&&el.tagName!=='SELECT')return;"
+                      + "var match='';"
+                      + "if(hint.indexOf('first')>=0&&hint.indexOf('name')>=0)match=firstName;"
+                      + "else if(hint.indexOf('last')>=0||hint.indexOf('surname')>=0)match=lastName;"
+                      + "else if(hint.indexOf('middle')>=0)match=middleName;"
+                      + "else if(hint.indexOf('father')>=0)match=data.fatherName||'';"
+                      + "else if(hint.indexOf('mother')>=0)match=data.motherName||'';"
+                      + "else if(hint.indexOf('email')>=0||el.type==='email')match=data.email||'';"
+                      + "else if(hint.indexOf('mobile')>=0||hint.indexOf('phone')>=0||el.type==='tel')match=data.mobile||'';"
+                      + "else if(hint.indexOf('dob')>=0||hint.indexOf('birth')>=0)match=data.dob||'';"
+                      + "else if(hint.indexOf('gender')>=0||hint.indexOf('sex')>=0)match=data.gender||'';"
+                      + "else if(hint.indexOf('category')>=0||hint.indexOf('caste')>=0)match=data.category||'';"
+                      + "else if(hint.indexOf('pin')>=0||hint.indexOf('postal')>=0)match=data.pinCode||'';"
+                      + "else if(hint.indexOf('district')>=0)match=data.district||'';"
+                      + "else if(hint.indexOf('state')>=0)match=data.state||'';"
+                      + "else if(hint.indexOf('address')>=0)match=data.addressLine||'';"
+                      + "else if(hint.indexOf('aadhaar')>=0||hint.indexOf('uid')>=0)match=data.aadhaarNumber||'';"
+                      + "else if(hint.indexOf('pan')>=0&&hint.indexOf('company')<0)match=data.panNumber||'';"
+                      + "else if(hint.indexOf('passport')>=0)match=data.passportNumber||'';"
+                      + "else if(hint.indexOf('applicant')>=0||hint.indexOf('candidate')>=0||hint.indexOf('fullname')>=0||hint.indexOf('full name')>=0||(hint.indexOf('name')>=0&&hint.indexOf('user')<0))match=full;"
+                      + "if(match&&setVal(el,match))filled++;"
+                      + "});"
+                      + "return JSON.stringify({filled:filled,hasCaptcha:hasCaptcha,hasOtp:hasOtp,url:location.href});"
+                      + "}catch(e){return JSON.stringify({error:String(e)});}"
+                      + "})();";
+
+                  runOnUiThread(() -> portalWebView.evaluateJavascript(js, raw -> {
+                      try {
+                          String cleaned = raw;
+                          if (cleaned != null && cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
+                              cleaned = new JSONObject("{\"v\":" + cleaned + "}").getString("v");
+                          }
+                          JSONObject res = new JSONObject(cleaned);
+                          int filled = res.optInt("filled", 0);
+                          boolean captcha = res.optBoolean("hasCaptcha", false);
+                          boolean otp = res.optBoolean("hasOtp", false);
+                          String url = res.optString("url", "");
+                          String msg = "AI Auto-Fill: " + filled + " fields bhare";
+                          if (captcha) msg += " · CAPTCHA box highlight hai";
+                          if (otp) msg += " · OTP aap dalein";
+                          emitPortalEvent(msg, url);
+                      } catch (Exception ignored) {
+                          emitPortalEvent("AI WebView active", null);
+                      }
+                  }));
+              }
+
+              private void parseAndSendOcrResult(String requestId, String rawText) {
+                  try {
+                      JSONArray fields = new JSONArray();
+                      String upper = rawText.toUpperCase();
+                      String docType = "Scanned Document (On-Device ML Kit)";
+
+                      Matcher panMatcher = Pattern.compile("\\b([A-Z]{5}[0-9]{4}[A-Z])\\b").matcher(upper);
+                      if (panMatcher.find()) {
+                          docType = "PAN Card (On-Device OCR)";
+                          fields.put(new JSONObject().put("key", "pan_number").put("label", "PAN Number").put("value", panMatcher.group(1)));
+                      }
+
+                      Matcher aadhaarMatcher = Pattern.compile("\\b([2-9][0-9]{3}[\\s-]?[0-9]{4}[\\s-]?[0-9]{4})\\b").matcher(rawText);
+                      if (aadhaarMatcher.find()) {
+                          docType = "Aadhaar Card (On-Device OCR)";
+                          fields.put(new JSONObject().put("key", "aadhaar_number").put("label", "Aadhaar Number").put("value", aadhaarMatcher.group(1)));
+                      }
+
+                      Matcher dobMatcher = Pattern.compile("\\b(\\d{2}[\\/\\-]\\d{2}[\\/\\-]\\d{4})\\b").matcher(rawText);
+                      if (dobMatcher.find()) {
+                          fields.put(new JSONObject().put("key", "dob").put("label", "Date of Birth").put("value", dobMatcher.group(1)));
+                      }
+
+                      Matcher mobileMatcher = Pattern.compile("\\b([6-9][0-9]{9})\\b").matcher(rawText);
+                      if (mobileMatcher.find()) {
+                          fields.put(new JSONObject().put("key", "mobile").put("label", "Mobile Number").put("value", mobileMatcher.group(1)));
+                      }
+
+                      Matcher pinMatcher = Pattern.compile("\\b([1-9][0-9]{5})\\b").matcher(rawText);
+                      if (pinMatcher.find()) {
+                          fields.put(new JSONObject().put("key", "pin_code").put("label", "PIN Code").put("value", pinMatcher.group(1)));
+                      }
+
+                      if (upper.contains("FEMALE")) {
+                          fields.put(new JSONObject().put("key", "gender").put("label", "Gender").put("value", "Female"));
+                      } else if (upper.contains("MALE")) {
+                          fields.put(new JSONObject().put("key", "gender").put("label", "Gender").put("value", "Male"));
+                      }
+
+                      String[] lines = rawText.split("\\r?\\n");
+                      for (int i = 0; i < lines.length; i++) {
+                          String line = lines[i].trim();
+                          String lLow = line.toLowerCase();
+                          if ((lLow.contains("s/o") || lLow.contains("d/o") || lLow.contains("w/o") || lLow.contains("father")) && line.length() > 5) {
+                              fields.put(new JSONObject().put("key", "father_name").put("label", "Father's Name").put("value", line.replaceAll("(?i).*(s/o|d/o|w/o|father'?s? name)[:\\s-]*", "").trim()));
+                          } else if (i > 0 && i < 6 && line.matches("^[A-Za-z][A-Za-z .]{3,35}$")
+                              && !lLow.contains("government") && !lLow.contains("india") && !lLow.contains("income tax") && !lLow.contains("department")) {
+                              fields.put(new JSONObject().put("key", "full_name").put("label", "Full Name").put("value", line));
+                              break;
+                          }
+                      }
+
+                      JSONObject out = new JSONObject();
+                      out.put("ok", true);
+                      out.put("documentType", docType);
+                      out.put("rawText", rawText);
+                      out.put("fields", fields);
+
+                      final String js = "window.onSarthiNativeOcrResult && window.onSarthiNativeOcrResult("
+                          + JSONObject.quote(requestId) + ", " + JSONObject.quote(out.toString()) + ");";
+                      runOnUiThread(() -> {
+                          if (bridge != null && bridge.getWebView() != null) {
+                              bridge.getWebView().evaluateJavascript(js, null);
+                          }
+                      });
+                  } catch (Exception e) {
+                      sendOcrError(requestId);
+                  }
+              }
+
+              private void sendOcrError(String requestId) {
+                  try {
+                      JSONObject out = new JSONObject();
+                      out.put("ok", false);
+                      final String js = "window.onSarthiNativeOcrResult && window.onSarthiNativeOcrResult("
+                          + JSONObject.quote(requestId) + ", " + JSONObject.quote(out.toString()) + ");";
+                      runOnUiThread(() -> {
+                          if (bridge != null && bridge.getWebView() != null) {
+                              bridge.getWebView().evaluateJavascript(js, null);
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
+              public class SarthiNativeBridge {
+                  @JavascriptInterface
+                  public boolean isNativeApk() {
+                      return true;
+                  }
+
+                  @JavascriptInterface
+                  public void openPortal(String url, String payloadJson) {
+                      activePayloadJson = payloadJson != null ? payloadJson : "{}";
+                      runOnUiThread(() -> {
+                          ensurePortalOverlay();
+                          portalOverlay.setVisibility(View.VISIBLE);
+                          portalOverlay.bringToFront();
+                          portalStatusView.setText("Opening: " + url);
+                          portalWebView.loadUrl(url);
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void autoFillPortal(String payloadJson) {
+                      if (payloadJson != null) activePayloadJson = payloadJson;
+                      runOnUiThread(() -> runAutoFillOnPortal());
+                  }
+
+                  @JavascriptInterface
+                  public void closePortal() {
+                      runOnUiThread(() -> {
+                          if (portalOverlay != null) portalOverlay.setVisibility(View.GONE);
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void wipePortalSession() {
+                      activePayloadJson = "{}";
+                      runOnUiThread(() -> {
+                          if (portalWebView != null) {
+                              portalWebView.clearCache(true);
+                              portalWebView.clearHistory();
+                              portalWebView.loadUrl("about:blank");
+                          }
+                          CookieManager.getInstance().removeAllCookies(null);
+                          WebStorage.getInstance().deleteAllData();
+                          emitPortalEvent("Zero-Save Session Wiped", "about:blank");
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void scanDocumentOcr(String base64Image, String requestId) {
+                      try {
+                          byte[] decoded = Base64.decode(base64Image, Base64.DEFAULT);
+                          Bitmap bmp = BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
+                          if (bmp == null) {
+                              sendOcrError(requestId);
+                              return;
+                          }
+                          if (textRecognizer == null) {
+                              textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                          }
+                          InputImage image = InputImage.fromBitmap(bmp, 0);
+                          textRecognizer.process(image)
+                              .addOnSuccessListener(visionText -> parseAndSendOcrResult(requestId, visionText.getText()))
+                              .addOnFailureListener(e -> sendOcrError(requestId));
+                      } catch (Exception e) {
+                          sendOcrError(requestId);
+                      }
+                  }
+              }
+
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   applySystemBars();
 
                   if (this.bridge != null && this.bridge.getWebView() != null) {
-                      WebSettings settings = this.bridge.getWebView().getSettings();
+                      WebView mainWv = this.bridge.getWebView();
+                      WebSettings settings = mainWv.getSettings();
                       settings.setUseWideViewPort(true);
                       settings.setLoadWithOverviewMode(true);
                       settings.setSupportZoom(true);
                       settings.setBuiltInZoomControls(true);
                       settings.setDisplayZoomControls(false);
                       settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-                      this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
+                      mainWv.addJavascriptInterface(new SarthiNativeBridge(), "SarthiNative");
+                      mainWv.setWebViewClient(new BridgeWebViewClient(this.bridge) {
                           @Override
                           public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                              String url = request.getUrl() != null ? request.getUrl().toString().toLowerCase() : "";
-                              for (String host : AD_HOSTS) {
-                                  if (url.contains(host)) {
-                                      return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
-                                  }
+                              if (isAdRequest(request)) {
+                                  return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
                               }
                               return super.shouldInterceptRequest(view, request);
                           }
@@ -144,6 +577,19 @@ jobs:
               public void onResume() {
                   super.onResume();
                   applySystemBars();
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE) {
+                      if (portalWebView != null && portalWebView.canGoBack()) {
+                          portalWebView.goBack();
+                      } else {
+                          portalOverlay.setVisibility(View.GONE);
+                      }
+                      return;
+                  }
+                  super.onBackPressed();
               }
           }
           EOF

@@ -21,6 +21,7 @@ import type {
 } from '../types';
 import { formatIsoTime, getVaultCompletion } from '../lib/format';
 import { apiFetchJson } from '../lib/api';
+import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
 
 interface AiAgentSectionProps {
   profile: ProfileVault;
@@ -184,16 +185,23 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
     setUploadingSlotId(slot.slotId);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append('document', file);
-      const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
-        '/api/ocr/extract',
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
-      const extracted = data.extracted;
+      let extracted: EphemeralDocumentExtract | null = null;
+      try {
+        const formData = new FormData();
+        formData.append('document', file);
+        const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+          '/api/ocr/extract',
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+        extracted = data.extracted;
+      } catch (serverErr) {
+        const nativeExtracted = await runNativeOnDeviceOcr(file);
+        if (!nativeExtracted) throw serverErr;
+        extracted = nativeExtracted;
+      }
       onAddEphemeralDoc(extracted);
       setCompletedSlots((prev) => ({
         ...prev,
