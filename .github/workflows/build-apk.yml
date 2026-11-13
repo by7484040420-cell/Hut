@@ -1,4 +1,4 @@
-name: Build Android APK (VibeRoom)
+name: Build Native Android APK (MochiClone)
 
 on:
   push:
@@ -13,54 +13,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Setup Java 21
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
-
-      - name: Build web bundle
-        run: |
-          npm install
-          npm run build
-
-      - name: Create Capacitor Android wrapper
-        run: |
-          mkdir -p capacitor-app/www
-          cp -r dist/* capacitor-app/www/
-          cat > capacitor-app/package.json << 'EOF'
-          {
-            "name": "viberoom-apk",
-            "version": "1.0.0",
-            "private": true,
-            "dependencies": {
-              "@capacitor/core": "^8.0.0",
-              "@capacitor/android": "^8.0.0"
-            },
-            "devDependencies": {
-              "@capacitor/cli": "^8.0.0"
-            }
-          }
-          EOF
-          cat > capacitor-app/capacitor.config.json << 'EOF'
-          {
-            "appId": "com.viberoom.app",
-            "appName": "VibeRoom",
-            "webDir": "www"
-          }
-          EOF
-
-      - name: Install Capacitor & sync Android
-        working-directory: ./capacitor-app
-        run: |
-          npm install
-          npx cap add android
-          npx cap sync android
+          java-version: '17'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
@@ -74,8 +31,8 @@ jobs:
           set -e
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
             "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0"
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Accept Android SDK licenses
         shell: bash
@@ -84,14 +41,17 @@ jobs:
           yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null
           set -o pipefail
 
-      - name: Build Debug APK
-        working-directory: ./capacitor-app/android
-        run: |
-          chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
 
-      - name: Upload APK Artifact
+      - name: Build Native MochiClone APK
+        working-directory: ./native-android
+        run: gradle --no-daemon assembleDebug
+
+      - name: Upload Native APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: viberoom-apk
-          path: capacitor-app/android/app/build/outputs/apk/debug/app-debug.apk
+          name: mochiclone-native-apk
+          path: native-android/app/build/outputs/apk/debug/app-debug.apk

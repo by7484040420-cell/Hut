@@ -1,9 +1,9 @@
-# VibeRoom
+# MochiClone
 
-All-in-one social media, streaming, live chat, and synchronized group watch app:
+Next-generation multi-account app cloner, parallel dual-space sandbox, device camouflage manager, and privacy vault:
 
-- **Videos**: Browse, search, filter, comment, like, and upload videos or movies.
-- **Photos**: Share photos from camera or gallery with captions, locations, likes, and comments.
-- **Live SMS & Chat**: Real-time WebSocket group channels, direct messages with online friends, typing indicators, and photo attachments.
-- **Group Watch Party**: Watch movies together in real-time playback sync with live group chat, emoji reactions, and WebRTC voice talk.
-- **Installable Mobile PWA & APK Workflow**: Install directly on Android/iOS/Desktop home screens or build an Android APK via GitHub Actions.
+- **Unlimited App & Game Cloning**: Spin up single or batch clones with isolated storage profiles, custom icons, and workspace organization.
+- **Per-Clone Device Camouflage & GPS Spoofing**: Mask device model, Android ID, IMEI, MAC address, canvas/WebGL fingerprint, timezone, and virtual GPS coordinates per clone.
+- **Dual Split-Screen Sandbox Runner**: Run two cloned app workspaces side-by-side with independent account slots, isolated local storage, embedded launcher, and one-tap cache wipe.
+- **PIN-Locked Stealth Vault**: Hide sensitive clones behind a 4-digit PIN and disguise app icons/names as Calculator, Notes, Weather, or Clock.
+- **Local APK Inspector & Android APK Workflow**: Inspect `.apk` files locally, install directly as a mobile PWA, or build a standalone Android APK via Capacitor & GitHub Actions.

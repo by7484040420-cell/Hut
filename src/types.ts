@@ -1,79 +1,38 @@
-export interface UserProfile {
-  id: string;
-  name: string;
-  color: string;
+export type AppTab = 'cloner' | 'native' | 'history';
+
+export interface ParsedApkManifest {
+  packageName: string;
+  versionName: string;
+  versionCode: number;
+  minSdkVersion: number | null;
+  targetSdkVersion: number | null;
+  appLabel: string | null;
+  appLabelIsResource: boolean;
+  permissions: string[];
+  authorities: string[];
+  activitiesCount: number;
+  servicesCount: number;
+  receiversCount: number;
 }
 
-export interface OnlineUser {
-  clientId: string;
-  userId: string;
-  name: string;
-  color: string;
-  roomId: string | null;
-  voiceActive: boolean;
-  isMuted: boolean;
+export interface ApkInspectionSummary {
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  hasResourcesArsc: boolean;
+  dexFiles: string[];
+  nativeAbis: string[];
+  manifest: ParsedApkManifest;
 }
 
-export interface CommentItem {
+export interface ClonedApkRecord {
   id: string;
-  author: string;
-  authorColor: string;
-  text: string;
+  originalFileName: string;
+  originalPackage: string;
+  clonedPackage: string;
+  clonedLabel: string;
+  versionName: string;
+  sizeBytes: number;
+  downloadUrl: string;
   createdAt: number;
 }
-
-export interface VideoItem {
-  id: string;
-  title: string;
-  channel: string;
-  channelColor: string;
-  category: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-  duration: string;
-  views: number;
-  likes: number;
-  likedBy: string[];
-  comments: CommentItem[];
-  createdAt: number;
-}
-
-export interface PhotoItem {
-  id: string;
-  author: string;
-  authorColor: string;
-  location: string;
-  caption: string;
-  imageUrl: string;
-  likes: number;
-  likedBy: string[];
-  comments: CommentItem[];
-  createdAt: number;
-}
-
-export interface ChatMessage {
-  id: string;
-  channelId: string;
-  senderId: string;
-  senderName: string;
-  senderColor: string;
-  text: string;
-  imageUrl?: string;
-  createdAt: number;
-}
-
-export interface WatchRoom {
-  id: string;
-  name: string;
-  hostName: string;
-  videoId: string;
-  videoTitle: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-  isPlaying: boolean;
-  currentTime: number;
-  updatedAt: number;
-  createdAt: number;
-}
-
-export type AppTab = 'videos' | 'photos' | 'chat' | 'party';

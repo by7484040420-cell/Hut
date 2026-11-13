@@ -14,5 +14,5 @@
     "strict": true,
     "types": ["vite/client", "vite-plugin-pwa/client", "node"]
   },
-  "include": ["src", "server.ts", "vite.config.ts"]
+  "include": ["src", "server", "server.ts", "vite.config.ts"]
 }
