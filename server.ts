@@ -610,6 +610,7 @@ app.post('/api/live-browser/autofill', async (req, res) => {
   const goal = String(req.body?.goal || '').trim() || undefined;
   const startUrl = String(req.body?.startUrl || '').trim() || undefined;
   const zeroSave = Boolean(req.body?.zeroSave);
+  const autoApply = req.body?.autoApply !== false;
   const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
     ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
     : [];
@@ -621,7 +622,45 @@ app.post('/api/live-browser/autofill', async (req, res) => {
       zeroSave,
       goal,
       startUrl,
+      autoApply,
     });
+    res.json({ status });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
+app.post('/api/live-browser/auto-apply', async (req, res) => {
+  const goal = String(req.body?.goal || '').trim() || undefined;
+  const startUrl = String(req.body?.startUrl || '').trim() || undefined;
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+
+  try {
+    const status = await liveBrowser.autoClickApplyAndFill({
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+      zeroSave,
+      goal,
+      startUrl,
+    });
+    res.json({ status });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
+app.post('/api/live-browser/fill-missing', async (req, res) => {
+  const entries = Array.isArray(req.body?.entries)
+    ? (req.body.entries as Array<{ id: string; key?: string; label: string; value: string }>)
+    : [];
+
+  try {
+    const status = await liveBrowser.fillMissingFields(entries);
     res.json({ status });
   } catch (err) {
     const formatted = formatGeminiError(err);
@@ -642,6 +681,12 @@ app.post('/api/live-browser/reload', async (_req, res) => {
 app.post('/api/live-browser/adblock', (req, res) => {
   const enabled = Boolean(req.body?.enabled);
   const status = liveBrowser.setAdBlock(enabled);
+  res.json({ status });
+});
+
+app.post('/api/live-browser/viewport', async (req, res) => {
+  const mode = req.body?.mode === 'mobile' ? 'mobile' : 'desktop';
+  const status = await liveBrowser.setViewportMode(mode);
   res.json({ status });
 });
 

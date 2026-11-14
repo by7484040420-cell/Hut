@@ -97,8 +97,8 @@
 
     // address
     [{ key: 'pinCode', pos: /pin ?code|\bpin\b|zip|postal|पिन/, neg: /security|otp|mpin|pan/ },
-     { key: 'district', pos: /district|\bjila\b|जिला/, neg: /code|court/ },
-     { key: 'state', pos: /\bstate\b|rajya|राज्य|province/, neg: /code|domicile board|status|statement/ },
+     { key: 'district', pos: /district|\bjila\b|जिला/, neg: /court|pin ?code|std/ },
+     { key: 'state', pos: /\bstate\b|rajya|राज्य|pradesh|province|domicile state/, neg: /domicile board|\bstatus\b|statement|pin ?code|std/ },
      { key: 'blockOrTehsil', pos: /block|tehsil|tahsil|taluka|taluk|anchal|अंचल|तहसील|प्रखंड/, neg: /^$/ },
      { key: 'policeStation', pos: /police station|\bthana\b|थाना/, neg: /^$/ },
      { key: 'postOffice', pos: /post office|\bpo\b|डाकघर/, neg: /^$/ },
@@ -216,6 +216,58 @@
     divorced: ['divorced', 'तलाकशुदा']
   };
 
+  var STATE_ALIASES = {
+    'andhra pradesh': ['andhra pradesh', 'ap', 'आंध्र प्रदेश'],
+    'arunachal pradesh': ['arunachal pradesh', 'ar', 'अरुणाचल प्रदेश'],
+    'assam': ['assam', 'as', 'असम'],
+    'bihar': ['bihar', 'br', 'बिहार'],
+    'chhattisgarh': ['chhattisgarh', 'chattisgarh', 'cg', 'छत्तीसगढ़'],
+    'goa': ['goa', 'ga', 'गोवा'],
+    'gujarat': ['gujarat', 'gujrat', 'gj', 'गुजरात'],
+    'haryana': ['haryana', 'hr', 'हरियाणा'],
+    'himachal pradesh': ['himachal pradesh', 'hp', 'हिमाचल प्रदेश'],
+    'jharkhand': ['jharkhand', 'jh', 'झारखंड', 'झारखण्ड'],
+    'karnataka': ['karnataka', 'ka', 'कर्नाटक'],
+    'kerala': ['kerala', 'kl', 'केरल'],
+    'madhya pradesh': ['madhya pradesh', 'mp', 'मध्य प्रदेश'],
+    'maharashtra': ['maharashtra', 'mh', 'महाराष्ट्र'],
+    'manipur': ['manipur', 'mn', 'मणिपुर'],
+    'meghalaya': ['meghalaya', 'ml', 'मेघालय'],
+    'mizoram': ['mizoram', 'mz', 'मिजोरम'],
+    'nagaland': ['nagaland', 'nl', 'नागालैंड'],
+    'odisha': ['odisha', 'orissa', 'od', 'or', 'ओडिशा'],
+    'punjab': ['punjab', 'pb', 'पंजाब'],
+    'rajasthan': ['rajasthan', 'rj', 'राजस्थान'],
+    'sikkim': ['sikkim', 'sk', 'सिक्किम'],
+    'tamil nadu': ['tamil nadu', 'tamilnadu', 'tn', 'तमिलनाडु'],
+    'telangana': ['telangana', 'ts', 'tg', 'तेलंगाना'],
+    'tripura': ['tripura', 'tr', 'त्रिपुरा'],
+    'uttar pradesh': ['uttar pradesh', 'up', 'उत्तर प्रदेश'],
+    'uttarakhand': ['uttarakhand', 'uttaranchal', 'uk', 'ua', 'उत्तराखंड'],
+    'west bengal': ['west bengal', 'wb', 'पश्चिम बंगाल'],
+    'delhi': ['delhi', 'nct of delhi', 'new delhi', 'dl', 'दिल्ली', 'नई दिल्ली'],
+    'jammu and kashmir': ['jammu and kashmir', 'jammu kashmir', 'jk', 'जम्मू और कश्मीर'],
+    'ladakh': ['ladakh', 'la', 'लद्दाख'],
+    'puducherry': ['puducherry', 'pondicherry', 'py', 'पुदुचेरी'],
+    'chandigarh': ['chandigarh', 'ch', 'चंडीगढ़'],
+    'andaman and nicobar islands': ['andaman and nicobar', 'andaman and nicobar islands', 'an'],
+    'dadra and nagar haveli and daman and diu': ['dadra and nagar haveli', 'daman and diu', 'dadra and nagar haveli and daman and diu'],
+    'lakshadweep': ['lakshadweep', 'ld']
+  };
+
+  function expandState(v) {
+    var n = norm(v);
+    var out = [n];
+    Object.keys(STATE_ALIASES).forEach(function (k) {
+      var list = STATE_ALIASES[k].map(norm);
+      if (n === k || list.indexOf(n) >= 0) {
+        out.push(k);
+        list.forEach(function (item) { out.push(item); });
+      }
+    });
+    return uniq(out);
+  }
+
   function expandSyn(v) {
     var n = norm(v);
     var out = [n];
@@ -241,7 +293,7 @@
     var t = norm(optText), v = norm(optValue);
     if (!t && !v) return 0;
     if (/^(select|choose|--|please select|चुनें|चयन)/.test(t) && !v) return 0;
-    var wants = expandSyn(wanted);
+    var wants = key === 'state' ? expandState(wanted) : expandSyn(wanted);
     var best = 0, i;
     for (i = 0; i < wants.length; i++) {
       var w = wants[i];
@@ -252,9 +304,11 @@
       else if (t.length > 2 && w.indexOf(t) >= 0) best = Math.max(best, 40);
     }
     if (key === 'state' || key === 'district') {
-      var sw = stateNorm(wanted), st = stateNorm(optText), sv = stateNorm(optValue);
-      if (sw && (st === sw || sv === sw)) best = Math.max(best, 100);
-      else if (sw && sw.length > 3 && (st.indexOf(sw) >= 0 || sw.indexOf(st) >= 0) && st.length > 3) best = Math.max(best, 70);
+      for (i = 0; i < wants.length; i++) {
+        var sw = stateNorm(wants[i]), st = stateNorm(optText), sv = stateNorm(optValue);
+        if (sw && (st === sw || sv === sw)) best = Math.max(best, 100);
+        else if (sw && sw.length > 3 && (st.indexOf(sw) >= 0 || sw.indexOf(st) >= 0) && st.length > 3) best = Math.max(best, 75);
+      }
     }
     // numeric years / percentages
     if (/^\d+(\.\d+)?%?$/.test(String(wanted).trim())) {
@@ -378,6 +432,57 @@
     return norm(labelTextOf(r) + ' ' + (r.value || '') + ' ' + (r.getAttribute('aria-label') || ''));
   }
 
+  function readableLabelOf(el, key) {
+    var raw = labelTextOf(el) || el.placeholder || el.getAttribute('aria-label') || el.name || el.id || '';
+    raw = String(raw).replace(/\s+/g, ' ').trim();
+    if (raw && raw.length <= 80 && !/^sf\d+$/.test(raw)) return raw;
+    var KEY_LABELS = {
+      fullName: 'Full Name',
+      firstName: 'First Name',
+      middleName: 'Middle Name',
+      lastName: 'Last Name',
+      fatherName: "Father's Name",
+      motherName: "Mother's Name",
+      dob: 'Date of Birth',
+      gender: 'Gender',
+      category: 'Category / Caste',
+      maritalStatus: 'Marital Status',
+      bloodGroup: 'Blood Group',
+      birthPlace: 'Birth Place',
+      mobile: 'Mobile Number',
+      alternateMobile: 'Alternate Mobile',
+      email: 'Email Address',
+      addressLine: 'Full Address',
+      villageOrWard: 'Village / Ward / Locality',
+      postOffice: 'Post Office',
+      policeStation: 'Police Station / Thana',
+      blockOrTehsil: 'Block / Tehsil',
+      district: 'District / Jila',
+      state: 'State / Rajya',
+      pinCode: 'PIN Code',
+      panNumber: 'PAN Number',
+      aadhaarNumber: 'Aadhaar Number',
+      passportNumber: 'Passport Number',
+      dlNumber: 'Driving Licence Number',
+      voterId: 'Voter ID (EPIC)',
+      tenthBoard: '10th Board Name',
+      tenthRoll: '10th Roll Number',
+      tenthYear: '10th Passing Year',
+      tenthPercent: '10th Percentage / Marks',
+      twelfthBoard: '12th Board Name',
+      twelfthRoll: '12th Roll Number',
+      twelfthYear: '12th Passing Year',
+      twelfthPercent: '12th Percentage / Marks',
+      graduationDegree: 'Graduation Degree',
+      collegeName: 'College / University',
+      graduationYear: 'Graduation Year',
+      graduationPercent: 'Graduation Percentage',
+      qualification: 'Qualification'
+    };
+    if (key && KEY_LABELS[key]) return KEY_LABELS[key];
+    return (raw || key || 'Required Field').slice(0, 80);
+  }
+
   // ---------------------------------------------------------------
   // 6. Main run
   // ---------------------------------------------------------------
@@ -388,7 +493,7 @@
       filled: 0, url: root.location ? root.location.href : '',
       title: document.title || '',
       hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
-      declarations: 0, needsUser: [], unmatched: [], filledKeys: []
+      declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: []
     };
 
     var controls = Array.prototype.slice.call(
@@ -433,9 +538,29 @@
       var val = key ? valueFor(key, data) : '';
 
       if (key && !val) {
-        // we know what it is but the vault has no value -> user must type it
+        // we know what it is but the vault has no value -> user must provide it in AI Popup
         if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
         mark(el, BLUE);
+        var mId = el.getAttribute('data-sarthi-id');
+        if (!mId) { mId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', mId); }
+        var mOpts = [];
+        if (isSelect) {
+          for (var mi = 0; mi < el.options.length && mi < 50; mi++) {
+            var mtx = (el.options[mi].text || '').trim();
+            if (mtx && !/^(select|choose|please|--)/i.test(mtx)) mOpts.push(mtx);
+          }
+        }
+        if (summary.missingFields.length < 30) {
+          summary.missingFields.push({
+            id: mId,
+            key: key,
+            label: readableLabelOf(el, key),
+            tag: el.tagName.toLowerCase(),
+            type: type,
+            placeholder: el.placeholder || '',
+            options: mOpts
+          });
+        }
         return;
       }
 
@@ -459,20 +584,21 @@
         }
       }
 
-      // not matched -> candidate for AI mapping
+      // not matched -> candidate for AI mapping (or AI Popup if Gemini doesn't have value)
       if (summary.unmatched.length < 40) {
         var id = el.getAttribute('data-sarthi-id');
         if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
         var o = [];
         if (isSelect) {
-          for (var i = 0; i < el.options.length && o.length < 40; i++) {
+          for (var i = 0; i < el.options.length && o.length < 50; i++) {
             var tx = (el.options[i].text || '').trim();
-            if (tx) o.push(tx);
+            if (tx && !/^(select|choose|please|--)/i.test(tx)) o.push(tx);
           }
         }
         summary.unmatched.push({
           id: id, tag: el.tagName.toLowerCase(), type: type,
-          name: el.name || '', label: (hint || '').slice(0, 120),
+          name: el.name || '', label: readableLabelOf(el, null),
+          rawHint: (hint || '').slice(0, 120),
           placeholder: el.placeholder || '', options: o
         });
       }
@@ -495,7 +621,28 @@
       }
       if (!key) return;
       var want = valueFor(key, data);
-      if (!want) { if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key); return; }
+      if (!want) {
+        if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
+        var rgId = 'sfrg' + (++uid);
+        var rgOpts = [];
+        grp.forEach(function (r) {
+          r.setAttribute('data-sarthi-radio-group', rgId);
+          var rl = labelTextOf(r);
+          if (rl && rgOpts.indexOf(rl) < 0) rgOpts.push(rl);
+        });
+        if (summary.missingFields.length < 30 && rgOpts.length > 0) {
+          summary.missingFields.push({
+            id: rgId,
+            key: key,
+            label: readableLabelOf(grp[0], key),
+            tag: 'radio',
+            type: 'radio',
+            placeholder: '',
+            options: rgOpts
+          });
+        }
+        return;
+      }
       var wants = expandSyn(want), pick = null, bs = 0;
       grp.forEach(function (r) {
         var lab = radioLabel(r);
@@ -545,9 +692,34 @@
     var filled = 0;
     if (!map) return { filled: 0 };
     Object.keys(map).forEach(function (id) {
-      var el = document.querySelector('[data-sarthi-id="' + id + '"]');
       var val = map[id];
-      if (!el || val == null || val === '') return;
+      if (val == null || val === '') return;
+
+      // Support radio groups saved in missingFields
+      var radioNodes = document.querySelectorAll('[data-sarthi-radio-group="' + id + '"]');
+      if (radioNodes && radioNodes.length > 0) {
+        var wants = expandSyn(String(val));
+        var bestR = null, bestRs = 0;
+        Array.prototype.forEach.call(radioNodes, function (r) {
+          var rl = radioLabel(r);
+          var sc = 0;
+          wants.forEach(function (w) {
+            if (rl === w) sc = Math.max(sc, 100);
+            else if (rl.indexOf(w) >= 0) sc = Math.max(sc, 70);
+          });
+          if (sc > bestRs) { bestRs = sc; bestR = r; }
+        });
+        if (bestR) {
+          bestR.checked = true;
+          try { bestR.click(); } catch (e) { fire(bestR, ['input', 'change']); }
+          mark(bestR.parentElement || bestR, GREEN);
+          filled++;
+        }
+        return;
+      }
+
+      var el = document.querySelector('[data-sarthi-id="' + id + '"]');
+      if (!el) return;
       var hint = hintOf(el);
       if (classifySecurity(hint)) return;               // AI ko bhi security fields nahi chhune dena
       var type = (el.type || el.tagName).toLowerCase();
@@ -558,7 +730,7 @@
         var v = String(val);
         if (parseDate(v) && (type === 'date' || /dob|birth|date/.test(hint))) v = formatDateForInput(v, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
         setNativeValue(el, v);
-        mark(el, BLUE);
+        mark(el, GREEN);
         filled++;
       }
     });

@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  Bookmark,
   Bot,
   Check,
   CheckCircle2,
@@ -10,22 +11,31 @@ import {
   Copy,
   Eraser,
   ExternalLink,
-  Globe,
   Keyboard,
   Loader2,
+  Lock,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  MoreVertical,
+  PanelRightClose,
+  PanelRightOpen,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Square,
   Trash2,
   Upload,
+  X,
   Zap,
 } from 'lucide-react';
 import type {
   ApplicationDraft,
   EphemeralDocumentExtract,
   LiveBrowserStatus,
+  MissingFormField,
   PortalBookmark,
   ProfileVault,
 } from '../types';
@@ -36,6 +46,7 @@ import {
   launchNativeControlledPortal,
   runNativeOnDeviceOcr,
 } from '../lib/nativeBrowserBridge';
+import { INDIAN_STATES_AND_UTS } from '../lib/indianStates';
 
 interface MiniBrowserSectionProps {
   initialUrl: string | null;
@@ -49,46 +60,53 @@ interface MiniBrowserSectionProps {
   activeDraft: ApplicationDraft | null;
   onBookmarksChange: (bookmarks: PortalBookmark[]) => void;
   onAddEphemeralDoc: (doc: EphemeralDocumentExtract) => void;
+  onUpdateEphemeralDocField?: (docId: string, key: string, label: string, value: string) => void;
   onWipeAllSession: () => void;
 }
 
 const DEFAULT_STATUS: LiveBrowserStatus = {
   active: false,
   url: 'about:blank',
-  title: 'SarthiAI Live Chromium Browser',
+  title: 'Sarthi Desktop Browser',
   loading: false,
   adBlockEnabled: true,
   blockedAdsCount: 0,
-  viewportWidth: 1280,
-  viewportHeight: 720,
+  viewportWidth: 1366,
+  viewportHeight: 820,
   agentRunning: false,
   agentStatus: 'Idle',
   waitingForHuman: false,
   humanPrompt: null,
   requestedDocuments: [],
+  missingFields: [],
   lastStepLogs: [],
 };
 
 const QUICK_MISSIONS = [
   {
-    label: 'IRCTC Train Search (Direct)',
+    label: 'IRCTC Train',
     url: 'https://www.irctc.co.in/nget/train-search',
-    goal: 'IRCTC Train Search direct page kholo aur mere gaon ke liye train search / ticket fill karo. CAPTCHA aur OTP main dalunga.',
+    goal: 'IRCTC Train Search direct page kholo aur ticket search fill karo. CAPTCHA/OTP main dalunga.',
   },
   {
-    label: 'PAN Form 49A (Direct)',
+    label: 'PAN 49A',
     url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
-    goal: 'NSDL PAN Card Form 49A direct page par meri details (Name, DOB, Email, Mobile) fill karo aur CAPTCHA ke liye ruko.',
+    goal: 'NSDL PAN Form 49A kholo, Apply par click karo aur meri details fill karo. CAPTCHA main dalunga.',
   },
   {
-    label: 'SSC Candidate OTR (Direct)',
+    label: 'SSC OTR',
     url: 'https://ssc.gov.in/candidate-portal/one-time-registration/home-page',
-    goal: 'SSC Candidate One-Time Registration direct form kholo aur meri details fill karo.',
+    goal: 'SSC Candidate OTR / Apply form kholo aur meri details fill karo.',
   },
   {
-    label: 'Passport Registration (Direct)',
+    label: 'Driving Licence',
+    url: 'https://sarathi.parivahan.gov.in/sarathiservice/stateSelection.do',
+    goal: 'Parivahan Sarathi par mera State (Rajya) select karo aur Apply form khol kar fill karo.',
+  },
+  {
+    label: 'Passport Seva',
     url: 'https://portal2.passportindia.gov.in/AppOnlineProject/user/RegistrationBaseAction',
-    goal: 'Passport Seva User Registration direct form kholo aur details auto-fill karo.',
+    goal: 'Passport Registration form kholo aur details auto-fill karo.',
   },
 ];
 
@@ -104,6 +122,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   activeDraft,
   onBookmarksChange,
   onAddEphemeralDoc,
+  onUpdateEphemeralDocField,
   onWipeAllSession,
 }) => {
   const [status, setStatus] = useState<LiveBrowserStatus>(DEFAULT_STATUS);
@@ -121,16 +140,56 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [nativePortalLogs, setNativePortalLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [instantFilling, setInstantFilling] = useState(false);
-  const nativeApkMode = hasNativePortalBridge();
 
-  // effect [] me stale closure se bachne ke liye latest values ref me rakhte hain
+  // Clean UI chrome & AI Popup states
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const [showPortalsList, setShowPortalsList] = useState(false);
+  const [showCopilotDrawer, setShowCopilotDrawer] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [switchingViewport, setSwitchingViewport] = useState(false);
+
+  // Missing-Details AI Popup state
+  const [missingPopupOpen, setMissingPopupOpen] = useState(false);
+  const [missingValues, setMissingValues] = useState<Record<string, string>>({});
+  const [submittingMissing, setSubmittingMissing] = useState(false);
+  const [popupUploadingOcr, setPopupUploadingOcr] = useState(false);
+  const lastPopupSigRef = useRef<string>('');
+
+  const nativeApkMode = hasNativePortalBridge();
+  const isDesktopViewport = status.viewportWidth >= 768;
+
   const latestRef = useRef({ profile, ephemeralDocs, zeroSave, goal: agentGoal });
   latestRef.current = { profile, ephemeralDocs, zeroSave, goal: agentGoal };
 
   const wsRef = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const docFileRef = useRef<HTMLInputElement | null>(null);
+  const popupOcrRef = useRef<HTMLInputElement | null>(null);
   const pendingDocReqRef = useRef<string | null>(null);
+  const lastWheelAtRef = useRef<number>(0);
+
+  const missingFields = useMemo(() => status.missingFields || [], [status.missingFields]);
+
+  // Automatically pop open the AI Details Modal whenever a form has unfilled missing details
+  useEffect(() => {
+    if (missingFields.length === 0) {
+      setMissingPopupOpen(false);
+      lastPopupSigRef.current = '';
+      return;
+    }
+    const sig = `${status.url}|${missingFields.map((f) => f.id).join(',')}`;
+    if (sig !== lastPopupSigRef.current) {
+      lastPopupSigRef.current = sig;
+      setMissingValues((prev) => {
+        const next: Record<string, string> = {};
+        for (const f of missingFields) {
+          next[f.id] = prev[f.id] || '';
+        }
+        return next;
+      });
+      setMissingPopupOpen(true);
+    }
+  }, [missingFields, status.url]);
 
   useEffect(() => {
     let closed = false;
@@ -169,7 +228,6 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
     connect();
 
-    // Rule-engine jo fields nahi pehchan paya -> server (Gemini) se map karwao -> native WebView me apply
     window.onSarthiNativeUnmatched = (eventJson: string) => {
       void (async () => {
         try {
@@ -229,6 +287,8 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
   const navigateTo = async (url: string) => {
     setError(null);
+    setShowToolsMenu(false);
+    setShowPortalsList(false);
     setAddressInput(url);
     if (nativeApkMode && serverOfflineMode) {
       launchNativeControlledPortal({
@@ -270,9 +330,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     urlOverride?: string,
     docsOverride?: EphemeralDocumentExtract[]
   ) => {
-    const goal = (goalOverride ?? agentGoal).trim();
-    if (!goal) return;
+    const goal =
+      (goalOverride ?? agentGoal).trim() ||
+      'Click Apply / Online Form / Registration button on this portal if visible, fill my details, and pause at CAPTCHA or OTP.';
     setError(null);
+    setShowToolsMenu(false);
     const targetUrl = urlOverride || addressInput;
     if (nativeApkMode && serverOfflineMode) {
       launchNativeControlledPortal({
@@ -304,12 +366,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     }
   };
 
-  const runInstantAutoFill = async () => {
+  const runInstantAutoFill = async (urlOverride?: string, docsOverride?: EphemeralDocumentExtract[]) => {
     setError(null);
+    setShowToolsMenu(false);
+    const activeDocs = docsOverride ?? ephemeralDocs;
     if (nativeApkMode && window.SarthiNative?.autoFillPortal) {
       const payload = buildAutoFillPayload({
         profile,
-        ephemeralDocs,
+        ephemeralDocs: activeDocs,
         zeroSave,
         goal: agentGoal,
       });
@@ -326,17 +390,132 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             goal: agentGoal,
-            startUrl: status.active ? undefined : addressInput,
+            startUrl: urlOverride || (status.active ? undefined : addressInput),
             zeroSave,
-            ephemeralDocs,
+            autoApply: true,
+            ephemeralDocs: activeDocs,
           }),
         }
       );
-      if (data.status) setStatus(data.status);
+      if (data.status) {
+        setStatus(data.status);
+        if ((data.status.missingFields?.length || 0) > 0) {
+          lastPopupSigRef.current = '';
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Instant Auto-Fill failed');
+      setError(err instanceof Error ? err.message : 'Auto-Apply & Fill failed');
     } finally {
       setInstantFilling(false);
+    }
+  };
+
+  const handleSubmitMissingDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submittingMissing) return;
+
+    const entries = missingFields
+      .map((f) => ({
+        id: f.id,
+        key: f.key,
+        label: f.label,
+        value: (missingValues[f.id] || '').trim(),
+      }))
+      .filter((entry) => entry.value.length > 0);
+
+    if (entries.length === 0) {
+      setMissingPopupOpen(false);
+      return;
+    }
+
+    setSubmittingMissing(true);
+    setError(null);
+    try {
+      // Remember user answers inside RAM-only session extract so next pages reuse them
+      onAddEphemeralDoc({
+        id: `popup-${Date.now()}`,
+        fileName: 'AI Popup Input',
+        documentType: 'User Entered Details',
+        summary: `${entries.length} form details entered via AI Popup`,
+        fields: entries.map((en) => ({
+          key: en.key || en.label.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+          label: en.label,
+          value: en.value,
+        })),
+        extractedAt: new Date().toISOString(),
+      });
+
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/fill-missing',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries }),
+        }
+      );
+      if (data.status) {
+        setStatus(data.status);
+      }
+      setMissingPopupOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to apply entered details');
+    } finally {
+      setSubmittingMissing(false);
+    }
+  };
+
+  const handlePopupOcrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setPopupUploadingOcr(true);
+    setError(null);
+    try {
+      let extracted: EphemeralDocumentExtract | null = null;
+      try {
+        const formData = new FormData();
+        formData.append('document', file);
+        const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+          '/api/ocr/extract',
+          { method: 'POST', body: formData }
+        );
+        extracted = data.extracted;
+      } catch (serverErr) {
+        const nativeExtracted = await runNativeOnDeviceOcr(file);
+        if (!nativeExtracted) throw serverErr;
+        extracted = nativeExtracted;
+      }
+
+      onAddEphemeralDoc(extracted);
+      const nextDocs = [extracted, ...ephemeralDocs];
+      setMissingPopupOpen(false);
+      await runInstantAutoFill(undefined, nextDocs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to scan document');
+    } finally {
+      setPopupUploadingOcr(false);
+    }
+  };
+
+  const switchViewport = async (mode: 'desktop' | 'mobile') => {
+    if (switchingViewport || serverOfflineMode) return;
+    setSwitchingViewport(true);
+    setShowToolsMenu(false);
+    try {
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/viewport',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode }),
+        }
+      );
+      if (data.status) setStatus(data.status);
+    } catch {
+      // ignore
+    } finally {
+      setSwitchingViewport(false);
     }
   };
 
@@ -369,8 +548,8 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       onAddEphemeralDoc(extracted);
       setUploadedReqMap((prev) => ({ ...prev, [reqId]: extracted.fileName }));
       const nextDocs = [extracted, ...ephemeralDocs];
-      if (agentGoal.trim() && !serverOfflineMode) {
-        await startLiveAgent(agentGoal, undefined, nextDocs);
+      if (!serverOfflineMode) {
+        await runInstantAutoFill(undefined, nextDocs);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not scan document');
@@ -394,10 +573,10 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           goal: initialGoal || undefined,
         });
       } else if (!serverOfflineMode) {
-        if (initialGoal) {
-          void startLiveAgent(initialGoal, initialUrl || undefined);
-        } else if (initialUrl) {
-          void navigateTo(initialUrl);
+        if (initialUrl) {
+          void navigateTo(initialUrl).then(() => runInstantAutoFill(initialUrl));
+        } else if (initialGoal) {
+          void startLiveAgent(initialGoal, undefined);
         }
       }
       onConsumeInitial();
@@ -428,6 +607,8 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const handleWipeBrowser = async () => {
     setFrameSrc(null);
     setNativePortalLogs([]);
+    setMissingPopupOpen(false);
+    setShowToolsMenu(false);
     window.SarthiNative?.wipePortalSession?.();
     if (!serverOfflineMode) {
       try {
@@ -461,8 +642,16 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     const y = Math.round(yRatio * status.viewportHeight);
 
     setClickMarker({ xPct: xRatio * 100, yPct: yRatio * 100 });
-    setTimeout(() => setClickMarker(null), 600);
+    setTimeout(() => setClickMarker(null), 500);
     sendWs({ type: 'click', x, y });
+  };
+
+  const handleViewportWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (!frameSrc) return;
+    const now = Date.now();
+    if (now - lastWheelAtRef.current < 140) return;
+    lastWheelAtRef.current = now;
+    sendWs({ type: 'scroll', deltaY: Math.round(e.deltaY) });
   };
 
   const sendTypedText = (text: string) => {
@@ -532,296 +721,426 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     }
   }
 
+  const latestDoc = ephemeralDocs[0] || null;
+  const currentStateField = latestDoc?.fields.find(
+    (f) => f.key.toLowerCase() === 'state' || f.label.toLowerCase() === 'state'
+  );
+
+  const isStateField = (f: MissingFormField) =>
+    f.key === 'state' || /\b(state|rajya|राज्य|province)\b/i.test(f.label);
+
   return (
-    <div className="space-y-4">
-      {/* Status & Bookmarks Strip */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 space-y-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs text-slate-600">
-            <span className="font-bold text-slate-900">Real Chromium Direct Browser</span> ·{' '}
-            <span className={wsConnected ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>
-              {wsConnected ? 'Stream Connected' : 'Server Needed / Connecting'}
-            </span>{' '}
-            · Ad-Blocker{' '}
-            <span className="text-emerald-700 font-mono font-semibold tabular-nums">
-              {status.adBlockEnabled ? `ON (${status.blockedAdsCount} blocked)` : 'OFF'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleAdBlock}
-              className={`min-h-[34px] px-3 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 ${
-                status.adBlockEnabled
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                  : 'bg-slate-50 border-slate-300 text-slate-700'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Ad-Block {status.adBlockEnabled ? 'ON' : 'OFF'}
-            </button>
-            <button
-              type="button"
-              onClick={handleWipeBrowser}
-              className="min-h-[34px] px-3 rounded-lg bg-rose-50 border border-rose-200 hover:bg-rose-100 text-xs font-semibold text-rose-800 inline-flex items-center gap-1.5"
-            >
-              <Eraser className="w-3.5 h-3.5" />
-              Wipe Session
-            </button>
-          </div>
-        </div>
+    <div
+      className={
+        isFullscreen
+          ? 'fixed inset-0 z-50 bg-[#F4F6FA] p-2 sm:p-4 flex flex-col'
+          : 'flex-1 flex flex-col gap-3'
+      }
+    >
+      <input
+        ref={docFileRef}
+        type="file"
+        accept="image/*,.pdf"
+        onChange={handleInlineDocFile}
+        className="hidden"
+      />
+      <input
+        ref={popupOcrRef}
+        type="file"
+        accept="image/*,.pdf"
+        onChange={handlePopupOcrUpload}
+        className="hidden"
+      />
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {bookmarks.map((bm) => (
-            <div
-              key={bm.id}
-              className="shrink-0 flex items-center gap-1 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400"
-            >
-              <button
-                type="button"
-                onClick={() => navigateTo(bm.url)}
-                className="min-h-[36px] px-3 py-1 text-xs font-semibold text-slate-800 hover:text-sky-700 inline-flex items-center gap-1.5"
-              >
-                <Globe className="w-3.5 h-3.5 text-sky-700" />
-                {bm.name}
-              </button>
-              <button
-                type="button"
-                onClick={() => deleteBookmark(bm.id)}
-                aria-label={`Remove ${bm.name}`}
-                className="pr-2 py-1 text-slate-400 hover:text-rose-600"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Live AI + OCR Autopilot Mission Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-rose-600" />
-            <span className="text-sm font-bold text-slate-900">
-              Live OCR + AI Direct Form Autopilot
-            </span>
-          </div>
-          <span className="text-xs text-slate-600 font-medium">{status.agentStatus}</span>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {QUICK_MISSIONS.map((m) => (
-            <button
-              key={m.label}
-              type="button"
-              disabled={status.agentRunning}
-              onClick={() => {
-                setAgentGoal(m.goal);
-                void startLiveAgent(m.goal, m.url);
-              }}
-              className="min-h-[36px] px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-rose-600" />
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void startLiveAgent();
-          }}
-          className="flex flex-wrap gap-2"
+      <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
+        {/* Main Desktop Browser Window */}
+        <div
+          className={`${
+            showCopilotDrawer ? 'xl:col-span-8' : 'xl:col-span-12'
+          } bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-xs flex flex-col flex-1`}
         >
-          <input
-            type="text"
-            value={agentGoal}
-            onChange={(e) => setAgentGoal(e.target.value)}
-            placeholder="AI ko bolein: e.g. 'Direct form fields fill karo, CAPTCHA aur OTP par rukna'..."
-            className="flex-1 min-w-[240px] min-h-[42px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs text-slate-900 placeholder:text-slate-400"
-          />
-          {status.agentRunning ? (
-            <button
-              type="button"
-              onClick={stopLiveAgent}
-              className="min-h-[42px] px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
-            >
-              <Square className="w-3.5 h-3.5" />
-              Stop AI
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!agentGoal.trim()}
-              className="min-h-[42px] px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              {status.waitingForHuman ? 'Resume AI' : 'Run Live AI'}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={instantFilling || status.agentRunning}
-            onClick={() => void runInstantAutoFill()}
-            title="Sarthi-Narad Fill Engine (Rules + Gemini AI) se khule hue page par turant form bharein"
-            className="min-h-[42px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5"
-          >
-            {instantFilling ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Zap className="w-3.5 h-3.5 text-amber-200" />
-            )}
-            Instant Fill Page
-          </button>
-        </form>
-
-        <input
-          ref={docFileRef}
-          type="file"
-          accept="image/*,.pdf"
-          onChange={handleInlineDocFile}
-          className="hidden"
-        />
-
-        {status.waitingForHuman && status.humanPrompt && (
-          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2.5">
-            <div className="flex items-start gap-2.5">
-              <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-              <div>
-                <div className="font-bold text-amber-900">
-                  {status.requestedDocuments && status.requestedDocuments.length > 0
-                    ? 'Is Form Ke Liye Required Documents Upload Karein:'
-                    : 'Aapki Baari (CAPTCHA / OTP / Confirmation):'}
-                </div>
-                <p className="mt-0.5 leading-relaxed">{status.humanPrompt}</p>
-              </div>
+          {/* Single Clean Slim Browser Omnibox Chrome */}
+          <div className="px-2.5 sm:px-3.5 py-2 bg-[#0B1120] text-white flex flex-wrap items-center gap-2 border-b border-slate-800">
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => void apiFetchJson('/api/live-browser/back', { method: 'POST' }).catch(() => {})}
+                aria-label="Back"
+                className="min-h-[36px] min-w-[36px] rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void apiFetchJson('/api/live-browser/reload', { method: 'POST' }).catch(() => {})}
+                aria-label="Reload"
+                className="min-h-[36px] min-w-[36px] rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${status.loading ? 'animate-spin text-sky-400' : ''}`} />
+              </button>
             </div>
-
-            {status.requestedDocuments && status.requestedDocuments.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                {status.requestedDocuments.map((docReq) => {
-                  const done = uploadedReqMap[docReq.id];
-                  const busy = uploadingReqId === docReq.id;
-                  return (
-                    <div
-                      key={docReq.id}
-                      className="p-2.5 rounded-xl bg-white border border-amber-200 flex items-center justify-between gap-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-900 truncate">
-                          {docReq.name}
-                        </div>
-                        <div className="text-[11px] text-slate-600 truncate">
-                          {docReq.reason}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          pendingDocReqRef.current = docReq.id;
-                          docFileRef.current?.click();
-                        }}
-                        className="min-h-[34px] px-3 rounded-lg bg-[#0F172A] hover:bg-slate-800 text-white font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
-                      >
-                        {busy ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : done ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Upload className="w-3.5 h-3.5" />
-                        )}
-                        {busy ? 'Scanning' : done ? 'Scanned' : 'Upload'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <div className="px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
-            {error}
-          </div>
-        )}
-      </div>
-
-      {/* Main Live Browser Screen + Side Helper */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <div className="xl:col-span-8 bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col">
-          {/* Address Bar */}
-          <div className="p-3 border-b border-slate-200 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void apiFetchJson('/api/live-browser/back', { method: 'POST' }).catch(() => {})}
-              aria-label="Back"
-              className="min-h-[40px] min-w-[40px] rounded-xl bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 flex items-center justify-center"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => void apiFetchJson('/api/live-browser/reload', { method: 'POST' }).catch(() => {})}
-              aria-label="Reload"
-              className="min-h-[40px] min-w-[40px] rounded-xl bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 flex items-center justify-center"
-            >
-              <RefreshCw className={`w-4 h-4 ${status.loading ? 'animate-spin text-sky-700' : ''}`} />
-            </button>
 
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 void navigateTo(addressInput);
               }}
-              className="flex-1 min-w-[180px] flex items-center gap-2"
+              className="flex-1 min-w-[160px] flex items-center gap-1.5"
             >
-              <input
-                type="text"
-                value={addressInput}
-                onChange={(e) => setAddressInput(e.target.value)}
-                placeholder="https://... direct form URL"
-                className="w-full min-h-[40px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs font-mono text-slate-900"
-              />
+              <div className="relative flex-1">
+                <Lock className="w-3.5 h-3.5 text-emerald-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                  placeholder="https://... direct form URL"
+                  className="w-full min-h-[36px] pl-8 pr-2.5 rounded-lg bg-slate-900 border border-slate-700/90 focus:border-sky-400 focus:outline-none text-xs font-mono text-slate-100 placeholder:text-slate-500"
+                />
+              </div>
               <button
                 type="submit"
-                className="min-h-[40px] px-3.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 text-white font-semibold text-xs shrink-0"
+                className="min-h-[36px] px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold text-xs whitespace-nowrap shrink-0 transition-colors"
               >
-                Open
+                Go
               </button>
             </form>
 
-            {status.url && status.url !== 'about:blank' && (
-              <a
-                href={status.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 hover:text-slate-900 inline-flex items-center gap-1.5"
+            {/* Streamlined Action Buttons: Only Auto-Fill, AI Apply & Tools Menu */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={instantFilling || status.agentRunning}
+                onClick={() => void runInstantAutoFill()}
+                title="Apply button click karke form fill karein (missing details AI Popup me puchhega)"
+                className="min-h-[36px] px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
-                External
-              </a>
-            )}
+                {instantFilling ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5" />
+                )}
+                <span>Auto-Fill</span>
+              </button>
+
+              {status.agentRunning ? (
+                <button
+                  type="button"
+                  onClick={stopLiveAgent}
+                  className="min-h-[36px] px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>Stop</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void startLiveAgent()}
+                  title="AI khud Apply / Registration par click karega aur form bharega"
+                  className="min-h-[36px] px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>AI Apply</span>
+                </button>
+              )}
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowToolsMenu((v) => !v);
+                    setShowPortalsList(false);
+                  }}
+                  aria-label="Browser tools and view options"
+                  className="min-h-[36px] min-w-[36px] px-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 flex items-center justify-center transition-colors"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+
+                {showToolsMenu && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white text-slate-900 border border-slate-200 rounded-xl shadow-xl z-40 p-2 space-y-1">
+                    <div className="px-2.5 py-1.5 flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-100">
+                      <span>{wsConnected ? 'Live Chromium' : 'Connecting'}</span>
+                      <span className="font-mono tabular-nums">
+                        {status.viewportWidth}×{status.viewportHeight}
+                      </span>
+                    </div>
+
+                    <div className="p-1 bg-slate-100 rounded-lg grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        disabled={switchingViewport}
+                        onClick={() => void switchViewport('desktop')}
+                        className={`min-h-[32px] rounded-md text-xs font-semibold inline-flex items-center justify-center gap-1.5 ${
+                          isDesktopViewport
+                            ? 'bg-[#0B1120] text-white'
+                            : 'text-slate-700 hover:text-slate-900'
+                        }`}
+                      >
+                        <Monitor className="w-3.5 h-3.5" />
+                        Desktop
+                      </button>
+                      <button
+                        type="button"
+                        disabled={switchingViewport}
+                        onClick={() => void switchViewport('mobile')}
+                        className={`min-h-[32px] rounded-md text-xs font-semibold inline-flex items-center justify-center gap-1.5 ${
+                          !isDesktopViewport
+                            ? 'bg-[#0B1120] text-white'
+                            : 'text-slate-700 hover:text-slate-900'
+                        }`}
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        Mobile
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPortalsList((v) => !v);
+                        setShowToolsMenu(false);
+                      }}
+                      className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center justify-between"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Bookmark className="w-3.5 h-3.5 text-sky-600" />
+                        Saved Portals
+                      </span>
+                      <span className="text-[11px] text-slate-400">{bookmarks.length}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCopilotDrawer((v) => !v);
+                        setShowToolsMenu(false);
+                      }}
+                      className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center justify-between"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        {showCopilotDrawer ? (
+                          <PanelRightClose className="w-3.5 h-3.5 text-rose-600" />
+                        ) : (
+                          <PanelRightOpen className="w-3.5 h-3.5 text-rose-600" />
+                        )}
+                        {showCopilotDrawer ? 'Hide AI Drawer' : 'Open AI Drawer'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleAdBlock}
+                      className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center justify-between"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        Ad-Blocker ({status.adBlockEnabled ? 'ON' : 'OFF'})
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {status.blockedAdsCount}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFullscreen((v) => !v);
+                        setShowToolsMenu(false);
+                      }}
+                      className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center justify-between"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        {isFullscreen ? (
+                          <Minimize2 className="w-3.5 h-3.5 text-slate-600" />
+                        ) : (
+                          <Maximize2 className="w-3.5 h-3.5 text-slate-600" />
+                        )}
+                        {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen View'}
+                      </span>
+                    </button>
+
+                    {status.url && status.url !== 'about:blank' && (
+                      <a
+                        href={status.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center gap-2"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-600" />
+                        Open in New Tab
+                      </a>
+                    )}
+
+                    <div className="pt-1 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={handleWipeBrowser}
+                        className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-rose-50 text-xs font-semibold text-rose-700 flex items-center gap-2"
+                      >
+                        <Eraser className="w-3.5 h-3.5" />
+                        Wipe Browser &amp; RAM
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Live Chromium Stream Viewport */}
+          {/* Saved Portals Dropdown Drawer when toggled from Menu */}
+          {showPortalsList && (
+            <div className="p-3 bg-slate-50 border-b border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800">Saved Portals</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPortalsList(false)}
+                  className="text-xs text-slate-500 hover:text-slate-900"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-56 overflow-y-auto">
+                {bookmarks.map((bm) => (
+                  <div
+                    key={bm.id}
+                    className="flex items-center justify-between gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-2"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void navigateTo(bm.url)}
+                      className="flex-1 text-left min-w-0"
+                    >
+                      <div className="text-xs font-semibold text-slate-900 truncate">{bm.name}</div>
+                      <div className="text-[10px] font-mono text-slate-500 truncate">{bm.url}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteBookmark(bm.id)}
+                      aria-label={`Remove ${bm.name}`}
+                      className="p-1 text-slate-400 hover:text-rose-600 shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Missing Details Re-Open Strip (if user skipped modal earlier) */}
+          {missingFields.length > 0 && !missingPopupOpen && (
+            <div className="px-4 py-2 bg-sky-50 border-b border-sky-200 flex items-center justify-between gap-2 text-xs">
+              <span className="text-sky-950 font-medium">
+                {missingFields.length} form detail(s) abhi khaali hain — AI ko batayein.
+              </span>
+              <button
+                type="button"
+                onClick={() => setMissingPopupOpen(true)}
+                className="min-h-[30px] px-3 rounded-lg bg-[#0B1120] hover:bg-slate-800 text-white font-semibold text-xs whitespace-nowrap shrink-0"
+              >
+                Enter Missing Details
+              </button>
+            </div>
+          )}
+
+          {/* Contextual Alert: Human CAPTCHA/OTP or Requested Documents */}
+          {status.waitingForHuman && status.humanPrompt && missingFields.length === 0 && (
+            <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-xs text-amber-950 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span className="font-medium">{status.humanPrompt}</span>
+                </div>
+                {latestDoc && onUpdateEphemeralDocField && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <label className="text-[11px] font-semibold text-amber-900">State:</label>
+                    <select
+                      value={currentStateField?.value || ''}
+                      onChange={(e) =>
+                        onUpdateEphemeralDocField(latestDoc.id, 'state', 'State', e.target.value)
+                      }
+                      className="min-h-[30px] px-2 rounded-lg bg-white border border-amber-300 text-xs text-slate-900"
+                    >
+                      <option value="">Select State</option>
+                      {INDIAN_STATES_AND_UTS.map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {status.requestedDocuments && status.requestedDocuments.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {status.requestedDocuments.map((docReq) => {
+                    const done = uploadedReqMap[docReq.id];
+                    const busy = uploadingReqId === docReq.id;
+                    return (
+                      <div
+                        key={docReq.id}
+                        className="p-2 rounded-lg bg-white border border-amber-200 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-900 truncate">{docReq.name}</div>
+                          <div className="text-[11px] text-slate-600 truncate">{docReq.reason}</div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            pendingDocReqRef.current = docReq.id;
+                            docFileRef.current?.click();
+                          }}
+                          className="min-h-[32px] px-3 rounded-lg bg-[#0B1120] hover:bg-slate-800 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                        >
+                          {busy ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : done ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Upload className="w-3.5 h-3.5" />
+                          )}
+                          {busy ? 'Scanning' : done ? 'Scanned' : 'Upload'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="px-4 py-2 bg-rose-50 border-b border-rose-200 text-xs text-rose-700">
+              {error}
+            </div>
+          )}
+
+          {/* Live Browser Viewport — Expands to fill available space cleanly */}
           <div
-            className={`relative bg-[#0F172A] w-full flex items-center justify-center select-none ${
-              frameSrc ? 'aspect-video overflow-hidden' : 'min-h-[320px] px-5 py-8'
+            onWheel={handleViewportWheel}
+            className={`relative flex-1 bg-slate-950 w-full flex items-center justify-center select-none overflow-hidden ${
+              frameSrc ? 'min-h-[240px] sm:min-h-[440px]' : 'min-h-[360px] sm:min-h-[460px]'
             }`}
           >
             {frameSrc ? (
-              <>
+              <div
+                className={`relative w-full flex items-center justify-center ${
+                  isDesktopViewport
+                    ? 'aspect-[1366/820] max-h-[76vh]'
+                    : 'max-w-[420px] mx-auto aspect-[412/820] border-x border-slate-800'
+                }`}
+              >
                 <img
                   ref={imgRef}
                   src={frameSrc}
                   alt={status.title || 'Live Browser View'}
                   onClick={handleViewportClick}
                   draggable={false}
-                  className="w-full h-full object-contain cursor-crosshair"
+                  className="w-full h-full object-contain cursor-pointer"
                 />
                 {clickMarker && (
                   <span
@@ -829,21 +1148,40 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                     style={{ left: `${clickMarker.xPct}%`, top: `${clickMarker.yPct}%` }}
                   />
                 )}
-              </>
+              </div>
             ) : (
-              <div className="w-full max-w-lg mx-auto text-center space-y-3.5 text-white">
-                <Globe className="w-9 h-9 text-sky-400 mx-auto" />
-                <p className="text-base font-bold leading-snug">
-                  Real Ad-Blocked Chromium Direct Browser Ready
-                </p>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {serverOfflineMode
-                    ? 'APK standalone mode me aap direct form URL niche button se apne phone ke ad-blocked browser me khol sakte hain — ya Live Cloud AI Autopilot ke liye upar Server URL connect karein.'
-                    : 'Home page se kisi bhi job/PAN/ticket par click karein ya neeche “Launch Direct Form” dabayein — seedha form page live dikhega.'}
-                </p>
-                <div className="px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-mono text-sky-300 break-all">
-                  {addressInput}
+              <div className="w-full px-5 py-10 flex flex-col items-center justify-center text-center space-y-4 text-white">
+                <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
+                  <Monitor className="w-6 h-6 text-sky-400" />
                 </div>
+                <div className="max-w-lg space-y-1.5">
+                  <h2 className="text-base font-bold font-display text-white">
+                    Desktop Direct Browser (1366×820)
+                  </h2>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {serverOfflineMode
+                      ? 'Standalone mode me seedha device browser me kholein, ya server connect karke AI Auto-Apply chalayein.'
+                      : 'Website kholte hi AI khud Apply button click karke form kholega, details auto-fill karega, aur bachi hui details Popup me puchhega.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 max-w-xl">
+                  {QUICK_MISSIONS.map((m) => (
+                    <button
+                      key={m.label}
+                      type="button"
+                      onClick={() => {
+                        setAddressInput(m.url);
+                        setAgentGoal(m.goal);
+                        void navigateTo(m.url).then(() => runInstantAutoFill(m.url));
+                      }}
+                      className="min-h-[34px] px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 whitespace-nowrap transition-colors"
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
                   {nativeApkMode && (
                     <button
@@ -857,93 +1195,93 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                           goal: agentGoal,
                         })
                       }
-                      className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                     >
                       <Bot className="w-4 h-4" />
-                      Open APK AI-Controlled WebView
+                      Open APK AI WebView
                     </button>
                   )}
                   {!serverOfflineMode && (
                     <button
                       type="button"
-                      onClick={() => navigateTo(addressInput)}
-                      className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                      onClick={() => void navigateTo(addressInput).then(() => runInstantAutoFill(addressInput))}
+                      className="min-h-[42px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                     >
                       <Compass className="w-4 h-4" />
-                      Launch Direct Form (Cloud Chromium)
+                      Open Website &amp; Auto-Fill
                     </button>
                   )}
                   <a
                     href={addressInput}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="min-h-[42px] px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                   >
                     <ExternalLink className="w-4 h-4" />
-                    Open Direct Form on Device
+                    Device Tab
                   </a>
                 </div>
               </div>
             )}
 
-            {status.agentRunning && (
+            {(status.agentRunning || instantFilling) && (
               <div className="absolute top-3 left-3 px-3 py-1.5 rounded-lg bg-slate-950/90 border border-emerald-500/40 text-xs text-emerald-300 inline-flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                {status.agentStatus}
+                {status.agentStatus || 'Scanning & clicking Apply...'}
               </div>
             )}
           </div>
 
-          {/* Direct Keyboard / CAPTCHA / OTP / Scroll Controls */}
-          <div className="p-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center gap-2">
-            <form onSubmit={handleTypeSubmit} className="flex-1 min-w-[200px] flex items-center gap-2">
+          {/* Slim Bottom Keyboard & Scroll Bar */}
+          <div className="px-2.5 sm:px-3 py-2 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center gap-2">
+            <form onSubmit={handleTypeSubmit} className="flex-1 min-w-[180px] flex items-center gap-1.5">
               <div className="relative flex-1">
                 <Keyboard className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={typeBox}
                   onChange={(e) => setTypeBox(e.target.value)}
-                  placeholder="Screen par box click karke yahan CAPTCHA / OTP / text type karein..."
-                  className="w-full min-h-[38px] pl-9 pr-3 rounded-xl bg-white border border-slate-200 focus:border-slate-900 focus:outline-none text-xs text-slate-900 placeholder:text-slate-400"
+                  placeholder="Screen box click karke CAPTCHA / OTP / text type karein..."
+                  className="w-full min-h-[36px] pl-9 pr-3 rounded-lg bg-white border border-slate-200 focus:border-slate-900 focus:outline-none text-xs text-slate-900 placeholder:text-slate-400"
                 />
               </div>
               <button
                 type="submit"
                 disabled={!typeBox}
-                className="min-h-[38px] px-3.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 text-white font-semibold text-xs"
+                className="min-h-[36px] px-3.5 rounded-lg bg-[#0B1120] hover:bg-slate-800 disabled:opacity-40 text-white font-semibold text-xs whitespace-nowrap shrink-0"
               >
                 Type
               </button>
             </form>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => sendWs({ type: 'key', key: 'Enter' })}
-                className="min-h-[38px] px-2.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                className="min-h-[36px] px-2.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-slate-400 whitespace-nowrap"
               >
                 Enter
               </button>
               <button
                 type="button"
                 onClick={() => sendWs({ type: 'key', key: 'Tab' })}
-                className="min-h-[38px] px-2.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-slate-400"
+                className="min-h-[36px] px-2.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:border-slate-400 whitespace-nowrap"
               >
                 Tab
               </button>
               <button
                 type="button"
-                onClick={() => sendWs({ type: 'scroll', deltaY: -400 })}
+                onClick={() => sendWs({ type: 'scroll', deltaY: -420 })}
                 aria-label="Scroll up"
-                className="min-h-[38px] min-w-[38px] rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center"
+                className="min-h-[36px] min-w-[36px] rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-slate-400 flex items-center justify-center"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
-                onClick={() => sendWs({ type: 'scroll', deltaY: 400 })}
+                onClick={() => sendWs({ type: 'scroll', deltaY: 420 })}
                 aria-label="Scroll down"
-                className="min-h-[38px] min-w-[38px] rounded-lg bg-white border border-slate-200 text-slate-700 flex items-center justify-center"
+                className="min-h-[36px] min-w-[36px] rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-slate-400 flex items-center justify-center"
               >
                 <ArrowDown className="w-3.5 h-3.5" />
               </button>
@@ -951,69 +1289,129 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           </div>
         </div>
 
-        {/* Side Column: Live AI Step Logs + 1-Tap Type into Focused Field */}
-        <aside className="xl:col-span-4 space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
-            <h3 className="text-sm font-bold text-slate-900">Live AI Execution Log</h3>
-            {nativePortalLogs.length === 0 && status.lastStepLogs.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                AI autopilot jab chalega tab har step (direct form fill, CAPTCHA pause) yahan dikhega.
-              </p>
-            ) : (
-              <div className="space-y-1.5 max-h-[200px] overflow-y-auto font-mono text-[11px]">
-                {[...nativePortalLogs, ...status.lastStepLogs].map((log, i) => (
-                  <div
-                    key={i}
-                    className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-700"
-                  >
-                    {log}
-                  </div>
-                ))}
+        {/* Collapsible Side Drawer: AI Copilot Controls + 1-Tap Fill + Step Logs */}
+        {showCopilotDrawer && (
+          <aside className="xl:col-span-4 space-y-3">
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 space-y-3 shadow-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-rose-600" />
+                  <h3 className="text-sm font-bold text-slate-900">AI Form Copilot</h3>
+                </div>
+                <span className="text-[11px] text-slate-500 truncate max-w-[160px]">
+                  {status.agentStatus}
+                </span>
               </div>
-            )}
-          </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5 max-h-[400px] overflow-y-auto">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                1-Tap Fill / Copy ({zeroSave ? 'RAM Only' : 'OCR + Vault'})
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Live page par input box click karein aur &ldquo;Type&rdquo; dabakar turant fill karein.
-              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void startLiveAgent();
+                }}
+                className="space-y-2"
+              >
+                <textarea
+                  rows={2}
+                  value={agentGoal}
+                  onChange={(e) => setAgentGoal(e.target.value)}
+                  placeholder="AI ko task bolein: e.g. 'Apply click karke State select karo aur form bharo'"
+                  className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs text-slate-900 placeholder:text-slate-400 resize-none"
+                />
+                <button
+                  type="submit"
+                  disabled={status.agentRunning}
+                  className="w-full min-h-[38px] px-3.5 rounded-lg bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  {status.waitingForHuman ? 'Resume AI' : 'Run AI Apply & Fill'}
+                </button>
+              </form>
             </div>
 
-            {activeDraft && activeDraft.fields.some((f) => f.value.trim()) && (
-              <div className="space-y-1.5 pb-2 border-b border-slate-200">
-                <div className="text-[11px] font-bold text-emerald-700 truncate">
-                  Draft: {activeDraft.title}
+            {/* 1-Tap Quick Fill Values */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 space-y-2.5 max-h-[320px] overflow-y-auto shadow-xs">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  1-Tap Type / Copy ({zeroSave ? 'RAM Only' : 'OCR + Vault'})
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Website box click karke &ldquo;Type&rdquo; dabayein.
+                </p>
+              </div>
+
+              {activeDraft && activeDraft.fields.some((f) => f.value.trim()) && (
+                <div className="space-y-1.5 pb-2 border-b border-slate-200">
+                  <div className="text-[11px] font-bold text-emerald-700 truncate">
+                    Draft: {activeDraft.title}
+                  </div>
+                  {activeDraft.fields
+                    .filter((f) => f.value.trim())
+                    .slice(0, 6)
+                    .map((f) => (
+                      <div
+                        key={f.key}
+                        className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[10px] text-slate-500 truncate">{f.label}</div>
+                          <div className="text-xs font-medium text-slate-900 truncate">{f.value}</div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => sendTypedText(f.value)}
+                            className="px-2 py-1 rounded-md bg-emerald-50 border border-emerald-300 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
+                          >
+                            Type
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyVal(`d-${f.key}`, f.value)}
+                            className="p-1.5 text-slate-500 hover:text-slate-900"
+                          >
+                            {copiedKey === `d-${f.key}` ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                 </div>
-                {activeDraft.fields
-                  .filter((f) => f.value.trim())
-                  .slice(0, 6)
-                  .map((f) => (
+              )}
+
+              {quickFillEntries.length === 0 ? (
+                <p className="text-xs text-slate-500 py-1">
+                  Document scan karne par sabhi OCR fields yahan 1-tap Type ke liye milenge.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {quickFillEntries.map((item) => (
                     <div
-                      key={f.key}
-                      className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
+                      key={item.key}
+                      className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
-                        <div className="text-[10px] text-slate-500 truncate">{f.label}</div>
-                        <div className="text-xs font-medium text-slate-900 truncate">{f.value}</div>
+                        <div className="text-[10px] text-slate-500 truncate">
+                          {item.label} · {item.source}
+                        </div>
+                        <div className="text-xs font-medium text-slate-900 truncate">{item.value}</div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
-                          onClick={() => sendTypedText(f.value)}
-                          className="px-2 py-1 rounded-md bg-emerald-50 border border-emerald-300 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
+                          onClick={() => sendTypedText(item.value)}
+                          className="px-2 py-1 rounded-md bg-sky-50 border border-sky-200 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
                         >
                           Type
                         </button>
                         <button
                           type="button"
-                          onClick={() => copyVal(`d-${f.key}`, f.value)}
+                          onClick={() => copyVal(item.key, item.value)}
                           className="p-1.5 text-slate-500 hover:text-slate-900"
                         >
-                          {copiedKey === `d-${f.key}` ? (
+                          {copiedKey === item.key ? (
                             <Check className="w-3.5 h-3.5 text-emerald-600" />
                           ) : (
                             <Copy className="w-3.5 h-3.5" />
@@ -1022,55 +1420,157 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                       </div>
                     </div>
                   ))}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
 
-            {quickFillEntries.length === 0 ? (
-              <p className="text-xs text-slate-500 py-2">
-                {zeroSave
-                  ? 'Home screen ya AI Agent me apna document scan karein — details yahan 1-tap Type ke liye ready milengi.'
-                  : 'Profile Vault khaali hai ya koi document scan nahi kiya gaya.'}
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                {quickFillEntries.map((item) => (
-                  <div
-                    key={item.key}
-                    className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-slate-500 truncate">
-                        {item.label} · {item.source}
-                      </div>
-                      <div className="text-xs font-medium text-slate-900 truncate">{item.value}</div>
+            {(nativePortalLogs.length > 0 || status.lastStepLogs.length > 0) && (
+              <div className="bg-white border border-slate-200/90 rounded-2xl p-4 space-y-2 shadow-xs">
+                <h3 className="text-xs font-bold text-slate-900">AI Step Log</h3>
+                <div className="space-y-1 max-h-[160px] overflow-y-auto font-mono text-[11px]">
+                  {[...nativePortalLogs, ...status.lastStepLogs].map((log, i) => (
+                    <div
+                      key={i}
+                      className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-700"
+                    >
+                      {log}
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => sendTypedText(item.value)}
-                        className="px-2 py-1 rounded-md bg-sky-50 border border-sky-200 text-[11px] font-semibold text-sky-900 hover:bg-sky-100"
-                      >
-                        Type
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => copyVal(item.key, item.value)}
-                        className="p-1.5 text-slate-500 hover:text-slate-900"
-                      >
-                        {copiedKey === item.key ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
-          </div>
-        </aside>
+          </aside>
+        )}
       </div>
+
+      {/* Automatic AI Missing Details Popup Modal */}
+      {missingPopupOpen && missingFields.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <form
+            onSubmit={handleSubmitMissingDetails}
+            className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-2xl w-full max-w-xl max-h-[88vh] flex flex-col overflow-hidden shadow-2xl"
+          >
+            <div className="px-5 py-4 bg-[#0B1120] text-white flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  AI Form Helper · {missingFields.length} Details Needed
+                </div>
+                <h3 className="text-base font-bold font-display text-white mt-0.5">
+                  Kuch Details Nahi Mili — Yahan Batayein
+                </h3>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Jo details OCR/Vault me nahi mili hain woh niche bharein — AI turant website me daal dega.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMissingPopupOpen(false)}
+                aria-label="Close popup"
+                className="min-h-[36px] min-w-[36px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick OCR Doc Scan Option inside AI Popup */}
+            <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-slate-600">
+                Chahein toh Aadhaar / PAN / Marksheet scan karke automatic fill karwayein:
+              </span>
+              <button
+                type="button"
+                disabled={popupUploadingOcr}
+                onClick={() => popupOcrRef.current?.click()}
+                className="min-h-[34px] px-3 rounded-lg bg-white border border-slate-300 hover:border-slate-900 text-xs font-semibold text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                {popupUploadingOcr ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5" />
+                )}
+                {popupUploadingOcr ? 'Scanning...' : 'Scan Doc (OCR)'}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-3.5">
+              {missingFields.map((field) => {
+                const useSelect =
+                  (field.options && field.options.length > 0) || isStateField(field);
+                const selectOpts =
+                  field.options && field.options.length > 0
+                    ? field.options
+                    : INDIAN_STATES_AND_UTS;
+                return (
+                  <div key={field.id} className="space-y-1">
+                    <label className="block text-xs font-semibold text-slate-800">
+                      {field.label}
+                    </label>
+                    {useSelect ? (
+                      <select
+                        value={missingValues[field.id] || ''}
+                        onChange={(e) =>
+                          setMissingValues((prev) => ({ ...prev, [field.id]: e.target.value }))
+                        }
+                        className="w-full min-h-[42px] px-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900"
+                      >
+                        <option value="">-- Select {field.label} --</option>
+                        {selectOpts.map((opt, idx) => (
+                          <option key={`${opt}-${idx}`} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={
+                          field.type === 'email'
+                            ? 'email'
+                            : field.type === 'tel'
+                            ? 'tel'
+                            : 'text'
+                        }
+                        value={missingValues[field.id] || ''}
+                        onChange={(e) =>
+                          setMissingValues((prev) => ({ ...prev, [field.id]: e.target.value }))
+                        }
+                        placeholder={
+                          field.key === 'dob' || field.type === 'date'
+                            ? 'DD/MM/YYYY'
+                            : field.placeholder || `Enter ${field.label}`
+                        }
+                        className="w-full min-h-[42px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900 placeholder:text-slate-400"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setMissingPopupOpen(false)}
+                className="min-h-[42px] px-4 rounded-xl bg-white border border-slate-300 hover:border-slate-500 text-xs font-semibold text-slate-700 whitespace-nowrap"
+              >
+                Skip for Now
+              </button>
+              <button
+                type="submit"
+                disabled={submittingMissing}
+                className="min-h-[42px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                {submittingMissing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                Fill Details into Form
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

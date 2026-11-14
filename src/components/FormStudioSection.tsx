@@ -293,11 +293,11 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
       {/* AI Form Generator Card */}
       <form
         onSubmit={handleGenerate}
-        className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4"
+        className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-base font-bold text-slate-900">
+            <h1 className="text-base font-bold font-display text-slate-900">
               AI Smart Auto-Fill Form Studio
             </h1>
             <p className="text-xs text-slate-600 mt-0.5">
@@ -306,15 +306,15 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                 : 'Live internet research + automatic form filling from your Profile Vault'}
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-1">
+          <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-1 shrink-0">
             {(['hinglish', 'hindi', 'english'] as const).map((lang) => (
               <button
                 key={lang}
                 type="button"
                 onClick={() => setLanguage(lang)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize whitespace-nowrap transition-colors ${
                   language === lang
-                    ? 'bg-[#0F172A] text-white'
+                    ? 'bg-[#0B1120] text-white'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -372,7 +372,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
             <button
               type="submit"
               disabled={generating || !goal.trim()}
-              className="w-full min-h-[44px] px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 transition-colors"
+              className="w-full min-h-[44px] px-4 rounded-xl bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 transition-colors"
             >
               {generating ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -456,7 +456,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
               Select a form draft to review, edit, print, or open its direct page in Live Browser.
             </div>
           ) : (
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-5">
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-5">
               <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-slate-200">
                 <div className="space-y-1">
                   <div className="text-xs text-slate-600">
@@ -473,7 +473,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                         : 'Needs Review'}
                     </span>
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900">{selected.title}</h2>
+                  <h2 className="text-lg font-bold font-display text-slate-900">{selected.title}</h2>
                   <p className="text-xs text-slate-600 leading-relaxed">{selected.summary}</p>
                 </div>
 
@@ -486,15 +486,15 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                         `Open direct form page at ${selected.portalUrl} for "${selected.title}" and auto-fill fields. Pause at CAPTCHA/OTP.`
                       )
                     }
-                    className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+                    className="min-h-[38px] px-3.5 py-2 rounded-xl bg-[#0B1120] hover:bg-slate-800 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                   >
-                    <Compass className="w-3.5 h-3.5" />
-                    Open Direct Form
+                    <Compass className="w-3.5 h-3.5 text-emerald-400" />
+                    Desktop Browser
                   </button>
                   <button
                     type="button"
                     onClick={() => downloadDraftTxt(selected)}
-                    className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5"
+                    className="min-h-[38px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Export .TXT
@@ -502,7 +502,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                   <button
                     type="button"
                     onClick={() => window.print()}
-                    className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5"
+                    className="min-h-[38px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                   >
                     <Printer className="w-3.5 h-3.5" />
                     Print

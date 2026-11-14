@@ -11,10 +11,11 @@
 
   body {
     font-family: var(--font-sans);
-    background-color: #F6F8FB;
+    background-color: #F4F6FA;
     color: #0F172A;
     overscroll-behavior-y: contain;
-    letter-spacing: 0.005em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   h1, h2, h3, .font-display {

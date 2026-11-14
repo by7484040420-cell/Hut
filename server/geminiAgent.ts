@@ -23,6 +23,7 @@ import {
   buildFallbackServiceBrief,
   findServiceByIdOrQuery,
 } from '../src/lib/serviceCatalog.js';
+import { enrichExtractedFields } from '../src/lib/indianStates.js';
 
 const PRIMARY_MODEL = 'gemini-4-hydrogen';
 const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
@@ -912,8 +913,10 @@ export async function extractDocumentWithOCR(params: {
         },
         {
           text: [
-            'Perform exact OCR and AI structured extraction on this uploaded Indian document (Aadhaar, PAN, Marksheet, Army/NCC Certificate, Domicile/Caste/Income Certificate, Passport, or Driving License).',
+            'Perform exact OCR and AI structured extraction on this uploaded Indian document (Aadhaar Card, PAN, Marksheet, Army/NCC Certificate, Domicile/Caste/Income Certificate, Passport, or Driving License).',
             'Extract EVERY visible detail accurately without guessing or inventing values.',
+            'IMPORTANT FOR AADHAAR & ADDRESS DOCUMENTS: Always extract the Indian State/UT (`state`) in canonical English (e.g., "Bihar", "Uttar Pradesh", "Maharashtra", "Delhi", "Jharkhand", "Rajasthan", "West Bengal") from the address or PIN code, even if the card prints it in Hindi or inside the full address block. Also separate `district`, `blockOrTehsil`, `villageOrWard`, `postOffice`, `policeStation`, `pinCode`, and `addressLine`.',
+            'For `dob`, prefer YYYY-MM-DD format if full date is visible (or DD/MM/YYYY if only year/partial).',
             'Include standard keys where visible: fullName, fatherName, motherName, dob, gender, category, mobile, email, addressLine, villageOrWard, postOffice, policeStation, blockOrTehsil, district, state, pinCode, qualification, boardOrUniversity, passingYear, rollNumber, percentageOrGrade, panNumber, aadhaarNumber, passportNumber, dlNumber, voterId, heightCm, certificateNumber.',
           ].join('\n'),
         },
@@ -950,20 +953,22 @@ export async function extractDocumentWithOCR(params: {
     fields?: ExtractedDocumentField[];
   };
 
+  const rawFields = Array.isArray(parsed.fields)
+    ? parsed.fields
+        .map((f, idx) => ({
+          key: String(f.key || `field_${idx + 1}`),
+          label: String(f.label || `Field ${idx + 1}`),
+          value: String(f.value || '').trim(),
+        }))
+        .filter((f) => f.value.length > 0)
+    : [];
+
   return {
     id: `doc-${crypto.randomBytes(4).toString('hex')}`,
     fileName: params.fileName,
     documentType: String(parsed.documentType || 'Uploaded Document'),
     summary: String(parsed.summary || 'Document details extracted via OCR + AI.'),
-    fields: Array.isArray(parsed.fields)
-      ? parsed.fields
-          .map((f, idx) => ({
-            key: String(f.key || `field_${idx + 1}`),
-            label: String(f.label || `Field ${idx + 1}`),
-            value: String(f.value || '').trim(),
-          }))
-          .filter((f) => f.value.length > 0)
-      : [],
+    fields: enrichExtractedFields(rawFields),
     extractedAt: new Date().toISOString(),
   };
 }
@@ -1034,7 +1039,7 @@ export async function decideLiveBrowserStep(params: {
     .join('\n');
 
   const prompt = [
-    'You are a Universal OCR + AI Vision Web Browser Copilot controlling a live 1280x720 Chromium page visible to the user on ANY website.',
+    'You are a Universal OCR + AI Vision Web Browser Copilot controlling a live Desktop Chromium page visible to the user on ANY website.',
     `USER GOAL: ${params.goal}`,
     `CURRENT URL: ${params.currentUrl}`,
     `PAGE TITLE: ${params.pageTitle}`,
@@ -1053,14 +1058,15 @@ export async function decideLiveBrowserStep(params: {
     '',
     'UNIVERSAL WEBSITE RULES:',
     '1. Look carefully at the live screenshot, PAGE VISIBLE TEXT SUMMARY, and INTERACTIVE ELEMENTS.',
-    '2. DIRECT FORM PAGE RULE: Never stay idle on a portal homepage! If the current page is about:blank OR is a general homepage/landing page with a link/button like "Apply Online", "New Registration", "Candidate Login", "One Time Registration", "Form 49A", "Book Ticket", click/navigate directly to the actual form page.',
-    '3. DYNAMIC DOCUMENT REQUEST RULE: Inspect the form/page currently visible on this website. If this website asks for fields or documents that are MISSING from USER DETAILS AVAILABLE RIGHT NOW (for example, Passport form needs Aadhaar + 10th Marksheet, or an unknown website asks for Bank Passbook / Income Certificate / Roll Number that the user has not uploaded yet), return action="request_documents" with `neededDocuments` listing ONLY the exact missing documents needed for THIS website, and a clear `humanPrompt` in Hinglish telling the user what to upload inline!',
-    '4. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` (matching `[idx]`) and `(x, y)`, plus the exact text in `value`.',
-    '5. For `<select>` dropdowns, return action="select" with `elementIndex`, `(x, y)`, and the matching option label/value in `value`.',
-    '6. For buttons, tabs, links, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
-    '7. HUMAN-IN-THE-LOOP RULE: If you see a CAPTCHA image/input, OTP verification box, Aadhaar e-Sign, file upload button `<input type="file">`, password creation, or final Payment/Submit button, NEVER guess CAPTCHA/OTP or auto-pay! Return action="pause_for_human" with a clear Hinglish `humanPrompt` instructing the user to enter CAPTCHA/OTP or confirm directly on the live screen.',
-    '8. If required fields are below the fold, return action="scroll" with value="down" or "up".',
-    '9. Return action="done" only when the visible form/task stage is completed.',
+    '2. AUTO-CLICK APPLY / FORM / NEXT RULE (HIGHEST PRIORITY ON LANDING PAGES): Never stay stuck on a homepage, recruitment notice, or information page! Whenever you see buttons or links like "Apply Online", "Apply Now", "Click here to Apply", "Apply", "New Registration", "One Time Registration", "Online Form", "Form 49A", "Proceed", or "Save & Next" (when current step fields are already filled), IMMEDIATELY return action="click" on that Apply/Form/Next element so the user lands directly on the form!',
+    '3. STATE & ADDRESS RULE: If the page has a State / Rajya / UT dropdown (e.g. Parivahan, Passport, RTPS, SSC) and user address/PIN code is present in USER DETAILS, ALWAYS select the matching Indian State (e.g. PIN 80-85 = Bihar/Jharkhand, 20-28 = Uttar Pradesh, 11 = Delhi, 40-44 = Maharashtra).',
+    '4. DYNAMIC DOCUMENT REQUEST RULE: Inspect the form/page currently visible on this website. If this website asks for fields or documents that are MISSING from USER DETAILS AVAILABLE RIGHT NOW (for example, Passport form needs Aadhaar + 10th Marksheet, or an unknown website asks for Bank Passbook / Income Certificate / Roll Number that the user has not uploaded yet), return action="request_documents" with `neededDocuments` listing ONLY the exact missing documents needed for THIS website, and a clear `humanPrompt` in Hinglish telling the user what to upload inline!',
+    '5. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` (matching `[idx]`) and `(x, y)`, plus the exact text in `value`.',
+    '6. For `<select>` dropdowns, return action="select" with `elementIndex`, `(x, y)`, and the matching option label/value in `value`.',
+    '7. For buttons, tabs, links, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
+    '8. HUMAN-IN-THE-LOOP RULE: If you see a CAPTCHA image/input, OTP verification box, Aadhaar e-Sign, file upload button `<input type="file">`, password creation, or final Payment/Final Submit button, NEVER guess CAPTCHA/OTP or auto-pay! Return action="pause_for_human" with a clear Hinglish `humanPrompt` instructing the user to enter CAPTCHA/OTP or confirm directly on the live screen.',
+    '9. If required fields or the Apply button are below the fold, return action="scroll" with value="down" or "up".',
+    '10. Return action="done" only when the visible form/task stage is completed.',
   ].join('\n');
 
   const response = await generateContentResilient(ai, {

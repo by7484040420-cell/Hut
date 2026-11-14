@@ -1,4 +1,5 @@
 import type { EphemeralDocumentExtract, ProfileVault } from '../types';
+import { resolveIndianState } from './indianStates';
 
 export interface SarthiNativeInterface {
   isNativeApk?: () => boolean;
@@ -147,7 +148,7 @@ export function buildAutoFillPayload(params: {
         map.blockOrTehsil = map.blockOrTehsil || v;
       } else if (lower.includes('district')) {
         map.district = map.district || v;
-      } else if (lower.includes('state')) {
+      } else if (lower.includes('state') || lower.includes('rajya') || lower.includes('राज्य') || lower.includes('pradesh') || lower.includes('province')) {
         map.state = map.state || v;
       } else if (lower.includes('roll')) {
         if (isTenthDoc) map.tenthRoll = map.tenthRoll || v;
@@ -169,6 +170,16 @@ export function buildAutoFillPayload(params: {
       }
       map[`ocr_${k}`] = v;
     }
+  }
+
+  const resolvedState = resolveIndianState({
+    state: map.state,
+    addressLine: map.addressLine,
+    pinCode: map.pinCode,
+    district: map.district,
+  });
+  if (resolvedState) {
+    map.state = resolvedState;
   }
 
   if (params.goal?.trim()) {

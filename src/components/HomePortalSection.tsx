@@ -28,11 +28,14 @@ import {
 } from '../lib/serviceCatalog';
 import { apiFetchJson } from '../lib/api';
 import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
+import { INDIAN_STATES_AND_UTS } from '../lib/indianStates';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HomePortalSectionProps {
   ephemeralDocs: EphemeralDocumentExtract[];
   zeroSave: boolean;
   onAddEphemeralDoc: (doc: EphemeralDocumentExtract) => void;
+  onUpdateEphemeralDocField?: (docId: string, key: string, label: string, value: string) => void;
   onOpenDirectFormBrowser: (directUrl: string, goal: string) => void;
   onOpenAiChat: (prefillPrompt?: string) => void;
   onOpenFormStudio: () => void;
@@ -53,6 +56,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   ephemeralDocs,
   zeroSave,
   onAddEphemeralDoc,
+  onUpdateEphemeralDocField,
   onOpenDirectFormBrowser,
   onOpenAiChat,
   onOpenDirectory,
@@ -87,7 +91,6 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     setSheetOpen(true);
     setSheetError(null);
     setExtraNote('');
-    // Show instant structured brief immediately while live AI check refines fees/URL
     setActiveBrief(buildFallbackServiceBrief(query, item || null));
     setLoadingBrief(true);
 
@@ -104,7 +107,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         setActiveBrief(data.brief);
       }
     } catch {
-      // Keep crisp fallback brief smoothly without blocking the user
+      // Keep fallback brief smoothly
     } finally {
       setLoadingBrief(false);
     }
@@ -164,6 +167,12 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     onOpenDirectFormBrowser(activeBrief.directFormUrl, goalParts.join(' '));
   };
 
+  const latestDoc = ephemeralDocs[0] || null;
+  const latestStateVal =
+    latestDoc?.fields.find(
+      (f) => f.key.toLowerCase() === 'state' || f.label.toLowerCase() === 'state'
+    )?.value || '';
+
   return (
     <div className="space-y-6">
       <input
@@ -182,7 +191,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
             void openServiceBrief(undefined, searchQuery.trim());
           }
         }}
-        className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
+        className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
       >
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -197,30 +206,31 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         <button
           type="submit"
           disabled={!searchQuery.trim()}
-          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 transition-colors"
+          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 transition-colors"
         >
           <Sparkles className="w-4 h-4 text-rose-400" />
-          Fees &amp; Direct Form Dekhein
+          Fees &amp; Direct Form
         </button>
       </form>
 
-      {/* Primary Service Grid (Matching Reference Screenshot) */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-base sm:text-lg font-bold text-slate-900">
+      {/* Primary Service Grid */}
+      <section className="space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-bold text-slate-900 tracking-tight">
             Sabhi Services — Seedha Form Page Kholne Ke Liye Click Karein
           </h1>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 text-xs text-slate-500 shrink-0">
             {onOpenDirectory && (
               <button
                 type="button"
                 onClick={onOpenDirectory}
-                className="text-xs font-semibold text-sky-700 hover:underline whitespace-nowrap"
+                className="font-semibold text-sky-700 hover:text-sky-900 hover:underline whitespace-nowrap"
               >
-                85+ Sarkari Portals Directory →
+                85+ Portals Directory →
               </button>
             )}
-            <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">
+            <span aria-hidden="true">·</span>
+            <span className="whitespace-nowrap">
               Zero-Save {zeroSave ? 'ON' : 'OFF'}
             </span>
           </div>
@@ -232,24 +242,22 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               key={item.id}
               type="button"
               onClick={() => void openServiceBrief(item)}
-              className="text-left bg-white border border-slate-200 hover:border-slate-400 rounded-2xl p-3.5 transition-colors flex flex-col justify-between gap-3 min-h-[126px]"
+              className="group text-left bg-white border border-slate-200/90 hover:border-slate-400 rounded-2xl p-4 shadow-xs transition-all flex flex-col justify-between gap-3.5 min-h-[132px]"
             >
-              <div className="flex items-start justify-between gap-2">
-                <span
-                  className={`w-9 h-9 rounded-xl border flex items-center justify-center font-bold text-sm shrink-0 ${
-                    TINT_CLASSES[item.tint]
-                  }`}
-                >
-                  {item.iconLetter}
-                </span>
-              </div>
+              <span
+                className={`w-9 h-9 rounded-xl border flex items-center justify-center font-display font-bold text-sm shrink-0 ${
+                  TINT_CLASSES[item.tint]
+                }`}
+              >
+                {item.iconLetter}
+              </span>
               <div className="space-y-0.5">
                 <div className="text-sm font-semibold text-slate-900 leading-snug line-clamp-1">
                   {item.title}
                 </div>
                 <div className="text-xs text-slate-500 line-clamp-1">{item.subtitle}</div>
               </div>
-              <div className="text-xs font-semibold text-sky-700 whitespace-nowrap">
+              <div className="text-xs font-semibold text-sky-700 group-hover:text-sky-900 whitespace-nowrap">
                 {item.actionLabel}
               </div>
             </button>
@@ -257,10 +265,10 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         </div>
       </section>
 
-      {/* Quiet Important Updates Ticker Row (Clean text, no pulsing dots) */}
-      <div className="bg-white border border-slate-200 rounded-xl px-4 py-2.5 flex items-center gap-3 overflow-x-auto text-xs text-slate-700">
+      {/* Quiet Important Updates Row */}
+      <div className="bg-white border border-slate-200/90 rounded-xl px-4 py-2.5 flex items-center gap-3 overflow-x-auto text-xs text-slate-700 shadow-xs">
         <span className="font-bold text-rose-700 whitespace-nowrap shrink-0">
-          Direct Apply Updates:
+          Direct Apply:
         </span>
         <div className="flex items-center gap-3 whitespace-nowrap">
           {[...LATEST_JOBS_ITEMS.slice(0, 3), PRIMARY_GRID_SERVICES[2]].map((item, idx) => (
@@ -279,16 +287,19 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
       </div>
 
       {/* Latest Jobs, Admit Cards & Results Columns */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Column 1: Latest Direct Job Forms */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h2 className="text-sm font-bold text-slate-900">
-              Latest Jobs — Direct Application Page
+              Latest Jobs — Direct Application
             </h2>
             <button
               type="button"
-              onClick={() => onOpenAiChat('Mujhe abhi chal rahe sabhi latest sarkari jobs ki fee, last date aur direct apply link batao.')}
+              onClick={() =>
+                onOpenAiChat(
+                  'Mujhe abhi chal rahe sabhi latest sarkari jobs ki fee, last date aur direct apply link batao.'
+                )
+              }
               className="text-xs font-semibold text-rose-700 hover:underline whitespace-nowrap shrink-0"
             >
               AI se Search Karein →
@@ -314,15 +325,18 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
           </div>
         </div>
 
-        {/* Column 2: Admit Cards, Results & Court Status */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h2 className="text-sm font-bold text-slate-900">
               Admit Card, Result &amp; Court Direct
             </h2>
             <button
               type="button"
-              onClick={() => onOpenAiChat('Mujhe Admit Card, Result ya Court case status dekhna hai, help karo.')}
+              onClick={() =>
+                onOpenAiChat(
+                  'Mujhe Admit Card, Result ya Court case status dekhna hai, help karo.'
+                )
+              }
               className="text-xs font-semibold text-sky-700 hover:underline whitespace-nowrap shrink-0"
             >
               Ask AI →
@@ -349,9 +363,9 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         </div>
       </section>
 
-      {/* Dark Navy SarthiAI Assistant Spotlight Banner (Matching Screenshot) */}
-      <section className="bg-[#0F172A] text-white rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
+      {/* Dark Navy SarthiAI Assistant Spotlight Banner */}
+      <section className="bg-[#0B1120] text-white rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start gap-4">
           <div className="w-11 h-11 rounded-xl bg-rose-600 flex items-center justify-center shrink-0">
             <Bot className="w-6 h-6 text-white" />
           </div>
@@ -360,7 +374,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               SarthiAI Personal Sahayak · Seedha Form Fill Karein
             </h2>
             <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-              Kisi bhi service par click karein — AI pehle batayega kitna paisa aur kya document lagega, OCR se details nikalega, aur phir seedha form wala page khol kar khud fill karega.
+              Kisi bhi service par click karein — AI pehle batayega kitna paisa aur kya document lagega, OCR se State, DOB aur Address nikalega, aur phir Desktop Browser me form auto-fill karega.
             </p>
           </div>
         </div>
@@ -374,7 +388,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         </button>
       </section>
 
-      {/* Popular Services Tile Grid (लोकप्रिय सेवाएँ) */}
+      {/* Popular Services Tile Grid */}
       <section className="space-y-3">
         <h2 className="text-base font-bold text-slate-900">
           Lokpriya Sewayein (Popular Direct Services)
@@ -385,7 +399,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               key={item.id}
               type="button"
               onClick={() => void openServiceBrief(item)}
-              className="min-h-[52px] px-3 py-2.5 rounded-xl bg-white border border-slate-200 hover:border-slate-400 text-left flex items-center gap-2.5 transition-colors"
+              className="min-h-[52px] px-3.5 py-2.5 rounded-xl bg-white border border-slate-200/90 hover:border-slate-400 text-left flex items-center gap-2.5 shadow-xs transition-colors"
             >
               <FileText className="w-4 h-4 text-slate-500 shrink-0" />
               <span className="text-xs font-semibold text-slate-800 line-clamp-2">
@@ -398,32 +412,37 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
 
       {/* Trust Bar & Footer */}
       <footer className="space-y-3 pt-2">
-        <div className="bg-[#0F172A] text-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="inline-flex items-center gap-1.5">
+        <div className="bg-[#0B1120] text-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 font-medium">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              Zero-Save RAM OCR Privacy
+              Zero-Save RAM OCR
             </span>
-            <span className="text-slate-500">·</span>
-            <span>Ad-Blocked Chromium Browser</span>
-            <span className="text-slate-500">·</span>
+            <span className="text-slate-600">·</span>
+            <span>Desktop Chromium Browser (1366×820)</span>
+            <span className="text-slate-600">·</span>
             <span>CAPTCHA / OTP / Payment Sirf Aapke Control Me</span>
           </div>
-          <span className="font-semibold text-emerald-400">Direct Form Engine Active</span>
+          <PWAInstallButton />
         </div>
         <div className="text-center text-xs text-slate-500 pb-2">
-          2026 SarthiAI · Independent AI Form Assistant &amp; Direct Portal Browser
+          2026 Sarthi Narad · Independent AI Form Assistant &amp; Direct Desktop Browser
         </div>
       </footer>
 
-      {/* Pre-Flight AI Brief + OCR Upload + Direct Form Launcher Modal */}
+      {/* Pre-Flight AI Brief + OCR Upload + State Verification Modal */}
       {sheetOpen && activeBrief && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto p-5 space-y-4 text-slate-900 shadow-2xl">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 text-slate-900 shadow-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-sky-700">
-                  {activeBrief.portalName} · {loadingBrief ? 'Live AI Check Chal Raha Hai...' : activeBrief.fromLiveAi ? 'Live AI Verified' : 'Verified Direct Guide'}
+                  {activeBrief.portalName} ·{' '}
+                  {loadingBrief
+                    ? 'Live AI Check Chal Raha Hai...'
+                    : activeBrief.fromLiveAi
+                    ? 'Live AI Verified'
+                    : 'Verified Direct Guide'}
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 mt-0.5">
                   {activeBrief.title}
@@ -439,7 +458,6 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               </button>
             </div>
 
-            {/* Fee & Processing Summary */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-1">
                 <div className="text-xs font-bold text-amber-900 inline-flex items-center gap-1.5">
@@ -451,28 +469,23 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
                 </div>
               </div>
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                <div className="text-xs font-bold text-slate-900">
-                  Eligibility &amp; Time
-                </div>
+                <div className="text-xs font-bold text-slate-900">Eligibility &amp; Time</div>
                 <div className="text-xs text-slate-700 leading-relaxed">
                   {activeBrief.eligibilitySummary} · {activeBrief.processingTime}
                 </div>
               </div>
             </div>
 
-            {/* Direct Target URL Notice (Proof it skips homepage) */}
-            <div className="px-3.5 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-xs text-sky-900 flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <span className="font-bold">Direct Form Link (No Homepage): </span>
-                <span className="font-mono break-all text-[11px]">{activeBrief.directFormUrl}</span>
-              </div>
+            <div className="px-3.5 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-xs text-sky-900">
+              <span className="font-bold">Direct Form URL: </span>
+              <span className="font-mono break-all text-[11px]">{activeBrief.directFormUrl}</span>
             </div>
 
             {/* Required Documents With Inline OCR Upload */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <h4 className="text-sm font-bold text-slate-900">
-                  Yeh Documents Lagega — Upload Karein (OCR Details Nikalega)
+                  Documents Upload Karein (OCR Details Nikalega)
                 </h4>
                 {ephemeralDocs.length > 0 && (
                   <span className="text-xs font-semibold text-emerald-700">
@@ -506,10 +519,10 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
                           pendingDocIdRef.current = doc.id;
                           fileInputRef.current?.click();
                         }}
-                        className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 ${
+                        className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                           uploadedInfo
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : 'bg-[#0F172A] hover:bg-slate-800 text-white'
+                            : 'bg-[#0B1120] hover:bg-slate-800 text-white'
                         }`}
                       >
                         {busy ? (
@@ -535,7 +548,55 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               </div>
             </div>
 
-            {/* Extra user details (e.g., village station, date, category, post) */}
+            {/* Live OCR Verification & State / Rajya Picker */}
+            {latestDoc && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-emerald-900">
+                    OCR Extracted Details ({latestDoc.documentType})
+                  </div>
+                  {onUpdateEphemeralDocField && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] font-bold text-emerald-900 whitespace-nowrap">
+                        Rajya / State:
+                      </label>
+                      <select
+                        value={latestStateVal}
+                        onChange={(e) =>
+                          onUpdateEphemeralDocField(
+                            latestDoc.id,
+                            'state',
+                            'State',
+                            e.target.value
+                          )
+                        }
+                        className="min-h-[34px] px-2.5 rounded-lg bg-white border border-emerald-300 text-xs font-semibold text-slate-900 focus:border-slate-900 focus:outline-none"
+                      >
+                        <option value="">-- Select State / Rajya --</option>
+                        {INDIAN_STATES_AND_UTS.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                  {latestDoc.fields.slice(0, 9).map((f, idx) => (
+                    <div
+                      key={`${f.key}-${idx}`}
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-200/80 min-w-0"
+                    >
+                      <div className="text-slate-500 truncate">{f.label}</div>
+                      <div className="font-semibold text-slate-900 truncate">{f.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1">
                 Extra Detail (Agar Zarurat Ho — Jaise Gaon Station, Date, ya Post Name)
@@ -549,7 +610,6 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               />
             </div>
 
-            {/* Steps & Human Verification Note */}
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-1">
               <div className="font-bold text-slate-900">Kaise Kaam Karega:</div>
               <ol className="list-decimal pl-4 space-y-0.5">
@@ -568,15 +628,14 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               </div>
             )}
 
-            {/* Primary CTA: Open Direct Form Page Immediately */}
             <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={launchDirectFormPage}
-                className="flex-1 min-h-[48px] px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors"
+                className="flex-1 min-h-[46px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
               >
                 <Compass className="w-4 h-4" />
-                Direct Form Page Kholo &amp; Auto-Fill Chalao
+                Desktop Browser Me Form Kholo
               </button>
               <button
                 type="button"
@@ -586,10 +645,10 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
                     `Mujhe "${activeBrief.title}" karwana hai. Official Fee: ${activeBrief.feeSummary}. Direct URL: ${activeBrief.directFormUrl}. Meri details check karke aage process karo.`
                   );
                 }}
-                className="min-h-[48px] px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-xs inline-flex items-center justify-center gap-1.5"
+                className="min-h-[46px] px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold text-xs inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
               >
                 <Bot className="w-4 h-4" />
-                AI Chat Me Le Chalo
+                AI Chat
               </button>
             </div>
           </div>

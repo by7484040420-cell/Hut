@@ -6,10 +6,8 @@ import {
   Home,
   Landmark,
   Loader2,
-  Monitor,
   Server,
   ShieldCheck,
-  Smartphone,
   UserCheck,
 } from 'lucide-react';
 import type {
@@ -26,19 +24,15 @@ import { AiAgentSection } from './components/AiAgentSection';
 import { FormStudioSection } from './components/FormStudioSection';
 import { MiniBrowserSection } from './components/MiniBrowserSection';
 import { ProfileVaultSection } from './components/ProfileVaultSection';
-import { PWAInstallButton } from './components/PWAInstallButton';
 import {
   apiFetchJson,
   BackendUnavailableError,
   DEFAULT_APK_BACKEND_URL,
   getSavedBackendUrl,
-  getSavedViewMode,
   loadLocalFallbackBootstrap,
   saveLocalFallbackBookmarks,
   saveLocalFallbackProfile,
   setSavedBackendUrl,
-  setSavedViewMode,
-  type AppViewMode,
 } from './lib/api';
 
 type TabKey = 'home' | 'directory' | 'agent' | 'browser' | 'forms' | 'vault';
@@ -59,16 +53,8 @@ export function App() {
   const [queuedBrowserGoal, setQueuedBrowserGoal] = useState<string | null>(null);
   const [queuedAiPrompt, setQueuedAiPrompt] = useState<string | null>(null);
 
-  // Ephemeral RAM-only document extractions & Zero-Save privacy toggle (default ON)
   const [zeroSave, setZeroSave] = useState(true);
   const [ephemeralDocs, setEphemeralDocs] = useState<EphemeralDocumentExtract[]>([]);
-  const [viewMode, setViewMode] = useState<AppViewMode>(() => getSavedViewMode());
-
-  const toggleViewMode = () => {
-    const next: AppViewMode = viewMode === 'desktop' ? 'mobile' : 'desktop';
-    setViewMode(next);
-    setSavedViewMode(next);
-  };
 
   const loadWorkspaceData = useCallback(async () => {
     setLoading(true);
@@ -214,6 +200,22 @@ export function App() {
     setEphemeralDocs((prev) => [doc, ...prev]);
   };
 
+  const handleUpdateEphemeralDocField = (docId: string, key: string, label: string, value: string) => {
+    setEphemeralDocs((prev) =>
+      prev.map((doc) => {
+        if (doc.id !== docId) return doc;
+        const idx = doc.fields.findIndex(
+          (f) => f.key.toLowerCase() === key.toLowerCase()
+        );
+        const nextFields =
+          idx >= 0
+            ? doc.fields.map((f, i) => (i === idx ? { ...f, value } : f))
+            : [...doc.fields, { key, label, value }];
+        return { ...doc, fields: nextFields };
+      })
+    );
+  };
+
   const handleWipeEphemeralDocs = () => {
     setEphemeralDocs([]);
   };
@@ -239,7 +241,7 @@ export function App() {
 
   const navItems: { key: TabKey; label: string; shortLabel: string; icon: React.ReactNode }[] = [
     { key: 'home', label: 'Home', shortLabel: 'Home', icon: <Home className="w-4 h-4" /> },
-    { key: 'directory', label: 'Directory', shortLabel: 'Portals', icon: <Landmark className="w-4 h-4" /> },
+    { key: 'directory', label: 'Portals', shortLabel: 'Portals', icon: <Landmark className="w-4 h-4" /> },
     { key: 'agent', label: 'AI Agent', shortLabel: 'AI Agent', icon: <Bot className="w-4 h-4" /> },
     { key: 'browser', label: 'Live Browser', shortLabel: 'Browser', icon: <Compass className="w-4 h-4" /> },
     {
@@ -248,33 +250,33 @@ export function App() {
       shortLabel: 'Forms',
       icon: <FileSpreadsheet className="w-4 h-4" />,
     },
-    { key: 'vault', label: 'Profile Vault', shortLabel: 'Vault', icon: <UserCheck className="w-4 h-4" /> },
+    { key: 'vault', label: 'Vault', shortLabel: 'Vault', icon: <UserCheck className="w-4 h-4" /> },
   ];
 
   return (
     <div
-      className={`min-h-screen bg-[#F6F8FB] text-slate-900 flex flex-col ${
-        viewMode === 'desktop' ? 'pb-4' : 'pb-20 md:pb-4'
+      className={`min-h-dvh bg-[#F4F6FA] text-slate-900 flex flex-col ${
+        activeTab === 'browser' ? 'pb-16 md:pb-2' : 'pb-20 md:pb-6'
       }`}
     >
-      {/* Crisp 3-Zone Navy Header matching Reference Screenshot */}
-      <header className="sticky top-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 pt-safe">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-6">
-          {/* Zone 1: Brand Wordmark */}
+      {/* Clean 3-Zone Top Bar Contract */}
+      <header className="sticky top-0 z-30 bg-[#0B1120] text-white border-b border-slate-800/90">
+        <div className="max-w-[1440px] mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-4 sm:gap-8">
+          {/* Zone 1: Single-line Brand Wordmark */}
           <button
             type="button"
             onClick={() => setActiveTab('home')}
-            className="flex items-center gap-2.5 shrink-0 whitespace-nowrap"
+            className="flex items-center gap-2 shrink-0 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-md"
           >
-            <span className="w-8 h-8 rounded-lg bg-rose-600 text-white font-display font-bold text-sm flex items-center justify-center">
+            <span className="w-7 h-7 rounded-lg bg-rose-600 text-white font-display font-bold text-sm flex items-center justify-center">
               S
             </span>
-            <span className="font-display font-bold text-base tracking-tight text-white">
-              Sarthi Narad AI
+            <span className="font-display font-bold text-[15px] tracking-tight text-white">
+              Sarthi Narad
             </span>
           </button>
 
-          {/* Zone 2: Clean Single-Line Navigation Links */}
+          {/* Zone 2: Clean Single-Line Navigation Links (Desktop) */}
           <nav className="hidden md:flex items-center gap-6">
             {navItems.map((item) => {
               const active = activeTab === item.key;
@@ -283,9 +285,9 @@ export function App() {
                   key={item.key}
                   type="button"
                   onClick={() => setActiveTab(item.key)}
-                  className={`min-h-[40px] py-2 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 transition-colors ${
+                  className={`h-14 text-[13px] font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 border-b-2 transition-colors ${
                     active
-                      ? 'border-rose-500 text-white'
+                      ? 'border-rose-500 text-white font-semibold'
                       : 'border-transparent text-slate-300 hover:text-white'
                   }`}
                 >
@@ -296,81 +298,73 @@ export function App() {
             })}
           </nav>
 
-          {/* Zone 3: View Mode & Zero-Save Controls */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={toggleViewMode}
-              title="Switch between Laptop Full-Display and Mobile layout"
-              className="min-h-[36px] px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-            >
-              {viewMode === 'desktop' ? (
-                <Monitor className="w-3.5 h-3.5 text-sky-400" />
-              ) : (
-                <Smartphone className="w-3.5 h-3.5 text-sky-400" />
-              )}
-              {viewMode === 'desktop' ? 'Laptop View' : 'Mobile View'}
-            </button>
+          {/* Zone 3: Single Primary Control */}
+          <div className="flex items-center shrink-0">
             <button
               type="button"
               onClick={() => setZeroSave((v) => !v)}
               title="Toggle Zero-Save RAM-only privacy mode"
-              className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+              className={`min-h-[34px] px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
                 zeroSave
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               Zero-Save {zeroSave ? 'ON' : 'OFF'}
             </button>
-            <PWAInstallButton />
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-5 space-y-4">
+      <main
+        className={`flex-1 w-full mx-auto flex flex-col ${
+          activeTab === 'browser'
+            ? 'max-w-[1440px] px-2 sm:px-6 py-2.5 sm:py-4 gap-3'
+            : 'max-w-7xl px-3 sm:px-6 py-4 sm:py-5 gap-4'
+        }`}
+      >
         {serverOfflineMode && (
           <form
             onSubmit={handleConnectServer}
-            className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center gap-2.5"
+            className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center gap-2"
           >
-            <div className="flex items-start gap-2 flex-1 min-w-0">
-              <Server className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-950 leading-relaxed">
-                <span className="font-bold">APK Standalone Mode:</span> Cloud AI Autopilot, OCR &amp; Live Chromium ke liye apna deployed SarthiAI Server URL connect karein — ya Direct Form links phone ke Ad-Blocked browser me kholein.
-                {serverConnectError && (
-                  <div className="text-[11px] text-rose-700 mt-0.5">{serverConnectError}</div>
-                )}
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Server className="w-4 h-4 text-amber-700 shrink-0" />
+              <div className="text-xs text-amber-950 truncate">
+                <span className="font-semibold">Standalone:</span> Live AI &amp; Desktop Chromium ke liye server URL connect karein.
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               <input
                 type="url"
                 value={serverUrlInput}
                 onChange={(e) => setServerUrlInput(e.target.value)}
                 placeholder="https://your-sarthiai-server.app"
-                className="min-h-[38px] w-full sm:w-72 px-3 rounded-xl bg-white border border-amber-300 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+                className="min-h-[36px] flex-1 sm:w-64 px-2.5 rounded-lg bg-white border border-amber-300 text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={connectingServer || !serverUrlInput.trim()}
-                className="min-h-[38px] px-4 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 shrink-0"
+                className="min-h-[36px] px-3.5 rounded-lg bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
-                {connectingServer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Connect Server'}
+                {connectingServer ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Connect'}
               </button>
             </div>
+            {serverConnectError && (
+              <div className="text-[11px] text-rose-700 w-full">{serverConnectError}</div>
+            )}
           </form>
         )}
 
         {loading ? (
-          <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-600 text-sm">
+          <div className="flex-1 py-20 flex flex-col items-center justify-center gap-3 text-slate-600 text-sm">
             <Loader2 className="w-6 h-6 animate-spin text-rose-600" />
-            Loading SarthiAI Portal...
+            Loading Sarthi Narad Workspace...
           </div>
         ) : loadError || !workspace ? (
-          <div className="max-w-lg mx-auto mt-12 p-6 rounded-2xl bg-white border border-rose-300 text-sm text-rose-700">
+          <div className="max-w-lg mx-auto mt-12 p-6 rounded-xl bg-white border border-rose-200 text-sm text-rose-700">
             {loadError || 'Workspace failed to load.'}
           </div>
         ) : (
@@ -380,6 +374,7 @@ export function App() {
                 ephemeralDocs={ephemeralDocs}
                 zeroSave={zeroSave}
                 onAddEphemeralDoc={handleAddEphemeralDoc}
+                onUpdateEphemeralDocField={handleUpdateEphemeralDocField}
                 onOpenDirectFormBrowser={openUrlInLiveBrowser}
                 onOpenAiChat={openAiWithPrompt}
                 onOpenFormStudio={() => setActiveTab('forms')}
@@ -407,6 +402,7 @@ export function App() {
                 onConsumeInitialPrompt={() => setQueuedAiPrompt(null)}
                 onToggleZeroSave={setZeroSave}
                 onAddEphemeralDoc={handleAddEphemeralDoc}
+                onUpdateEphemeralDocField={handleUpdateEphemeralDocField}
                 onWipeEphemeralDocs={handleWipeEphemeralDocs}
                 onChatUpdate={handleChatUpdate}
                 onOpenBrowser={openUrlInLiveBrowser}
@@ -431,6 +427,7 @@ export function App() {
                 activeDraft={activeDraft}
                 onBookmarksChange={handleBookmarksChange}
                 onAddEphemeralDoc={handleAddEphemeralDoc}
+                onUpdateEphemeralDocField={handleUpdateEphemeralDocField}
                 onWipeAllSession={handleWipeAllSession}
               />
             )}
@@ -460,9 +457,9 @@ export function App() {
         )}
       </main>
 
-      {/* Mobile Bottom Navigation */}
+      {/* Compact Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
-        <div className="grid grid-cols-6 gap-1 px-1.5 py-1.5">
+        <div className="grid grid-cols-6 gap-0.5 px-1 py-1">
           {navItems.map((item) => {
             const active = activeTab === item.key;
             return (
@@ -470,14 +467,14 @@ export function App() {
                 key={item.key}
                 type="button"
                 onClick={() => setActiveTab(item.key)}
-                className={`min-h-[48px] rounded-xl flex flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-colors ${
+                className={`min-h-[44px] rounded-lg flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition-colors ${
                   active
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-[#0B1120] text-white'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {item.icon}
-                <span className="truncate max-w-full px-1">{item.shortLabel}</span>
+                <span className="truncate max-w-full px-0.5">{item.shortLabel}</span>
               </button>
             );
           })}

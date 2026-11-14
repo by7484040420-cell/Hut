@@ -26,22 +26,6 @@ export function setSavedViewMode(mode: AppViewMode): void {
   } catch {
     // ignore
   }
-  const meta = document.getElementById('app-viewport');
-  if (!meta) return;
-  const screenW = Math.min(window.screen.width || window.innerWidth || 390, window.innerWidth || 9999);
-  if (mode === 'desktop' && screenW > 0 && screenW < 1100) {
-    const desktopWidth = 1200;
-    const scale = Math.max(0.25, Math.min(1, screenW / desktopWidth));
-    meta.setAttribute(
-      'content',
-      `width=${desktopWidth}, initial-scale=${scale.toFixed(4)}, minimum-scale=0.25, maximum-scale=3.0, viewport-fit=cover`
-    );
-  } else {
-    meta.setAttribute(
-      'content',
-      'width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, viewport-fit=cover'
-    );
-  }
 }
 
 export class BackendUnavailableError extends Error {

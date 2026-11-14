@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { Check, Loader2, Plus, Save, Trash2 } from 'lucide-react';
-import type { ProfileVault } from '../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { Check, Loader2, Plus, Save, Trash2, Upload } from 'lucide-react';
+import type { EphemeralDocumentExtract, ProfileVault } from '../types';
 import { getVaultCompletion } from '../lib/format';
 import { apiFetchJson, BackendUnavailableError } from '../lib/api';
+import { INDIAN_STATES_AND_UTS, resolveIndianState } from '../lib/indianStates';
+import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
 
 interface ProfileVaultSectionProps {
   profile: ProfileVault;
@@ -16,6 +18,9 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
   const [form, setForm] = useState<ProfileVault>(profile);
   const [saving, setSaving] = useState(false);
   const [savedFlag, setSavedFlag] = useState(false);
+  const [scanningOcr, setScanningOcr] = useState(false);
+  const [ocrNotice, setOcrNotice] = useState<string | null>(null);
+  const ocrInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setForm(profile);
@@ -26,6 +31,106 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
   const updateField = (key: keyof ProfileVault, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setSavedFlag(false);
+  };
+
+  const applyOcrToVault = (extracted: EphemeralDocumentExtract) => {
+    setForm((prev) => {
+      const next = { ...prev };
+      for (const f of extracted.fields) {
+        const k = f.key.toLowerCase();
+        const l = f.label.toLowerCase();
+        const v = f.value.trim();
+        if (!v) continue;
+
+        if (k === 'fullname' || (l.includes('name') && !l.includes('father') && !l.includes('mother') && !l.includes('board'))) {
+          if (!next.fullName) next.fullName = v;
+        } else if (k.includes('father') || l.includes('father')) {
+          if (!next.fatherName) next.fatherName = v;
+        } else if (k.includes('mother') || l.includes('mother')) {
+          if (!next.motherName) next.motherName = v;
+        } else if (k === 'dob' || l.includes('birth')) {
+          if (!next.dob) {
+            const ddmmyyyy = v.match(/^(\d{2})[/\-.](\d{2})[/\-.](\d{4})$/);
+            next.dob = ddmmyyyy ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}` : v;
+          }
+        } else if (k === 'gender' || l.includes('gender') || l.includes('sex')) {
+          if (!next.gender) next.gender = v;
+        } else if (k === 'mobile' || l.includes('mobile') || l.includes('phone')) {
+          if (!next.mobile) next.mobile = v.replace(/\D/g, '').slice(-10);
+        } else if (k === 'email' || l.includes('email')) {
+          if (!next.email) next.email = v;
+        } else if (k.includes('address') || l.includes('address')) {
+          if (!next.addressLine) next.addressLine = v;
+        } else if (k.includes('village') || l.includes('village') || l.includes('ward')) {
+          if (!next.villageOrWard) next.villageOrWard = v;
+        } else if (k.includes('post') || l.includes('post office')) {
+          if (!next.postOffice) next.postOffice = v;
+        } else if (k.includes('police') || l.includes('thana')) {
+          if (!next.policeStation) next.policeStation = v;
+        } else if (k.includes('block') || k.includes('tehsil') || l.includes('tehsil')) {
+          if (!next.blockOrTehsil) next.blockOrTehsil = v;
+        } else if (k.includes('district') || l.includes('district')) {
+          if (!next.district) next.district = v;
+        } else if (k === 'state' || l === 'state' || l.includes('rajya')) {
+          next.state = v;
+        } else if (k.includes('pin') || l.includes('pin')) {
+          if (!next.pinCode) next.pinCode = v.replace(/\D/g, '').slice(0, 6);
+        } else if (k.includes('pan') || l.includes('pan')) {
+          if (!next.panNumber) next.panNumber = v.toUpperCase();
+        } else if (k.includes('aadhaar') || l.includes('aadhaar')) {
+          if (!next.aadhaarLast4) next.aadhaarLast4 = v.replace(/\D/g, '').slice(-4);
+        } else if (k.includes('passport') || l.includes('passport')) {
+          if (!next.passportNumber) next.passportNumber = v.toUpperCase();
+        } else if (k.includes('dl') || l.includes('driving')) {
+          if (!next.dlNumber) next.dlNumber = v.toUpperCase();
+        } else if (k.includes('voter') || l.includes('voter')) {
+          if (!next.voterId) next.voterId = v.toUpperCase();
+        }
+      }
+      const inferredState = resolveIndianState({
+        state: next.state,
+        addressLine: next.addressLine,
+        pinCode: next.pinCode,
+        district: next.district,
+      });
+      if (inferredState) {
+        next.state = inferredState;
+      }
+      return next;
+    });
+    setSavedFlag(false);
+  };
+
+  const handleOcrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setScanningOcr(true);
+    setOcrNotice(null);
+    try {
+      let extracted: EphemeralDocumentExtract | null = null;
+      try {
+        const formData = new FormData();
+        formData.append('document', file);
+        const data = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>(
+          '/api/ocr/extract',
+          { method: 'POST', body: formData }
+        );
+        extracted = data.extracted;
+      } catch (serverErr) {
+        const nativeExtracted = await runNativeOnDeviceOcr(file);
+        if (!nativeExtracted) throw serverErr;
+        extracted = nativeExtracted;
+      }
+      applyOcrToVault(extracted);
+      setOcrNotice(
+        `${extracted.documentType} se ${extracted.fields.length} fields fill hue — neeche verify karke "Save Vault" dabayein.`
+      );
+    } catch (err) {
+      setOcrNotice(err instanceof Error ? err.message : 'Document scan failed.');
+    } finally {
+      setScanningOcr(false);
+    }
   };
 
   const addCustomField = () => {
@@ -83,41 +188,70 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
 
   return (
     <form onSubmit={handleSave} className="space-y-5">
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-base font-bold text-slate-900">
-            Personal &amp; Document Auto-Fill Vault
-          </h1>
-          <p className="text-xs text-slate-600 mt-0.5">
-            Ek baar details save karein (ya Zero-Save mode me sirf RAM OCR use karein) — SarthiAI har form me auto-fill karega.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <div className="text-xs font-mono font-semibold text-emerald-700 tabular-nums">
-              {completion.filled}/{completion.total} core fields
-            </div>
-            <div className="text-[11px] text-slate-500">Stored locally on device/server</div>
+      <input
+        ref={ocrInputRef}
+        type="file"
+        accept="image/*,.pdf"
+        onChange={handleOcrUpload}
+        className="hidden"
+      />
+
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-base font-bold text-slate-900">
+              Personal &amp; Document Auto-Fill Vault
+            </h1>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Aadhaar / PAN / Marksheet scan karke details auto-fill karein — ya manually save karein.
+            </p>
           </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center gap-2 transition-colors"
-          >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : savedFlag ? (
-              <Check className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            {savedFlag ? 'Saved!' : 'Save Vault'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="text-right mr-1">
+              <div className="text-xs font-mono font-semibold text-emerald-700 tabular-nums">
+                {completion.filled}/{completion.total} core fields
+              </div>
+              <div className="text-[11px] text-slate-500">Ready for auto-fill</div>
+            </div>
+            <button
+              type="button"
+              disabled={scanningOcr}
+              onClick={() => ocrInputRef.current?.click()}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-sky-50 border border-sky-200 hover:bg-sky-100 text-sky-900 font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+            >
+              {scanningOcr ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4" />
+              )}
+              {scanningOcr ? 'Scanning OCR...' : 'Scan Aadhaar / Doc'}
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="min-h-[42px] px-5 py-2 rounded-xl bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : savedFlag ? (
+                <Check className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {savedFlag ? 'Saved!' : 'Save Vault'}
+            </button>
+          </div>
         </div>
+
+        {ocrNotice && (
+          <div className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+            {ocrNotice}
+          </div>
+        )}
       </div>
 
       {/* Personal & Family */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4">
         <h2 className="text-sm font-bold text-slate-900">Personal &amp; Family Details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           <FieldInput label="Full Name (as per Aadhaar)" value={form.fullName} onChange={(v) => updateField('fullName', v)} placeholder="e.g. Rahul Kumar Sharma" />
@@ -133,7 +267,7 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
       </div>
 
       {/* Address */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4">
         <h2 className="text-sm font-bold text-slate-900">
           Permanent Address (Block / Tehsil / Court Ready)
         </h2>
@@ -144,14 +278,45 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
           <FieldInput label="Police Station (Thana)" value={form.policeStation} onChange={(v) => updateField('policeStation', v)} placeholder="Thana" />
           <FieldInput label="Block / Tehsil / Anchal" value={form.blockOrTehsil} onChange={(v) => updateField('blockOrTehsil', v)} placeholder="Block / Tehsil" />
           <FieldInput label="District" value={form.district} onChange={(v) => updateField('district', v)} placeholder="District" />
-          <FieldInput label="State" value={form.state} onChange={(v) => updateField('state', v)} placeholder="Bihar / UP / Maharashtra..." />
-          <FieldInput label="PIN Code" value={form.pinCode} onChange={(v) => updateField('pinCode', v)} placeholder="6-digit PIN" />
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              State / Rajya
+            </label>
+            <select
+              value={form.state}
+              onChange={(e) => updateField('state', e.target.value)}
+              className="w-full min-h-[42px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900"
+            >
+              <option value="">-- Select State / Rajya --</option>
+              {INDIAN_STATES_AND_UTS.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+              {form.state && !INDIAN_STATES_AND_UTS.includes(form.state) && (
+                <option value={form.state}>{form.state}</option>
+              )}
+            </select>
+          </div>
+          <FieldInput
+            label="PIN Code"
+            value={form.pinCode}
+            onChange={(v) => {
+              const cleaned = v.replace(/\D/g, '').slice(0, 6);
+              updateField('pinCode', cleaned);
+              if (cleaned.length === 6 && !form.state) {
+                const st = resolveIndianState({ pinCode: cleaned });
+                if (st) updateField('state', st);
+              }
+            }}
+            placeholder="6-digit PIN"
+          />
         </div>
       </div>
 
       {/* Education & Official IDs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4">
           <h2 className="text-sm font-bold text-slate-900">Education (Job Forms)</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <FieldInput label="Highest Qualification" value={form.qualification} onChange={(v) => updateField('qualification', v)} placeholder="10th / 12th / Graduate / B.Tech" />
@@ -161,8 +326,8 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-          <h2 className="text-sm font-bold text-slate-900">Detailed Education &amp; Personal (Job Forms)</h2>
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4">
+          <h2 className="text-sm font-bold text-slate-900">Detailed Education &amp; Personal</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <FieldInput label="Blood Group" value={form.bloodGroup} onChange={(v) => updateField('bloodGroup', v)} placeholder="e.g. B+" />
             <FieldInput label="Place of Birth" value={form.birthPlace} onChange={(v) => updateField('birthPlace', v)} placeholder="e.g. Patna, Bihar" />
@@ -182,9 +347,9 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4 lg:col-span-2">
           <h2 className="text-sm font-bold text-slate-900">Official IDs &amp; Travel</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             <FieldInput label="PAN Number" value={form.panNumber} onChange={(v) => updateField('panNumber', v.toUpperCase())} placeholder="ABCDE1234F (if issued)" />
             <FieldInput label="Aadhaar Last 4 Digits" value={form.aadhaarLast4} onChange={(v) => updateField('aadhaarLast4', v)} placeholder="e.g. 4829" />
             <FieldInput label="Passport Number" value={form.passportNumber} onChange={(v) => updateField('passportNumber', v.toUpperCase())} placeholder="If already issued" />
@@ -196,7 +361,7 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
       </div>
 
       {/* Custom Fields */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold text-slate-900">Extra Custom Fields</h2>
@@ -207,7 +372,7 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
           <button
             type="button"
             onClick={addCustomField}
-            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5"
+            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5 text-emerald-700" />
             Add Field

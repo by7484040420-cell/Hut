@@ -144,6 +144,16 @@ export interface BrowserInspectionResult {
   sources: GroundingSource[];
 }
 
+export interface MissingFormField {
+  id: string;
+  key?: string;
+  label: string;
+  tag: string;
+  type: string;
+  placeholder?: string;
+  options?: string[];
+}
+
 export interface LiveBrowserStatus {
   active: boolean;
   url: string;
@@ -158,6 +168,7 @@ export interface LiveBrowserStatus {
   waitingForHuman: boolean;
   humanPrompt: string | null;
   requestedDocuments: RequestedDocumentSpec[];
+  missingFields?: MissingFormField[];
   lastStepLogs: string[];
 }
 

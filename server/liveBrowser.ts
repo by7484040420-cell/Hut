@@ -5,6 +5,7 @@ import type { WebSocket, WebSocketServer } from 'ws';
 import type {
   EphemeralDocumentExtract,
   LiveBrowserStatus,
+  MissingFormField,
   ProfileVault,
 } from '../src/types.js';
 import {
@@ -15,6 +16,43 @@ import {
   type InteractiveDomElement,
   type UnmatchedFormField,
 } from './geminiAgent.js';
+import { resolveIndianState } from '../src/lib/indianStates.js';
+
+function findChromiumExecutable(): string | undefined {
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH && fs.existsSync(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH)) {
+    return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  }
+  try {
+    const def = chromium.executablePath();
+    if (def && fs.existsSync(def)) return def;
+  } catch {
+    // ignore
+  }
+  const directCandidates = [
+    '/ms-playwright/chrome-headless-shell-linux64/chrome-headless-shell',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+  ];
+  for (const c of directCandidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  try {
+    const pwDir = '/ms-playwright';
+    if (fs.existsSync(pwDir)) {
+      const entries = fs.readdirSync(pwDir).sort().reverse();
+      for (const entry of entries) {
+        const shellBin = path.join(pwDir, entry, 'chrome-headless-shell-linux64', 'chrome-headless-shell');
+        if (fs.existsSync(shellBin)) return shellBin;
+        const chromeBin = path.join(pwDir, entry, 'chrome-linux64', 'chrome');
+        if (fs.existsSync(chromeBin)) return chromeBin;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
 
 function loadFillEngineSource(): string | null {
   try {
@@ -112,8 +150,14 @@ function buildServerFillPayload(params: {
       else if (lower.includes('dl') || lower.includes('driving')) map.dlNumber = map.dlNumber || v;
       else if (lower.includes('voter') || lower.includes('epic')) map.voterId = map.voterId || v;
       else if (lower.includes('address')) map.addressLine = map.addressLine || v;
+      else if (lower.includes('village') || lower.includes('ward')) map.villageOrWard = map.villageOrWard || v;
+      else if (lower.includes('post_office') || lower.includes('post office')) map.postOffice = map.postOffice || v;
+      else if (lower.includes('police') || lower.includes('thana')) map.policeStation = map.policeStation || v;
+      else if (lower.includes('block') || lower.includes('tehsil')) map.blockOrTehsil = map.blockOrTehsil || v;
       else if (lower.includes('district')) map.district = map.district || v;
-      else if (lower.includes('state')) map.state = map.state || v;
+      else if (lower.includes('state') || lower.includes('rajya') || lower.includes('राज्य') || lower.includes('pradesh') || lower.includes('province')) {
+        map.state = map.state || v;
+      }
       else if (lower.includes('roll')) {
         if (isTenthDoc) map.tenthRoll = map.tenthRoll || v;
         else if (isTwelfthDoc) map.twelfthRoll = map.twelfthRoll || v;
@@ -133,12 +177,22 @@ function buildServerFillPayload(params: {
       map[`ocr_${k}`] = v;
     }
   }
+  const resolvedState = resolveIndianState({
+    state: map.state,
+    addressLine: map.addressLine,
+    pinCode: map.pinCode,
+    district: map.district,
+  });
+  if (resolvedState) map.state = resolvedState;
+
   if (params.goal?.trim()) map.goal = params.goal.trim();
   return map;
 }
 
-const VIEWPORT_WIDTH = 1280;
-const VIEWPORT_HEIGHT = 720;
+const DESKTOP_WIDTH = 1366;
+const DESKTOP_HEIGHT = 820;
+const MOBILE_WIDTH = 412;
+const MOBILE_HEIGHT = 820;
 
 const AD_HOST_PATTERNS = [
   'doubleclick.net',
@@ -191,17 +245,18 @@ export class LiveBrowserController {
   private status: LiveBrowserStatus = {
     active: false,
     url: 'about:blank',
-    title: 'SarthiAI Live Browser',
+    title: 'SarthiAI Live Desktop Browser',
     loading: false,
     adBlockEnabled: true,
     blockedAdsCount: 0,
-    viewportWidth: VIEWPORT_WIDTH,
-    viewportHeight: VIEWPORT_HEIGHT,
+    viewportWidth: DESKTOP_WIDTH,
+    viewportHeight: DESKTOP_HEIGHT,
     agentRunning: false,
     agentStatus: 'Idle',
     waitingForHuman: false,
     humanPrompt: null,
     requestedDocuments: [],
+    missingFields: [],
     lastStepLogs: [],
   };
 
@@ -275,8 +330,10 @@ export class LiveBrowserController {
 
     if (!this.browser || !this.browser.isConnected()) {
       try {
+        const executablePath = findChromiumExecutable();
         this.browser = await chromium.launch({
           headless: true,
+          ...(executablePath ? { executablePath } : {}),
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -294,9 +351,10 @@ export class LiveBrowserController {
 
     if (!this.context) {
       this.context = await this.browser.newContext({
-        viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT },
+        viewport: { width: this.status.viewportWidth, height: this.status.viewportHeight },
+        deviceScaleFactor: 1,
         userAgent:
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         ignoreHTTPSErrors: true,
       });
 
@@ -313,40 +371,7 @@ export class LiveBrowserController {
     }
 
     this.page = await this.context.newPage();
-    this.page.setDefaultTimeout(15000);
-
-    this.page.on('popup', async (popup) => {
-      if (this.status.adBlockEnabled) {
-        this.status.blockedAdsCount += 1;
-        this.broadcastStatus();
-        await popup.close().catch(() => {});
-      }
-    });
-
-    this.page.on('framenavigated', async (frame) => {
-      if (frame === this.page?.mainFrame()) {
-        this.status.url = frame.url();
-        this.status.title = await this.page?.title().catch(() => this.status.url) || this.status.url;
-        this.broadcastStatus();
-      }
-    });
-
-    this.page.on('load', async () => {
-      if (!this.page || this.page.isClosed()) return;
-      if (this.status.adBlockEnabled) {
-        await this.page
-          .addStyleTag({
-            content:
-              'ins.adsbygoogle, [id^="google_ads"], iframe[src*="doubleclick"], .ad-banner, .sponsored-ad { display: none !important; }',
-          })
-          .catch(() => {});
-      }
-      this.status.loading = false;
-      this.status.url = this.page.url();
-      this.status.title = await this.page.title().catch(() => this.status.url);
-      this.broadcastStatus();
-      await this.captureAndBroadcastFrame();
-    });
+    this.attachPageListeners(this.page);
 
     this.status.active = true;
     this.broadcastStatus();
@@ -355,19 +380,71 @@ export class LiveBrowserController {
     return this.page;
   }
 
+  private attachPageListeners(page: Page) {
+    page.setDefaultTimeout(15000);
+
+    page.on('popup', async (popup) => {
+      try {
+        await popup.waitForLoadState('domcontentloaded', { timeout: 6000 }).catch(() => {});
+        const pUrl = popup.url();
+        if (this.status.adBlockEnabled && (!pUrl || pUrl === 'about:blank' || isAdUrl(pUrl))) {
+          this.status.blockedAdsCount += 1;
+          this.broadcastStatus();
+          await popup.close().catch(() => {});
+          return;
+        }
+        // Legitimate Apply / Form tab opened in a new window -> follow it!
+        this.page = popup;
+        this.attachPageListeners(popup);
+        this.status.url = popup.url();
+        this.status.title = await popup.title().catch(() => popup.url());
+        this.appendLog(`Opened form tab: ${this.status.title}`);
+        this.broadcastStatus();
+        await this.captureAndBroadcastFrame();
+      } catch {
+        // ignore popup race
+      }
+    });
+
+    page.on('framenavigated', async (frame) => {
+      if (this.page === page && frame === page.mainFrame()) {
+        this.status.url = frame.url();
+        this.status.title = (await page.title().catch(() => this.status.url)) || this.status.url;
+        this.broadcastStatus();
+      }
+    });
+
+    page.on('load', async () => {
+      if (this.page !== page || page.isClosed()) return;
+      if (this.status.adBlockEnabled) {
+        await page
+          .addStyleTag({
+            content:
+              'ins.adsbygoogle, [id^="google_ads"], iframe[src*="doubleclick"], .ad-banner, .sponsored-ad { display: none !important; }',
+          })
+          .catch(() => {});
+      }
+      this.status.loading = false;
+      this.status.url = page.url();
+      this.status.title = await page.title().catch(() => this.status.url);
+      this.broadcastStatus();
+      await this.captureAndBroadcastFrame();
+    });
+  }
+
   private startFrameLoop() {
     if (this.frameTimer) clearInterval(this.frameTimer);
     this.frameTimer = setInterval(async () => {
       if (!this.page || this.page.isClosed()) return;
       if (!this.wss || this.wss.clients.size === 0) return;
       await this.captureAndBroadcastFrame();
-    }, 850);
+    }, 650);
   }
 
   async captureAndBroadcastFrame(): Promise<string> {
     if (!this.page || this.page.isClosed()) return this.lastFrameBase64;
     try {
-      const buf = await this.page.screenshot({ type: 'jpeg', quality: 68 });
+      const buf = await this.page.screenshot({ type: 'jpeg', quality: 82 });
       const b64 = buf.toString('base64');
       this.broadcastFrame(b64);
       return b64;
@@ -431,8 +508,8 @@ export class LiveBrowserController {
 
   async clickAt(x: number, y: number) {
     const page = await this.ensurePage();
-    const clampedX = Math.max(0, Math.min(VIEWPORT_WIDTH - 1, Math.round(x)));
-    const clampedY = Math.max(0, Math.min(VIEWPORT_HEIGHT - 1, Math.round(y)));
+    const clampedX = Math.max(0, Math.min(this.status.viewportWidth - 1, Math.round(x)));
+    const clampedY = Math.max(0, Math.min(this.status.viewportHeight - 1, Math.round(y)));
     await page.mouse.click(clampedX, clampedY).catch(() => {});
     await page.waitForTimeout(250);
     this.status.url = page.url();
@@ -463,6 +540,19 @@ export class LiveBrowserController {
     await page.mouse.wheel(0, deltaY).catch(() => {});
     await page.waitForTimeout(200);
     await this.captureAndBroadcastFrame();
+  }
+
+  async setViewportMode(mode: 'desktop' | 'mobile'): Promise<LiveBrowserStatus> {
+    const width = mode === 'mobile' ? MOBILE_WIDTH : DESKTOP_WIDTH;
+    const height = mode === 'mobile' ? MOBILE_HEIGHT : DESKTOP_HEIGHT;
+    this.status.viewportWidth = width;
+    this.status.viewportHeight = height;
+    if (this.page && !this.page.isClosed()) {
+      await this.page.setViewportSize({ width, height }).catch(() => {});
+      await this.captureAndBroadcastFrame();
+    }
+    this.broadcastStatus();
+    return this.getStatus();
   }
 
   setAdBlock(enabled: boolean): LiveBrowserStatus {
@@ -500,13 +590,14 @@ export class LiveBrowserController {
       loading: false,
       adBlockEnabled: this.status.adBlockEnabled,
       blockedAdsCount: 0,
-      viewportWidth: VIEWPORT_WIDTH,
-      viewportHeight: VIEWPORT_HEIGHT,
+      viewportWidth: this.status.viewportWidth,
+      viewportHeight: this.status.viewportHeight,
       agentRunning: false,
       agentStatus: 'Idle · Zero-Save Session Cleared',
       waitingForHuman: false,
       humanPrompt: null,
       requestedDocuments: [],
+      missingFields: [],
       lastStepLogs: [],
     };
     this.broadcastStatus();
@@ -784,11 +875,125 @@ export class LiveBrowserController {
       this.broadcastStatus();
     } catch (err) {
       const formatted = formatGeminiError(err);
-      this.status.agentRunning = false;
-      this.status.agentStatus = formatted.message;
-      this.appendLog(`Error: ${formatted.message}`);
-      this.broadcastStatus();
+      this.appendLog(`AI Copilot note: ${formatted.message} — Running smart Apply + Auto-Fill engine...`);
+      await this.runInstantRuleAndAiFill({
+        profile: params.profile,
+        ephemeralDocs: params.ephemeralDocs || [],
+        zeroSave: false,
+        goal: params.goal,
+        autoApply: true,
+      });
     }
+  }
+
+  private async countFillableControls(page: Page): Promise<number> {
+    try {
+      return await page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll('input, select, textarea'));
+        let count = 0;
+        for (const node of els) {
+          const el = node as HTMLInputElement;
+          const type = (el.type || el.tagName).toLowerCase();
+          if (/^(hidden|submit|button|reset|image|file|search|range|color)$/.test(type)) continue;
+          const style = window.getComputedStyle(el);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+          const rect = el.getBoundingClientRect();
+          if (rect.width < 10 || rect.height < 10) continue;
+          const hint = `${el.name || ''} ${el.id || ''} ${el.placeholder || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
+          if (/\bsearch\b|\bquery\b|खोज/.test(hint)) continue;
+          count++;
+        }
+        return count;
+      });
+    } catch {
+      return 0;
+    }
+  }
+
+  private async findAndClickApplyButton(page: Page, minScore = 68): Promise<string | null> {
+    try {
+      const candidate = await page.evaluate((threshold: number) => {
+        const nodes = Array.from(
+          document.querySelectorAll('a[href], button, input[type="button"], input[type="submit"], [role="button"]')
+        );
+        let bestIdx = -1;
+        let bestScore = threshold - 1;
+        let bestLabel = '';
+
+        nodes.forEach((node) => {
+          const el = node as HTMLElement;
+          el.removeAttribute('data-sarthi-apply');
+          const style = window.getComputedStyle(el);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return;
+          const rect = el.getBoundingClientRect();
+          if (rect.width < 16 || rect.height < 14) return;
+
+          const inputEl = el as HTMLInputElement;
+          const rawText = (el.innerText || el.textContent || inputEl.value || el.getAttribute('aria-label') || el.getAttribute('title') || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (!rawText || rawText.length > 90) return;
+
+          const lower = rawText.toLowerCase();
+          const href = ((el as HTMLAnchorElement).href || '').toLowerCase();
+
+          // Never click noise / PDF notices / external ads / logout
+          if (/\b(pdf|notification|syllabus|admit card|result|privacy|terms|cookie|logout|sign out|cancel|reset|back)\b/.test(lower)) {
+            return;
+          }
+          if (href.endsWith('.pdf')) return;
+
+          let score = 0;
+          if (/click here to apply|apply online|apply now|online application|ऑनलाइन आवेदन|आवेदन करें/.test(lower)) {
+            score = 100;
+          } else if (/one time registration|\botr\b|new registration|fresh registration|register.*apply|form 49a|fill form|proceed to apply|start application/.test(lower)) {
+            score = 92;
+          } else if (/\bapply\b/.test(lower)) {
+            score = 84;
+          } else if (/registration|register now|proceed|next step|save & next|continue/.test(lower)) {
+            score = 68;
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestLabel = rawText;
+            nodes.forEach((n) => (n as HTMLElement).removeAttribute('data-sarthi-apply'));
+            el.setAttribute('data-sarthi-apply', '1');
+            bestIdx = 1;
+          }
+        });
+
+        return bestIdx > 0 ? { label: bestLabel, score: bestScore } : null;
+      }, minScore);
+
+      if (!candidate) return null;
+
+      const loc = page.locator('[data-sarthi-apply="1"]').first();
+      await loc.scrollIntoViewIfNeeded().catch(() => {});
+      await loc.click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(1400);
+      await this.page?.waitForLoadState('domcontentloaded', { timeout: 6000 }).catch(() => {});
+      this.status.url = this.page?.url() || this.status.url;
+      this.status.title = (await this.page?.title().catch(() => this.status.url)) || this.status.url;
+      this.broadcastStatus();
+      await this.captureAndBroadcastFrame();
+      return candidate.label;
+    } catch {
+      return null;
+    }
+  }
+
+  async autoClickApplyAndFill(params: {
+    profile: ProfileVault;
+    ephemeralDocs: EphemeralDocumentExtract[];
+    zeroSave: boolean;
+    goal?: string;
+    startUrl?: string;
+  }): Promise<LiveBrowserStatus> {
+    return this.runInstantRuleAndAiFill({
+      ...params,
+      autoApply: true,
+    });
   }
 
   async runInstantRuleAndAiFill(params: {
@@ -797,39 +1002,77 @@ export class LiveBrowserController {
     zeroSave: boolean;
     goal?: string;
     startUrl?: string;
+    autoApply?: boolean;
   }): Promise<LiveBrowserStatus> {
     const engineSource = loadFillEngineSource();
     if (!engineSource) {
       throw new Error('Sarthi Fill Engine (public/sarthi-fill-engine.js) not found.');
     }
 
-    const page = await this.ensurePage();
+    let page = await this.ensurePage();
     if (params.startUrl && params.startUrl.trim() && page.url() === 'about:blank') {
       await this.navigate(params.startUrl.trim());
-    }
-
-    const payload = buildServerFillPayload({
-      profile: params.profile,
-      ephemeralDocs: params.ephemeralDocs,
-      zeroSave: params.zeroSave,
-      goal: params.goal,
-    });
-
-    if (Object.keys(payload).filter((k) => k !== 'goal').length === 0) {
-      this.status.waitingForHuman = true;
-      this.status.humanPrompt = params.zeroSave
-        ? 'Zero-Save ON hai aur koi document OCR nahi hua hai — pehle document scan karein ya header me Zero-Save OFF karke Vault use karein.'
-        : 'Profile Vault abhi khaali hai — pehle Profile Vault me details save karein ya document scan karein.';
-      this.status.agentStatus = 'No user data available to fill';
-      this.broadcastStatus();
-      return this.getStatus();
+      page = await this.ensurePage();
     }
 
     this.status.agentRunning = true;
-    this.status.agentStatus = 'Sarthi-Narad Fill Engine: Rule-engine + Gemini AI scanning page...';
+    this.status.missingFields = [];
+    this.status.agentStatus = 'Scanning page & checking Apply/Form buttons...';
     this.broadcastStatus();
 
     try {
+      // Step 1: If page looks like a landing/portal page (<4 form fields), auto-click Apply / Registration CTA!
+      if (params.autoApply !== false) {
+        const controlCount = await this.countFillableControls(page);
+        if (controlCount < 4) {
+          const minScore = controlCount < 2 ? 68 : 84;
+          const clickedLabel = await this.findAndClickApplyButton(page, minScore);
+          if (clickedLabel) {
+            this.appendLog(`AI auto-clicked "${clickedLabel}" to open the form.`);
+            page = await this.ensurePage();
+          } else if (controlCount < 2 && isGeminiConfigured()) {
+            // Try one Gemini Vision click if DOM text didn't match obvious Apply labels
+            const screenshotB64 = await this.captureAndBroadcastFrame();
+            const { elements, pageTextSnippet } = await this.collectPageSnapshot(page);
+            const decision = await decideLiveBrowserStep({
+              screenshotBase64: screenshotB64,
+              currentUrl: page.url(),
+              pageTitle: await page.title().catch(() => page.url()),
+              pageTextSnippet,
+              goal: params.goal || 'Click the Apply Online / Registration / Form link to reach the application form.',
+              interactiveElements: elements,
+              profile: params.profile,
+              ephemeralDocs: params.ephemeralDocs,
+              stepHistory: this.status.lastStepLogs,
+            }).catch(() => null);
+            if (decision && decision.action === 'click') {
+              let clicked = false;
+              if (typeof decision.elementIndex === 'number') {
+                await page.locator(`[data-sarthi-idx="${decision.elementIndex}"]`).first().click({ timeout: 3500 }).then(() => {
+                  clicked = true;
+                }).catch(() => {});
+              }
+              if (!clicked && typeof decision.x === 'number' && typeof decision.y === 'number') {
+                await this.clickAt(decision.x, decision.y);
+              }
+              await page.waitForTimeout(1200);
+              page = await this.ensurePage();
+              this.appendLog(`AI clicked to reach form: ${decision.reason}`);
+            }
+          }
+        }
+      }
+
+      const payload = buildServerFillPayload({
+        profile: params.profile,
+        ephemeralDocs: params.ephemeralDocs,
+        zeroSave: params.zeroSave,
+        goal: params.goal,
+      });
+
+      this.status.agentStatus = 'Sarthi-Narad Fill Engine: Filling matched fields...';
+      this.broadcastStatus();
+
       await page.evaluate((src: string) => {
         const w = window as unknown as { SarthiFill?: unknown };
         if (!w.SarthiFill) {
@@ -846,7 +1089,8 @@ export class LiveBrowserController {
               hasCaptcha: boolean;
               hasOtp: boolean;
               declarations: number;
-              unmatched: UnmatchedFormField[];
+              missingFields?: MissingFormField[];
+              unmatched: (UnmatchedFormField & { rawHint?: string })[];
             };
             watch: (p: Record<string, string>) => void;
           };
@@ -857,7 +1101,10 @@ export class LiveBrowserController {
       }, payload);
 
       let aiFilled = 0;
-      if (Array.isArray(summary.unmatched) && summary.unmatched.length > 0 && isGeminiConfigured()) {
+      const mappedIds = new Set<string>();
+      const hasAnyData = Object.keys(payload).filter((k) => k !== 'goal').length > 0;
+
+      if (hasAnyData && Array.isArray(summary.unmatched) && summary.unmatched.length > 0 && isGeminiConfigured()) {
         const pageTitle = await page.title().catch(() => '');
         const pageUrl = page.url();
         const mapping = await mapFormFieldsWithAI({
@@ -866,6 +1113,7 @@ export class LiveBrowserController {
           pageTitle,
           pageUrl,
         });
+        for (const k of Object.keys(mapping)) mappedIds.add(k);
         if (Object.keys(mapping).length > 0) {
           const applied = await page.evaluate((m: Record<string, string>) => {
             const w = window as unknown as {
@@ -877,9 +1125,32 @@ export class LiveBrowserController {
         }
       }
 
+      // Collect ALL remaining empty non-security fields for AI Popup prompt
+      const missingMap = new Map<string, MissingFormField>();
+      for (const mf of summary.missingFields || []) {
+        if (mf && mf.id && !mappedIds.has(mf.id)) {
+          missingMap.set(mf.id, mf);
+        }
+      }
+      for (const uf of summary.unmatched || []) {
+        if (!uf || !uf.id || mappedIds.has(uf.id) || missingMap.has(uf.id)) continue;
+        const label = (uf.label || uf.placeholder || uf.name || '').trim();
+        if (!label) continue;
+        missingMap.set(uf.id, {
+          id: uf.id,
+          label,
+          tag: uf.tag || 'input',
+          type: uf.type || 'text',
+          placeholder: uf.placeholder || '',
+          options: Array.isArray(uf.options) ? uf.options : [],
+        });
+      }
+      const missingFields = Array.from(missingMap.values()).slice(0, 18);
+
       const totalFilled = (summary.filled || 0) + aiFilled;
       this.appendLog(
-        `Instant Fill: ${summary.filled || 0} rule-matched + ${aiFilled} Gemini AI-mapped = ${totalFilled} fields filled.`
+        `Instant Fill: ${summary.filled || 0} rule + ${aiFilled} AI = ${totalFilled} filled` +
+          (missingFields.length > 0 ? ` · ${missingFields.length} missing details requested.` : '.')
       );
 
       const guards: string[] = [];
@@ -888,14 +1159,20 @@ export class LiveBrowserController {
       if (summary.declarations > 0) guards.push('Declaration checkbox');
 
       this.status.agentRunning = false;
-      if (guards.length > 0) {
+      this.status.missingFields = missingFields;
+
+      if (missingFields.length > 0) {
+        this.status.waitingForHuman = true;
+        this.status.humanPrompt = `${totalFilled} fields fill ho gaye! ${missingFields.length} bachi hui details niche AI Popup me bharein — AI turant website me daal dega.`;
+        this.status.agentStatus = `${totalFilled} filled · ${missingFields.length} missing details needed`;
+      } else if (guards.length > 0) {
         this.status.waitingForHuman = true;
         this.status.humanPrompt = `${totalFilled} fields auto-fill ho chuke hain! Ab screen par ${guards.join(', ')} aap khud bharein aur verify karke submit karein.`;
         this.status.agentStatus = `Auto-filled ${totalFilled} fields · Waiting for ${guards.join('/')}`;
       } else {
         this.status.waitingForHuman = false;
         this.status.humanPrompt = null;
-        this.status.agentStatus = `Instant Fill complete (${totalFilled} fields filled)`;
+        this.status.agentStatus = `Auto-fill complete (${totalFilled} fields filled)`;
       }
 
       this.broadcastStatus();
@@ -909,5 +1186,57 @@ export class LiveBrowserController {
       this.broadcastStatus();
       return this.getStatus();
     }
+  }
+
+  async fillMissingFields(
+    entries: Array<{ id: string; key?: string; label: string; value: string }>
+  ): Promise<LiveBrowserStatus> {
+    const page = await this.ensurePage();
+    const map: Record<string, string> = {};
+    const filledIds = new Set<string>();
+
+    for (const entry of entries) {
+      const id = String(entry.id || '').trim();
+      const val = String(entry.value || '').trim();
+      if (id && val) {
+        map[id] = val;
+        filledIds.add(id);
+      }
+    }
+
+    if (Object.keys(map).length === 0) {
+      return this.getStatus();
+    }
+
+    try {
+      const applied = await page.evaluate((m: Record<string, string>) => {
+        const w = window as unknown as {
+          SarthiFill?: { applyMap: (map: Record<string, string>) => { filled: number } };
+        };
+        if (!w.SarthiFill) return { filled: 0 };
+        return w.SarthiFill.applyMap(m);
+      }, map);
+
+      const remaining = (this.status.missingFields || []).filter((f) => !filledIds.has(f.id));
+      this.status.missingFields = remaining;
+      this.appendLog(
+        `AI Popup filled ${applied.filled || Object.keys(map).length} missing detail(s) into form.`
+      );
+      if (remaining.length === 0) {
+        this.status.waitingForHuman = false;
+        this.status.humanPrompt = null;
+        this.status.agentStatus = `Missing details filled (${applied.filled || Object.keys(map).length} fields)`;
+      } else {
+        this.status.agentStatus = `${remaining.length} details still empty`;
+      }
+      this.broadcastStatus();
+      await this.captureAndBroadcastFrame();
+    } catch (err) {
+      this.appendLog(
+        `Fill missing note: ${err instanceof Error ? err.message : 'Unable to apply fields'}`
+      );
+    }
+
+    return this.getStatus();
   }
 }

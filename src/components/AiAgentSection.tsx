@@ -21,6 +21,7 @@ import type {
 } from '../types';
 import { formatIsoTime, getVaultCompletion } from '../lib/format';
 import { apiFetchJson } from '../lib/api';
+import { INDIAN_STATES_AND_UTS, resolveIndianState } from '../lib/indianStates';
 import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
 
 interface AiAgentSectionProps {
@@ -33,6 +34,7 @@ interface AiAgentSectionProps {
   onConsumeInitialPrompt?: () => void;
   onToggleZeroSave: (val: boolean) => void;
   onAddEphemeralDoc: (doc: EphemeralDocumentExtract) => void;
+  onUpdateEphemeralDocField?: (docId: string, key: string, label: string, value: string) => void;
   onWipeEphemeralDocs: () => void;
   onChatUpdate: (messages: ChatMessage[], createdDraft?: ApplicationDraft) => void;
   onOpenBrowser: (url: string, goal?: string) => void;
@@ -77,7 +79,7 @@ const QUICK_TASKS = [
   {
     label: 'Court / Block / Aay-Niwas Form',
     prompt:
-      'Mujhe Block/Tehsil ya Court ke liye application ya certificate apply karna hai. Kitna fee aur kya documents lagega batao aur direct form तैयार karo.',
+      'Mujhe Block/Tehsil ya Court ke liye application ya certificate apply karna hai. Kitna fee aur kya documents lagega batao aur direct form taiyaar karo.',
   },
 ];
 
@@ -90,6 +92,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
   initialPrompt,
   onConsumeInitialPrompt,
   onAddEphemeralDoc,
+  onUpdateEphemeralDocField,
   onWipeEphemeralDocs,
   onChatUpdate,
   onOpenBrowser,
@@ -215,7 +218,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
           .map((f) => `${f.label}: ${f.value}`)
           .join(', ');
         await sendMessage(
-          `Maine "${slot.docName}" (${extracted.documentType}) upload kar diya hai. OCR se yeh details mili hain: ${fieldsPreview}. Ab in details se mera requested form auto-fill karke draft ready karo aur seedha direct form page ka link do (Zero-Save mode).`,
+          `Maine "${slot.docName}" (${extracted.documentType}) upload kar diya hai. OCR se yeh details mili hain: ${fieldsPreview}. Ab in details se mera requested form auto-fill karke draft ready karo aur seedha direct form page link do (Zero-Save mode).`,
           nextDocs,
           chatHistory
         );
@@ -252,6 +255,18 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
     }
   };
 
+  const latestRamDoc = ephemeralDocs[0] || null;
+  const latestRamState = latestRamDoc
+    ? resolveIndianState({
+        state: latestRamDoc.fields.find(
+          (f) => f.key.toLowerCase() === 'state' || f.label.toLowerCase().includes('state')
+        )?.value,
+        addressLine: latestRamDoc.fields.find((f) => f.key.toLowerCase().includes('address'))?.value,
+        pinCode: latestRamDoc.fields.find((f) => f.key.toLowerCase().includes('pin'))?.value,
+        district: latestRamDoc.fields.find((f) => f.key.toLowerCase().includes('district'))?.value,
+      })
+    : '';
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
       <input
@@ -264,21 +279,21 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
 
       {/* Left column: Quick Workflows & Direct Form Launchers */}
       <aside className="lg:col-span-4 space-y-4">
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900">Quick AI Workflows</h2>
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-bold font-display text-slate-900">Quick AI Workflows</h2>
             {!zeroSave && (
               <button
                 type="button"
                 onClick={onGoToVault}
-                className="text-xs font-semibold text-emerald-700 hover:underline"
+                className="text-xs font-semibold text-emerald-700 hover:underline whitespace-nowrap shrink-0"
               >
                 Vault {completion.percent}%
               </button>
             )}
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Bas kaam batayein — AI pehle fee aur documents batayega, phir OCR se details nikal kar direct form page kholega.
+            Bas kaam batayein — AI pehle fee aur documents batayega, phir OCR se details nikal kar direct Desktop form page kholega.
           </p>
           <div className="space-y-2">
             {QUICK_TASKS.map((task) => (
@@ -287,22 +302,24 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 type="button"
                 disabled={sending}
                 onClick={() => sendMessage(task.prompt)}
-                className="w-full text-left min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 transition-colors flex items-center justify-between gap-2 disabled:opacity-50"
+                className="w-full text-left min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 hover:bg-white text-xs font-semibold text-slate-800 transition-colors flex items-center justify-between gap-2 disabled:opacity-50"
               >
-                <span>{task.label}</span>
+                <span className="truncate">{task.label}</span>
                 <Sparkles className="w-3.5 h-3.5 text-rose-600 shrink-0" />
               </button>
             ))}
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900">Direct Form Browser</h2>
-            <span className="text-xs font-mono text-sky-700">No Homepage</span>
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-bold font-display text-slate-900">Direct Form Browser</h2>
+            <span className="text-[11px] font-mono font-semibold text-sky-700 whitespace-nowrap shrink-0">
+              Desktop Mode
+            </span>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Seedha form wale page par jaata hai — CAPTCHA aur OTP aap live screen par dalenge.
+            Seedha form wale page par jaata hai — CAPTCHA aur OTP aap live Desktop screen par dalenge.
           </p>
           <div className="space-y-2">
             {LIVE_BROWSER_PRESETS.map((p) => (
@@ -310,19 +327,19 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 key={p.label}
                 type="button"
                 onClick={() => onOpenBrowser(p.url, p.goal)}
-                className="w-full min-h-[44px] px-3.5 py-2 rounded-xl bg-sky-50 border border-sky-200 hover:bg-sky-100 text-xs font-semibold text-sky-900 flex items-center justify-between gap-2 transition-colors text-left"
+                className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-900 hover:bg-white text-xs font-semibold text-slate-900 flex items-center justify-between gap-2 transition-colors text-left"
               >
-                <span>{p.label}</span>
+                <span className="truncate">{p.label}</span>
                 <Compass className="w-3.5 h-3.5 text-sky-700 shrink-0" />
               </button>
             ))}
           </div>
         </div>
 
-        {ephemeralDocs.length > 0 && (
-          <div className="bg-white border border-emerald-300 rounded-2xl p-4 space-y-2">
+        {latestRamDoc && (
+          <div className="bg-white border border-emerald-200 rounded-2xl p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-emerald-800">
+              <span className="text-xs font-bold text-emerald-900">
                 Active RAM Docs ({ephemeralDocs.length})
               </span>
               <button
@@ -331,19 +348,48 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                   onWipeEphemeralDocs();
                   setCompletedSlots({});
                 }}
-                className="text-xs font-semibold text-rose-700 hover:text-rose-800 inline-flex items-center gap-1"
+                className="text-xs font-semibold text-rose-700 hover:text-rose-800 inline-flex items-center gap-1 whitespace-nowrap shrink-0"
               >
                 <Eraser className="w-3.5 h-3.5" />
                 Wipe RAM
               </button>
             </div>
-            <div className="space-y-1">
-              {ephemeralDocs.map((d) => (
-                <div
-                  key={d.id}
-                  className="text-[11px] text-slate-700 truncate bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200"
+
+            {onUpdateEphemeralDocField && (
+              <div className="space-y-1">
+                <label className="block text-[11px] font-semibold text-slate-700">
+                  Detected Rajya / State ({latestRamDoc.documentType})
+                </label>
+                <select
+                  value={latestRamState}
+                  onChange={(e) =>
+                    onUpdateEphemeralDocField(
+                      latestRamDoc.id,
+                      'state',
+                      'State',
+                      e.target.value
+                    )
+                  }
+                  className="w-full min-h-[36px] px-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
                 >
-                  {d.documentType} · {d.fields.length} fields (RAM Only)
+                  <option value="">-- Select Rajya / State --</option>
+                  {INDIAN_STATES_AND_UTS.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-1.5">
+              {latestRamDoc.fields.slice(0, 6).map((f, idx) => (
+                <div
+                  key={`${f.key}-${idx}`}
+                  className="px-2 py-1.5 rounded-lg bg-emerald-50/70 border border-emerald-200/80 min-w-0"
+                >
+                  <div className="text-[10px] text-slate-500 truncate">{f.label}</div>
+                  <div className="text-[11px] font-semibold text-slate-900 truncate">{f.value}</div>
                 </div>
               ))}
             </div>
@@ -352,12 +398,12 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
       </aside>
 
       {/* Right column: Live Internet AI Chat Console */}
-      <section className="lg:col-span-8 bg-white border border-slate-200 rounded-2xl flex flex-col min-h-[580px] max-h-[78vh]">
+      <section className="lg:col-span-8 bg-white border border-slate-200/90 rounded-2xl shadow-xs flex flex-col min-h-[580px] max-h-[78vh]">
         <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-sky-700 shrink-0" />
-              <h1 className="text-base font-bold text-slate-900 truncate">
+              <h1 className="text-base font-bold font-display text-slate-900 truncate">
                 SarthiAI Live Internet + OCR Agent
               </h1>
             </div>
@@ -370,7 +416,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
             type="button"
             onClick={clearChat}
             title="Clear conversation"
-            className="min-h-[40px] px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5 shrink-0"
+            className="min-h-[36px] px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Clear
@@ -388,8 +434,8 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                 <div
                   className={`max-w-[94%] sm:max-w-[84%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
                     isUser
-                      ? 'bg-[#0F172A] text-white font-medium'
-                      : 'bg-white border border-slate-200 text-slate-800'
+                      ? 'bg-[#0B1120] text-white font-medium'
+                      : 'bg-white border border-slate-200 text-slate-800 shadow-xs'
                   }`}
                 >
                   {msg.text}
@@ -420,10 +466,10 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
                                 type="button"
                                 disabled={isUploading || sending}
                                 onClick={() => triggerSlotUpload(docReq.id, docReq.name, true)}
-                                className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 shrink-0 ${
+                                className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                                   uploadedName
                                     ? 'bg-emerald-100 border border-emerald-300 text-emerald-800'
-                                    : 'bg-[#0F172A] hover:bg-slate-800 text-white'
+                                    : 'bg-[#0B1120] hover:bg-slate-800 text-white'
                                 }`}
                               >
                                 {isUploading ? (
@@ -556,7 +602,7 @@ export const AiAgentSection: React.FC<AiAgentSectionProps> = ({
           <button
             type="submit"
             disabled={sending || !input.trim()}
-            className="min-h-[48px] px-4 py-2.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center gap-2 shrink-0 transition-colors"
+            className="min-h-[48px] px-4 py-2.5 rounded-xl bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             <span className="hidden sm:inline">Run AI</span>
