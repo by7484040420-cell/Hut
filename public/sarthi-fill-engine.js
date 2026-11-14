@@ -125,8 +125,8 @@
      { key: 'percentageOrGrade', pos: /percentage|percent|cgpa|grade|marks obtained|प्रतिशत/, neg: /roll|year|max/ }],
 
     // generic "name" last (so father/mother/first/last win first)
-    [{ key: 'fullName', pos: /full ?name|applicant|candidate|student|your name|name of (the )?(applicant|candidate|student)|naam|^name$|\bname\b|नाम/,
-       neg: /father|mother|spouse|husband|wife|city|school|college|board|bank|account|company|organi[sz]ation|user|login|file|nominee|guardian|referee|hospital|institute|district|state|post|police|village|panchayat/ }]
+    [{ key: 'fullName', pos: /full ?name|applicant ?name|candidate ?name|student ?name|passenger ?name|your name|name (as per|of) (the )?(applicant|candidate|student|aadhaar|pan|matric)|applicant|candidate|naam|^name$|\bname\b|नाम/,
+       neg: /father|mother|spouse|husband|wife|city|school|college|board|bank|account|company|organi[sz]ation|user ?name|user ?id|login ?id|file ?name|nominee|guardian|referee|hospital|institute|district|state|post|police|village|panchayat|branch/ }]
   );
 
   // flatten + ensure group filter works
@@ -367,13 +367,19 @@
         if (prev && prev.innerText && prev.innerText.length < 80) txt += ' ' + prev.innerText;
       }
       if (!txt.trim()) {
-        var cell = el.closest ? el.closest('td,th,.form-group,.col,.row,div') : null;
+        var cell = el.closest ? el.closest('td,th,.form-group,.form-field,.mat-form-field,.p-field,.input-group,.col,.row,div') : null;
         if (cell) {
           var before = cell.previousElementSibling;
           if (before && before.innerText && before.innerText.length < 80) txt += ' ' + before.innerText;
           else if (cell.querySelector) {
-            var l = cell.querySelector('label,.label,span');
-            if (l && l !== el && l.innerText && l.innerText.length < 80) txt += ' ' + l.innerText;
+            var l = cell.querySelector('label,.label,.form-label,.col-form-label,mat-label,strong,b,span,p');
+            if (l && l !== el && !l.contains(el) && l.innerText && l.innerText.length < 80) txt += ' ' + l.innerText;
+          }
+          if (!txt.trim() && cell.parentElement) {
+            var pLabel = cell.parentElement.querySelector('label,.form-label,.col-form-label,th');
+            if (pLabel && pLabel !== el && !pLabel.contains(el) && pLabel.innerText && pLabel.innerText.length < 80) {
+              txt += ' ' + pLabel.innerText;
+            }
           }
         }
       }
@@ -493,7 +499,8 @@
       filled: 0, url: root.location ? root.location.href : '',
       title: document.title || '',
       hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
-      declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: []
+      isPersonalForm: false,
+      declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: []
     };
 
     var controls = Array.prototype.slice.call(
@@ -514,7 +521,7 @@
       if (el.readOnly) return;
 
       var hint = hintOf(el);
-      if (/\bsearch\b|\bquery\b|खोज/.test(hint)) return;
+      if (/\b(search|query|keyword|newsletter|subscribe|unsubscribe)\b|खोज/.test(hint)) return;
       var sec = classifySecurity(hint) || (type === 'password' ? 'password' : null);
       if (sec) {
         mark(el, AMBER);
@@ -538,6 +545,9 @@
       var val = key ? valueFor(key, data) : '';
 
       if (key && !val) {
+        if (/^(fullName|firstName|fatherName|motherName|dob|aadhaarNumber|panNumber|addressLine|pinCode|district|state|tenthRoll|twelfthRoll)$/.test(key)) {
+          summary.isPersonalForm = true;
+        }
         // we know what it is but the vault has no value -> user must provide it in AI Popup
         if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
         mark(el, BLUE);
@@ -565,21 +575,31 @@
       }
 
       if (key && val) {
+        if (/^(fullName|firstName|fatherName|motherName|dob|aadhaarNumber|panNumber|addressLine|pinCode|district|state|tenthRoll|twelfthRoll)$/.test(key)) {
+          summary.isPersonalForm = true;
+        }
         var ok = false;
+        var filledId = el.getAttribute('data-sarthi-id');
+        if (!filledId) { filledId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', filledId); }
+        var finalVal = val;
         if (isSelect) {
           ok = selectOption(el, val, key);
+          if (ok && el.selectedIndex >= 0) {
+            finalVal = (el.options[el.selectedIndex].text || val).trim();
+          }
         } else {
-          if (key === 'dob') val = formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
-          if (key === 'mobile' || key === 'alternateMobile') val = String(val).replace(/\D/g, '').slice(-10);
-          if (key === 'panNumber') val = String(val).toUpperCase();
-          if (el.maxLength > 0 && String(val).length > el.maxLength && key !== 'dob') val = String(val).slice(0, el.maxLength);
-          setNativeValue(el, val);
+          if (key === 'dob') finalVal = formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
+          if (key === 'mobile' || key === 'alternateMobile') finalVal = String(val).replace(/\D/g, '').slice(-10);
+          if (key === 'panNumber') finalVal = String(val).toUpperCase();
+          if (el.maxLength > 0 && String(finalVal).length > el.maxLength && key !== 'dob') finalVal = String(finalVal).slice(0, el.maxLength);
+          setNativeValue(el, finalVal);
           ok = true;
         }
         if (ok) {
           mark(el, GREEN);
           summary.filled++;
           if (summary.filledKeys.indexOf(key) < 0) summary.filledKeys.push(key);
+          summary.filledItems.push({ id: filledId, tag: el.tagName.toLowerCase(), type: type, value: String(finalVal) });
           return;
         }
       }
@@ -690,7 +710,8 @@
   // ---------------------------------------------------------------
   function applyMap(map) {
     var filled = 0;
-    if (!map) return { filled: 0 };
+    var filledItems = [];
+    if (!map) return { filled: 0, filledItems: filledItems };
     Object.keys(map).forEach(function (id) {
       var val = map[id];
       if (val == null || val === '') return;
@@ -725,16 +746,22 @@
       var type = (el.type || el.tagName).toLowerCase();
       if (type === 'password') return;
       if (el.tagName === 'SELECT') {
-        if (selectOption(el, String(val), null)) { mark(el, GREEN); filled++; }
+        if (selectOption(el, String(val), null)) {
+          mark(el, GREEN);
+          filled++;
+          var selTxt = (el.selectedIndex >= 0 && el.options[el.selectedIndex].text) ? el.options[el.selectedIndex].text.trim() : String(val);
+          filledItems.push({ id: id, tag: 'select', type: 'select', value: selTxt });
+        }
       } else {
         var v = String(val);
         if (parseDate(v) && (type === 'date' || /dob|birth|date/.test(hint))) v = formatDateForInput(v, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
         setNativeValue(el, v);
         mark(el, GREEN);
         filled++;
+        filledItems.push({ id: id, tag: el.tagName.toLowerCase(), type: type, value: v });
       }
     });
-    return { filled: filled };
+    return { filled: filled, filledItems: filledItems };
   }
 
   // ---------------------------------------------------------------

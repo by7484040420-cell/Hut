@@ -126,7 +126,7 @@ function createDefaultBookmarks(): PortalBookmark[] {
       id: 'bm-pan',
       name: 'Protean (NSDL) PAN Portal',
       category: 'pan',
-      url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
+      url: 'https://onlineservices.proteantech.in/paam/endUserRegisterContact.html',
       description: 'New PAN Card (Form 49A) & PAN correction portal',
     },
     {

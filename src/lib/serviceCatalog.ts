@@ -50,7 +50,7 @@ export const PRIMARY_GRID_SERVICES: ServiceCatalogItem[] = [
     actionLabel: 'Apply Direct →',
     iconLetter: 'P',
     tint: 'indigo',
-    directFormUrl: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
+    directFormUrl: 'https://onlineservices.proteantech.in/paam/endUserRegisterContact.html',
     portalName: 'Protean NSDL Form 49A Direct Page',
     defaultFee: '₹107 (Physical + e-PAN India) · ₹72 (Digital e-PAN only)',
     defaultProcessingTime: 'e-PAN 48 hrs · Physical card 10–15 days',

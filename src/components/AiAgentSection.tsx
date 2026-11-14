@@ -50,8 +50,8 @@ const LIVE_BROWSER_PRESETS = [
   },
   {
     label: 'PAN Card Form 49A (Direct)',
-    url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
-    goal: 'NSDL PAN Card Form 49A direct application page kholo, jo details chahiye auto-fill karo. CAPTCHA aur OTP main dalunga.',
+    url: 'https://onlineservices.proteantech.in/paam/endUserRegisterContact.html',
+    goal: 'Protean PAN Card Form 49A direct application page kholo, jo details chahiye auto-fill karo. CAPTCHA aur OTP main dalunga.',
   },
   {
     label: 'SSC Candidate OTR / Apply (Direct)',

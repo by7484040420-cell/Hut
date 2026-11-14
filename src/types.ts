@@ -167,6 +167,8 @@ export interface LiveBrowserStatus {
   agentStatus: string;
   waitingForHuman: boolean;
   humanPrompt: string | null;
+  blockedReason?: string | null;
+  filledCount?: number;
   requestedDocuments: RequestedDocumentSpec[];
   missingFields?: MissingFormField[];
   lastStepLogs: string[];

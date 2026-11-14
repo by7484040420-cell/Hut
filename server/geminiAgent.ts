@@ -975,6 +975,7 @@ export async function extractDocumentWithOCR(params: {
 
 export interface InteractiveDomElement {
   index: number;
+  frameIndex?: number;
   tag: string;
   type: string;
   label: string;
@@ -1023,14 +1024,15 @@ export async function decideLiveBrowserStep(params: {
   const ai = getGeminiClient();
   const userContext = serializeCombinedUserContext(params.profile, params.ephemeralDocs);
   const domSnippet = params.interactiveElements
-    .slice(0, 65)
+    .slice(0, 75)
     .map((el) => {
       const opts =
         el.options && el.options.length > 0
           ? ` options=[${el.options.slice(0, 12).join(' | ')}]`
           : '';
       const chk = typeof el.checked === 'boolean' ? ` checked=${el.checked}` : '';
-      return `[${el.index}] <${el.tag}${el.type ? ` type=${el.type}` : ''}> center=(${Math.round(
+      const fTag = el.frameIndex && el.frameIndex > 0 ? ` frame=${el.frameIndex}` : '';
+      return `[${el.index}]${fTag} <${el.tag}${el.type ? ` type=${el.type}` : ''}> center=(${Math.round(
         el.x
       )},${Math.round(el.y)}) label="${el.label}" nearby="${el.nearbyText}" placeholder="${
         el.placeholder
@@ -1057,16 +1059,17 @@ export async function decideLiveBrowserStep(params: {
     domSnippet || 'No interactive elements extracted.',
     '',
     'UNIVERSAL WEBSITE RULES:',
-    '1. Look carefully at the live screenshot, PAGE VISIBLE TEXT SUMMARY, and INTERACTIVE ELEMENTS.',
-    '2. AUTO-CLICK APPLY / FORM / NEXT RULE (HIGHEST PRIORITY ON LANDING PAGES): Never stay stuck on a homepage, recruitment notice, or information page! Whenever you see buttons or links like "Apply Online", "Apply Now", "Click here to Apply", "Apply", "New Registration", "One Time Registration", "Online Form", "Form 49A", "Proceed", or "Save & Next" (when current step fields are already filled), IMMEDIATELY return action="click" on that Apply/Form/Next element so the user lands directly on the form!',
-    '3. STATE & ADDRESS RULE: If the page has a State / Rajya / UT dropdown (e.g. Parivahan, Passport, RTPS, SSC) and user address/PIN code is present in USER DETAILS, ALWAYS select the matching Indian State (e.g. PIN 80-85 = Bihar/Jharkhand, 20-28 = Uttar Pradesh, 11 = Delhi, 40-44 = Maharashtra).',
-    '4. DYNAMIC DOCUMENT REQUEST RULE: Inspect the form/page currently visible on this website. If this website asks for fields or documents that are MISSING from USER DETAILS AVAILABLE RIGHT NOW (for example, Passport form needs Aadhaar + 10th Marksheet, or an unknown website asks for Bank Passbook / Income Certificate / Roll Number that the user has not uploaded yet), return action="request_documents" with `neededDocuments` listing ONLY the exact missing documents needed for THIS website, and a clear `humanPrompt` in Hinglish telling the user what to upload inline!',
-    '5. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` (matching `[idx]`) and `(x, y)`, plus the exact text in `value`.',
-    '6. For `<select>` dropdowns, return action="select" with `elementIndex`, `(x, y)`, and the matching option label/value in `value`.',
-    '7. For buttons, tabs, links, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
-    '8. HUMAN-IN-THE-LOOP RULE: If you see a CAPTCHA image/input, OTP verification box, Aadhaar e-Sign, file upload button `<input type="file">`, password creation, or final Payment/Final Submit button, NEVER guess CAPTCHA/OTP or auto-pay! Return action="pause_for_human" with a clear Hinglish `humanPrompt` instructing the user to enter CAPTCHA/OTP or confirm directly on the live screen.',
-    '9. If required fields or the Apply button are below the fold, return action="scroll" with value="down" or "up".',
-    '10. Return action="done" only when the visible form/task stage is completed.',
+    '1. Look carefully at the live screenshot, PAGE VISIBLE TEXT SUMMARY, and INTERACTIVE ELEMENTS (including inside iframes).',
+    '2. WELCOME / NOTICE POPUPS: If a portal advisory dialog ("OK", "Close", "Skip", "×") covers the page, click it first so the underlying form or Apply button is reachable.',
+    '3. AUTO-CLICK APPLY / FORM / NEXT RULE (HIGHEST PRIORITY ON LANDING PAGES): Never stay stuck on a homepage, recruitment notice, or information page! Whenever you see buttons or links like "Apply Online", "Apply Now", "Click here to Apply", "Apply", "New Registration", "One Time Registration", "Register", "Create Account", "Online Form", "Form 49A", "Proceed", or "Save & Next" (when current step fields are already filled), IMMEDIATELY return action="click" on that Apply/Form/Next element!',
+    '4. STATE & ADDRESS RULE: If the page has a State / Rajya / UT dropdown (e.g. Parivahan, Passport, RTPS, SSC) and user address/PIN code is present in USER DETAILS, ALWAYS select the matching Indian State (e.g. PIN 80-85 = Bihar/Jharkhand, 20-28 = Uttar Pradesh, 11 = Delhi, 40-44 = Maharashtra).',
+    '5. DYNAMIC DOCUMENT REQUEST RULE: Only if the page has visible form fields requiring documents that are completely missing from USER DETAILS AVAILABLE RIGHT NOW, return action="request_documents" with `neededDocuments`. Otherwise fill every available field first!',
+    '6. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` (matching `[idx]`) and `(x, y)`, plus the exact text in `value`.',
+    '7. For `<select>` dropdowns, return action="select" with `elementIndex`, `(x, y)`, and the matching option label/value in `value`.',
+    '8. For buttons, tabs, links, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
+    '9. HUMAN-IN-THE-LOOP RULE: If you see a CAPTCHA image/input, OTP verification box, Aadhaar e-Sign, file upload button `<input type="file">`, password creation, or final Payment/Final Submit button, NEVER guess CAPTCHA/OTP or auto-pay! Return action="pause_for_human" with a clear Hinglish `humanPrompt` instructing the user to enter CAPTCHA/OTP or confirm directly on the live screen.',
+    '10. If required fields or the Apply button are below the fold, return action="scroll" with value="down" or "up".',
+    '11. Return action="done" only when the visible form/task stage is completed.',
   ].join('\n');
 
   const response = await generateContentResilient(ai, {

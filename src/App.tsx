@@ -260,7 +260,7 @@ export function App() {
       }`}
     >
       {/* Clean 3-Zone Top Bar Contract */}
-      <header className="sticky top-0 z-30 bg-[#0B1120] text-white border-b border-slate-800/90">
+      <header className="sticky top-0 z-30 bg-[#0B1120] text-white border-b border-slate-800/90 pt-[env(safe-area-inset-top)]">
         <div className="max-w-[1440px] mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Single-line Brand Wordmark */}
           <button

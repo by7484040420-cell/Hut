@@ -90,8 +90,8 @@ const QUICK_MISSIONS = [
   },
   {
     label: 'PAN 49A',
-    url: 'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html',
-    goal: 'NSDL PAN Form 49A kholo, Apply par click karo aur meri details fill karo. CAPTCHA main dalunga.',
+    url: 'https://onlineservices.proteantech.in/paam/endUserRegisterContact.html',
+    goal: 'Protean NSDL PAN Form 49A kholo, Apply par click karo aur meri details fill karo. CAPTCHA main dalunga.',
   },
   {
     label: 'SSC OTR',
@@ -107,6 +107,25 @@ const QUICK_MISSIONS = [
     label: 'Passport Seva',
     url: 'https://portal2.passportindia.gov.in/AppOnlineProject/user/RegistrationBaseAction',
     goal: 'Passport Registration form kholo aur details auto-fill karo.',
+  },
+];
+
+const AI_INTENT_PRESETS = [
+  {
+    label: 'New Apply / Form Kholein',
+    goal: 'Is portal par Apply Online / New Registration button par click karke form kholo aur meri sabhi details type karo.',
+  },
+  {
+    label: 'Sirf Auto-Fill Karein',
+    goal: 'Khule hue form me OCR aur Vault se sabhi details real typing se fill karo; CAPTCHA/OTP mere liye chhod do.',
+  },
+  {
+    label: 'Correction / Update Form',
+    goal: 'Correction ya Update section par click karo aur meri updated details form me bharo.',
+  },
+  {
+    label: 'Admit Card / Status Check',
+    goal: 'Status Check / Admit Card / Download link par click karo aur mera Registration Number / DOB fill karo.',
   },
 ];
 
@@ -129,7 +148,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [addressInput, setAddressInput] = useState(
-    'https://www.onlineservices.nsdl.com/paam/endUserRegisterContact.html'
+    'https://onlineservices.proteantech.in/paam/endUserRegisterContact.html'
   );
   const [agentGoal, setAgentGoal] = useState('');
   const [typeBox, setTypeBox] = useState('');
@@ -147,9 +166,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [showCopilotDrawer, setShowCopilotDrawer] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [switchingViewport, setSwitchingViewport] = useState(false);
+  const [dismissedBlockedBanner, setDismissedBlockedBanner] = useState(false);
 
-  // Missing-Details AI Popup state
+  // AI Task ("Kya Karna Hai?") + Missing-Details AI Popup state
   const [missingPopupOpen, setMissingPopupOpen] = useState(false);
+  const [intentModalOpen, setIntentModalOpen] = useState(false);
   const [missingValues, setMissingValues] = useState<Record<string, string>>({});
   const [submittingMissing, setSubmittingMissing] = useState(false);
   const [popupUploadingOcr, setPopupUploadingOcr] = useState(false);
@@ -287,6 +308,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
   const navigateTo = async (url: string) => {
     setError(null);
+    setDismissedBlockedBanner(false);
     setShowToolsMenu(false);
     setShowPortalsList(false);
     setAddressInput(url);
@@ -636,12 +658,23 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     const rect = img.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const xRatio = (e.clientX - rect.left) / rect.width;
-    const yRatio = (e.clientY - rect.top) / rect.height;
+    // Account for object-contain letterboxing so clicks/taps hit exact page elements
+    const natW = img.naturalWidth || status.viewportWidth || 1366;
+    const natH = img.naturalHeight || status.viewportHeight || 820;
+    const scale = Math.min(rect.width / natW, rect.height / natH);
+    const renderedW = natW * scale;
+    const renderedH = natH * scale;
+    const offsetX = rect.left + (rect.width - renderedW) / 2;
+    const offsetY = rect.top + (rect.height - renderedH) / 2;
+
+    const xRatio = Math.max(0, Math.min(1, (e.clientX - offsetX) / renderedW));
+    const yRatio = Math.max(0, Math.min(1, (e.clientY - offsetY) / renderedH));
     const x = Math.round(xRatio * status.viewportWidth);
     const y = Math.round(yRatio * status.viewportHeight);
 
-    setClickMarker({ xPct: xRatio * 100, yPct: yRatio * 100 });
+    const markerXPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const markerYPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    setClickMarker({ xPct: markerXPct, yPct: markerYPct });
     setTimeout(() => setClickMarker(null), 500);
     sendWs({ type: 'click', x, y });
   };
@@ -805,7 +838,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
               </button>
             </form>
 
-            {/* Streamlined Action Buttons: Only Auto-Fill, AI Apply & Tools Menu */}
+            {/* Streamlined Action Buttons: Auto-Fill, AI Apply, AI Task & Tools Menu */}
             <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
@@ -842,6 +875,17 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   <span>AI Apply</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setIntentModalOpen(true)}
+                title="AI ko batayein is form/website me aapko kya karna hai"
+                className="min-h-[36px] px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-semibold text-xs inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Bot className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Kya Karna Hai?</span>
+                <span className="sm:hidden">Task</span>
+              </button>
 
               <div className="relative">
                 <button
@@ -1140,7 +1184,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   alt={status.title || 'Live Browser View'}
                   onClick={handleViewportClick}
                   draggable={false}
-                  className="w-full h-full object-contain cursor-pointer"
+                  className="w-full h-full object-contain cursor-pointer touch-manipulation"
                 />
                 {clickMarker && (
                   <span
@@ -1220,6 +1264,89 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                     <ExternalLink className="w-4 h-4" />
                     Device Tab
                   </a>
+                </div>
+              </div>
+            )}
+
+            {/* Cloud-IP Blocked / Unreachable Website Fallback Overlay */}
+            {status.blockedReason && !dismissedBlockedBanner && (
+              <div className="absolute inset-0 z-20 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 space-y-3.5 text-left shadow-2xl">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <ShieldAlert className="w-5 h-5 shrink-0" />
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Cloud Server Par Yeh Website Block Hai
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedBlockedBanner(true)}
+                      aria-label="Close blocked alert"
+                      className="p-1 text-slate-400 hover:text-slate-800"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    {status.blockedReason}
+                  </p>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Kuch govt/ticket portals (jaise IRCTC, Protean PAN, Army) Cloud IP block karte hain lekin aapke Phone ke Native App / Device Browser me seedha khul jaate hain.
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {nativeApkMode && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          launchNativeControlledPortal({
+                            url:
+                              status.url && !status.url.startsWith('chrome-error://') && status.url !== 'about:blank'
+                                ? status.url
+                                : addressInput,
+                            profile,
+                            ephemeralDocs,
+                            zeroSave,
+                            goal: agentGoal,
+                          })
+                        }
+                        className="min-h-[40px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <Bot className="w-4 h-4" />
+                        Open in Phone AI WebView
+                      </button>
+                    )}
+
+                    <a
+                      href={
+                        status.url && !status.url.startsWith('chrome-error://') && status.url !== 'about:blank'
+                          ? status.url
+                          : addressInput
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-[40px] px-4 rounded-xl bg-[#0B1120] hover:bg-slate-800 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Open in Phone Browser
+                    </a>
+
+                    {/pan|nsdl|protean/i.test(addressInput) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const alt = 'https://eportal.incometax.gov.in/iec/foservices/#/pre-login/instant-e-pan';
+                          setDismissedBlockedBanner(true);
+                          void navigateTo(alt);
+                        }}
+                        className="min-h-[40px] px-3.5 rounded-xl bg-sky-50 border border-sky-200 hover:border-sky-400 text-sky-900 font-semibold text-xs whitespace-nowrap"
+                      >
+                        Try Instant e-PAN
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1443,7 +1570,113 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         )}
       </div>
 
-      {/* Automatic AI Missing Details Popup Modal */}
+      {/* AI Task ("Kya Karna Hai?") Modal */}
+      {intentModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white border border-slate-200 rounded-t-3xl sm:rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 bg-[#0B1120] text-white flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
+                  <Bot className="w-3.5 h-3.5" />
+                  Sarthi AI Interactive Guide
+                </div>
+                <h3 className="text-base font-bold font-display text-white mt-0.5">
+                  Is Website / Form Par Aapko Kya Karna Hai?
+                </h3>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Apna task chunein ya likhein — AI button touch karke OCR se details type karega aur baaki popup me puchhega.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIntentModalOpen(false)}
+                aria-label="Close task modal"
+                className="min-h-[36px] min-w-[36px] rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {AI_INTENT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setAgentGoal(preset.goal)}
+                    className={`p-3 rounded-xl border text-left transition-colors ${
+                      agentGoal === preset.goal
+                        ? 'border-sky-600 bg-sky-50 text-sky-950'
+                        : 'border-slate-200 bg-slate-50 hover:border-slate-400 text-slate-800'
+                    }`}
+                  >
+                    <div className="text-xs font-bold">{preset.label}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
+                      {preset.goal}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-800">
+                  Custom Nirdesh (Hindi / English):
+                </label>
+                <textarea
+                  rows={2}
+                  value={agentGoal}
+                  onChange={(e) => setAgentGoal(e.target.value)}
+                  placeholder="Jaise: 'New Registration par click karke Bihar state aur mera Aadhar name fill karo'"
+                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs text-slate-900 placeholder:text-slate-400 resize-none"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={popupUploadingOcr}
+                  onClick={() => popupOcrRef.current?.click()}
+                  className="min-h-[40px] px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  {popupUploadingOcr ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  Scan Aadhaar/PAN (OCR)
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIntentModalOpen(false);
+                      void runInstantAutoFill();
+                    }}
+                    className="min-h-[40px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Auto-Fill Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIntentModalOpen(false);
+                      void startLiveAgent();
+                    }}
+                    className="min-h-[40px] px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Start AI Agent
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Automatic AI Missing Details + Task Helper Popup Modal */}
       {missingPopupOpen && missingFields.length > 0 && (
         <div className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
           <form
@@ -1460,7 +1693,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   Kuch Details Nahi Mili — Yahan Batayein
                 </h3>
                 <p className="text-[11px] text-slate-300 mt-0.5">
-                  Jo details OCR/Vault me nahi mili hain woh niche bharein — AI turant website me daal dega.
+                  Jo details OCR/Vault me nahi mili hain woh niche bharein — AI turant real website me type kar dega.
                 </p>
               </div>
               <button
@@ -1473,24 +1706,47 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
               </button>
             </div>
 
-            {/* Quick OCR Doc Scan Option inside AI Popup */}
-            <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-slate-600">
-                Chahein toh Aadhaar / PAN / Marksheet scan karke automatic fill karwayein:
-              </span>
-              <button
-                type="button"
-                disabled={popupUploadingOcr}
-                onClick={() => popupOcrRef.current?.click()}
-                className="min-h-[34px] px-3 rounded-lg bg-white border border-slate-300 hover:border-slate-900 text-xs font-semibold text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-              >
-                {popupUploadingOcr ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Upload className="w-3.5 h-3.5" />
+            {/* Interactive "Kya Karna Hai?" + Quick OCR Scan */}
+            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-700">
+                  Is form me kya karna hai? (Optional instruction):
+                </span>
+                <button
+                  type="button"
+                  disabled={popupUploadingOcr}
+                  onClick={() => popupOcrRef.current?.click()}
+                  className="min-h-[32px] px-3 rounded-lg bg-white border border-slate-300 hover:border-slate-900 text-xs font-semibold text-slate-900 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  {popupUploadingOcr ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  {popupUploadingOcr ? 'Scanning...' : 'Scan Doc (OCR)'}
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={agentGoal}
+                  onChange={(e) => setAgentGoal(e.target.value)}
+                  placeholder="Jaise: New Apply karo / Correction form bharo / Next click karo..."
+                  className="flex-1 min-h-[34px] px-3 rounded-lg bg-white border border-slate-200 focus:border-slate-900 focus:outline-none text-xs text-slate-900 placeholder:text-slate-400"
+                />
+                {agentGoal.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMissingPopupOpen(false);
+                      void startLiveAgent();
+                    }}
+                    className="min-h-[34px] px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold whitespace-nowrap shrink-0"
+                  >
+                    AI Task Chalao
+                  </button>
                 )}
-                {popupUploadingOcr ? 'Scanning...' : 'Scan Doc (OCR)'}
-              </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-3.5">
