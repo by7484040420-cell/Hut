@@ -95,6 +95,7 @@ jobs:
           cat << 'EOF' > "$MAIN_ACT"
           package com.sarthiai.assistant;
 
+          import android.app.AlertDialog;
           import android.graphics.Bitmap;
           import android.graphics.BitmapFactory;
           import android.graphics.Color;
@@ -147,6 +148,14 @@ jobs:
 
               private LinearLayout portalOverlay;
               private WebView portalWebView;
+              private int tickCount = 0;
+              private final android.os.Handler tickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+              private final Runnable tickRunnable = () -> runAutoFillOnPortal();
+
+              private void scheduleTick(long delayMs) {
+                  tickHandler.removeCallbacks(tickRunnable);
+                  tickHandler.postDelayed(tickRunnable, delayMs);
+              }
               private TextView portalStatusView;
               private String activePayloadJson = "{}";
               private TextRecognizer textRecognizer;
@@ -237,7 +246,7 @@ jobs:
                   fillBtn.setTextSize(11f);
                   fillBtn.setTextColor(Color.WHITE);
                   fillBtn.setBackgroundColor(Color.parseColor("#059669"));
-                  fillBtn.setOnClickListener(v -> runAutoFillOnPortal());
+                  fillBtn.setOnClickListener(v -> { tickCount = 0; runAutoFillOnPortal(); });
 
                   Button closeBtn = new Button(this);
                   closeBtn.setText("Close");
@@ -289,10 +298,19 @@ jobs:
                       }
 
                       @Override
+                      public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                          super.onPageStarted(view, url, favicon);
+                          tickCount = 0;
+                          tickHandler.removeCallbacks(tickRunnable);
+                          forceDesktopView(view);
+                      }
+
+                      @Override
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
+                          forceDesktopView(view);
                           emitPortalEvent("Loaded: " + url, url);
-                          view.postDelayed(() -> runAutoFillOnPortal(), 900);
+                          scheduleTick(900);
                       }
                   });
 
@@ -340,6 +358,15 @@ jobs:
                   } catch (Exception ignored) {}
               }
 
+              // Har website desktop-size layout me (viewport 1280px force)
+              private void forceDesktopView(WebView view) {
+                  if (view == null) return;
+                  final String js = "(function(){try{var m=document.querySelector('meta[name=viewport]');"
+                      + "if(!m){m=document.createElement('meta');m.name='viewport';(document.head||document.documentElement).appendChild(m);}"
+                      + "m.setAttribute('content','width=1280');}catch(e){}})();";
+                  view.evaluateJavascript(js, null);
+              }
+
               private void runAutoFillOnPortal() {
                   if (portalWebView == null) return;
                   final String engine = loadFillEngine();
@@ -351,7 +378,7 @@ jobs:
                   final String js = engine
                       + "\n;(function(){try{"
                       + "var p=JSON.parse(" + JSONObject.quote(payload) + ");"
-                      + "var r=window.SarthiFill.run(p,{});"
+                      + "var r=window.SarthiFill.autopilot(p);"
                       + "window.SarthiFill.watch(p);"
                       + "return JSON.stringify(r);"
                       + "}catch(e){return JSON.stringify({error:String(e)});}})();";
@@ -371,7 +398,7 @@ jobs:
                           if (res.optBoolean("hasPassword", false)) msg.append(" | Password aap dalein");
                           if (res.optBoolean("hasPayment", false)) msg.append(" | Payment/Bank details aap dalein");
                           int decl = res.optInt("declarations", 0);
-                          if (decl > 0) msg.append(" | Declaration tick aap karein (" + decl + ")");
+                          if (decl > 0) msg.append(" | Terms/Declaration tick kiya (" + decl + ")");
                           JSONArray need = res.optJSONArray("needsUser");
                           if (need != null && need.length() > 0) msg.append(" | Vault me kami: " + need.join(", ").replace("\"", ""));
                           JSONArray unmatched = res.optJSONArray("unmatched");
@@ -379,7 +406,11 @@ jobs:
                               msg.append(" | " + unmatched.length() + " fields AI se map ho rahe hain...");
                               emitUnmatchedFields(unmatched, url, res.optString("title", ""));
                           }
+                          String st = res.optString("state", "");
+                          if ("next".equals(st)) msg.append(" | Aage badh gaya: " + res.optString("clicked"));
+                          else if ("final".equals(st)) msg.append(" | Next button nahi mila - aap check karke Submit karein");
                           emitPortalEvent(msg.toString(), url);
+                          if (tickCount++ < 40) scheduleTick(3000);
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
                       }
