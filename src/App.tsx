@@ -30,6 +30,7 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import {
   apiFetchJson,
   BackendUnavailableError,
+  DEFAULT_APK_BACKEND_URL,
   getSavedBackendUrl,
   getSavedViewMode,
   loadLocalFallbackBootstrap,
@@ -47,7 +48,9 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serverOfflineMode, setServerOfflineMode] = useState(false);
-  const [serverUrlInput, setServerUrlInput] = useState(() => getSavedBackendUrl());
+  const [serverUrlInput, setServerUrlInput] = useState(
+    () => getSavedBackendUrl() || DEFAULT_APK_BACKEND_URL
+  );
   const [connectingServer, setConnectingServer] = useState(false);
   const [serverConnectError, setServerConnectError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceBootstrap | null>(null);

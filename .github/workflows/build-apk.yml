@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       backend_url:
-        description: 'Optional: Deployed SarthiAI Backend Server URL (e.g. https://sarthiai.onrender.com)'
+        description: 'Deployed SarthiAI Backend Server URL'
         required: false
-        default: ''
+        default: 'https://hut-3igh.onrender.com'
 
 jobs:
   build:
@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies & build web bundle
         env:
-          VITE_API_BASE_URL: ${{ github.event.inputs.backend_url || vars.SARTHIAI_BACKEND_URL || '' }}
+          VITE_API_BASE_URL: ${{ github.event.inputs.backend_url || vars.SARTHIAI_BACKEND_URL || 'https://hut-3igh.onrender.com' }}
         run: |
           npm install
           npm run build

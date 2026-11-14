@@ -7,6 +7,7 @@ import type {
 const BACKEND_URL_STORAGE_KEY = 'sarthiai_backend_url';
 const LOCAL_WORKSPACE_STORAGE_KEY = 'sarthiai_local_workspace_v1';
 const VIEW_MODE_STORAGE_KEY = 'sarthiai_view_mode';
+export const DEFAULT_APK_BACKEND_URL = 'https://hut-3igh.onrender.com';
 
 export type AppViewMode = 'desktop' | 'mobile';
 
@@ -69,7 +70,9 @@ export function getSavedBackendUrl(): string {
     // ignore storage errors
   }
   const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || '';
-  return envBase ? normalizeBackendUrl(envBase) : '';
+  if (envBase) return normalizeBackendUrl(envBase);
+  if (isRunningInNativeApk()) return DEFAULT_APK_BACKEND_URL;
+  return '';
 }
 
 export function setSavedBackendUrl(rawUrl: string): string {
