@@ -22,6 +22,10 @@
 (function (root) {
   'use strict';
 
+  // Java har tick pe ye file dobara inject karta hai. Agar engine pehle se loaded hai to dobara mat banao,
+  // warna state (fillingTicks, askedSig, ids) har baar reset ho jata hai aur AI user se kuch poochta hi nahi.
+  if (root.SarthiFill && root.SarthiFill.version === 3) return;
+
   // ---------------------------------------------------------------
   // 1. Text normalisation
   // ---------------------------------------------------------------
@@ -876,7 +880,7 @@
     Array.prototype.slice.call(document.querySelectorAll('input,select,textarea')).forEach(function (el) {
       var type = (el.type || el.tagName).toLowerCase();
       if (/^(hidden|submit|button|reset|image|range|color|search|password)$/.test(type)) return;
-      if (!isVisible(el) || el.disabled) return;
+      if (el.disabled || (type !== 'file' && !isVisible(el))) return;   // file input aksar hidden hota hai
       if (el.readOnly && type !== 'checkbox') return;
       var hint = hintOf(el);
       if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;      // user ke kaam
@@ -885,7 +889,13 @@
       if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
       var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
       if (type === 'file') {
-        if (!(el.files && el.files.length)) { mark(el, AMBER); out.push({ id: id, kind: 'file', key: '', label: readableLabelOf(el, null) }); }
+        if (!(el.files && el.files.length)) {
+          var fl = readableLabelOf(el, null);
+          var fh = norm(fl + ' ' + hint);
+          var dk = /photo|photograph|passport size|picture|selfie/.test(fh) ? 'photo' : (/sign/.test(fh) ? 'signature' : 'doc');
+          mark(el.parentElement || el, AMBER);
+          out.push({ id: id, kind: 'file', docKind: dk, key: '', label: fl });
+        }
         return;
       }
       if (type === 'checkbox') { if (!el.checked) out.push({ id: id, kind: 'checkbox', key: '', label: readableLabelOf(el, null) }); return; }
@@ -985,7 +995,8 @@
 
     if (looksFinished(list)) { s.state = 'done'; s.done = true; return s; }
 
-    list.forEach(function (a) { if (a.kind === 'file') s.uploads.push(a.label); });
+    s.uploadFields = [];
+    list.forEach(function (a) { if (a.kind === 'file') { s.uploads.push(a.label); s.uploadFields.push({ id: a.id, label: a.label, docKind: a.docKind }); } });
 
     var pending = list.length > 0 || s.needsUser.length > 0 || s.unmatched.length > 0;
     if (pending) {
@@ -1049,7 +1060,7 @@
   // export
   // ---------------------------------------------------------------
   var api = {
-    version: 2,
+    version: 3,
     run: run,
     autopilot: autopilot,
     applyMap: applyMap,
