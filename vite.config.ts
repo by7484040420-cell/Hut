@@ -12,8 +12,8 @@ export default defineConfig({
       includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         id: '/',
-        name: 'SarthiAI — Autonomous AI Form-Filler & Mini Browser',
-        short_name: 'SarthiAI',
+        name: 'Sarthi Narad AI — AI Form-Filler, Sarkari Directory & Mini Browser',
+        short_name: 'SarthiNarad',
         description: 'AI-powered personal autopilot with live internet access, smart auto-fill for jobs, court/block applications, PAN/Passport/DL, travel planning, and a built-in mini browser.',
         theme_color: '#0F172A',
         background_color: '#F6F8FB',

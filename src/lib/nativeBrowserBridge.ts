@@ -4,6 +4,7 @@ export interface SarthiNativeInterface {
   isNativeApk?: () => boolean;
   openPortal?: (url: string, payloadJson: string) => void;
   autoFillPortal?: (payloadJson: string) => void;
+  applyAiFieldMap?: (mapJson: string) => void;
   closePortal?: () => void;
   wipePortalSession?: () => void;
   scanDocumentOcr?: (base64Image: string, requestId: string) => void;
@@ -15,6 +16,7 @@ declare global {
     SarthiNative?: SarthiNativeInterface;
     onSarthiNativeOcrResult?: (requestId: string, resultJson: string) => void;
     onSarthiNativePortalEvent?: (eventJson: string) => void;
+    onSarthiNativeUnmatched?: (eventJson: string) => void;
   }
 }
 
@@ -45,6 +47,7 @@ export function buildAutoFillPayload(params: {
       ['category', p.category],
       ['maritalStatus', p.maritalStatus],
       ['mobile', p.mobile],
+      ['alternateMobile', p.alternateMobile],
       ['email', p.email],
       ['addressLine', p.addressLine],
       ['villageOrWard', p.villageOrWard],
@@ -63,29 +66,59 @@ export function buildAutoFillPayload(params: {
       ['dlNumber', p.dlNumber],
       ['voterId', p.voterId],
       ['preferredDepartureCity', p.preferredDepartureCity],
+      ['bloodGroup', p.bloodGroup],
+      ['birthPlace', p.birthPlace],
+      ['tenthBoard', p.tenthBoard],
+      ['tenthRoll', p.tenthRoll],
+      ['tenthYear', p.tenthYear],
+      ['tenthPercent', p.tenthPercent],
+      ['twelfthBoard', p.twelfthBoard],
+      ['twelfthRoll', p.twelfthRoll],
+      ['twelfthYear', p.twelfthYear],
+      ['twelfthPercent', p.twelfthPercent],
+      ['twelfthStream', p.twelfthStream],
+      ['graduationDegree', p.graduationDegree],
+      ['collegeName', p.collegeName],
+      ['graduationYear', p.graduationYear],
+      ['graduationPercent', p.graduationPercent],
     ];
     for (const [k, v] of baseEntries) {
       if (v && v.trim()) map[k] = v.trim();
+    }
+    for (const cf of p.customFields || []) {
+      if (cf.label.trim() && cf.value.trim()) {
+        map[`custom_${cf.label.trim()}`] = cf.value.trim();
+      }
     }
   }
 
   // Merge ephemeral RAM-only OCR document fields (highest priority)
   for (const doc of params.ephemeralDocs) {
+    const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
+    const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
+    const isTwelfthDoc = /12th|inter|hsc|senior\s*secondary|class\s*xii/.test(docTypeLower);
+
     for (const f of doc.fields) {
       const k = f.key.trim();
       const v = f.value.trim();
       if (!v) continue;
       const lower = `${k} ${f.label}`.toLowerCase();
-      if (lower.includes('full_name') || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother'))) {
+      if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
         map.fullName = map.fullName || v;
       } else if (lower.includes('father')) {
         map.fatherName = map.fatherName || v;
       } else if (lower.includes('mother')) {
         map.motherName = map.motherName || v;
-      } else if (lower.includes('dob') || lower.includes('birth')) {
+      } else if (lower.includes('dob') || (lower.includes('birth') && lower.includes('date'))) {
         map.dob = map.dob || v;
+      } else if (lower.includes('birth') && lower.includes('place')) {
+        map.birthPlace = map.birthPlace || v;
+      } else if (lower.includes('blood')) {
+        map.bloodGroup = map.bloodGroup || v;
       } else if (lower.includes('gender') || lower.includes('sex')) {
         map.gender = map.gender || v;
+      } else if (lower.includes('category') || lower.includes('caste')) {
+        map.category = map.category || v;
       } else if (lower.includes('mobile') || lower.includes('phone')) {
         map.mobile = map.mobile || v;
       } else if (lower.includes('email')) {
@@ -94,14 +127,45 @@ export function buildAutoFillPayload(params: {
         map.pinCode = map.pinCode || v;
       } else if (lower.includes('pan')) {
         map.panNumber = map.panNumber || v;
-      } else if (lower.includes('aadhaar') || lower.includes('uid')) {
+      } else if (lower.includes('aadhaar') || lower.includes('aadhar') || lower.includes('uid')) {
         map.aadhaarNumber = map.aadhaarNumber || v;
+      } else if (lower.includes('passport')) {
+        map.passportNumber = map.passportNumber || v;
+      } else if (lower.includes('dl') || lower.includes('driving')) {
+        map.dlNumber = map.dlNumber || v;
+      } else if (lower.includes('voter') || lower.includes('epic')) {
+        map.voterId = map.voterId || v;
       } else if (lower.includes('address')) {
         map.addressLine = map.addressLine || v;
+      } else if (lower.includes('village') || lower.includes('ward')) {
+        map.villageOrWard = map.villageOrWard || v;
+      } else if (lower.includes('post_office') || lower.includes('post office')) {
+        map.postOffice = map.postOffice || v;
+      } else if (lower.includes('police') || lower.includes('thana')) {
+        map.policeStation = map.policeStation || v;
+      } else if (lower.includes('block') || lower.includes('tehsil')) {
+        map.blockOrTehsil = map.blockOrTehsil || v;
       } else if (lower.includes('district')) {
         map.district = map.district || v;
       } else if (lower.includes('state')) {
         map.state = map.state || v;
+      } else if (lower.includes('roll')) {
+        if (isTenthDoc) map.tenthRoll = map.tenthRoll || v;
+        else if (isTwelfthDoc) map.twelfthRoll = map.twelfthRoll || v;
+      } else if (lower.includes('passingyear') || lower.includes('passing_year') || lower.includes('year')) {
+        map.passingYear = map.passingYear || v;
+        if (isTenthDoc) map.tenthYear = map.tenthYear || v;
+        else if (isTwelfthDoc) map.twelfthYear = map.twelfthYear || v;
+      } else if (lower.includes('percent') || lower.includes('cgpa') || lower.includes('grade') || lower.includes('marks')) {
+        map.percentageOrGrade = map.percentageOrGrade || v;
+        if (isTenthDoc) map.tenthPercent = map.tenthPercent || v;
+        else if (isTwelfthDoc) map.twelfthPercent = map.twelfthPercent || v;
+      } else if (lower.includes('board') || lower.includes('university')) {
+        map.boardOrUniversity = map.boardOrUniversity || v;
+        if (isTenthDoc) map.tenthBoard = map.tenthBoard || v;
+        else if (isTwelfthDoc) map.twelfthBoard = map.twelfthBoard || v;
+      } else if (lower.includes('qualification')) {
+        map.qualification = map.qualification || v;
       }
       map[`ocr_${k}`] = v;
     }

@@ -36,6 +36,7 @@ interface HomePortalSectionProps {
   onOpenDirectFormBrowser: (directUrl: string, goal: string) => void;
   onOpenAiChat: (prefillPrompt?: string) => void;
   onOpenFormStudio: () => void;
+  onOpenDirectory?: () => void;
 }
 
 const TINT_CLASSES: Record<ServiceCatalogItem['tint'], string> = {
@@ -54,6 +55,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   onAddEphemeralDoc,
   onOpenDirectFormBrowser,
   onOpenAiChat,
+  onOpenDirectory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -208,9 +210,20 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
           <h1 className="text-base sm:text-lg font-bold text-slate-900">
             Sabhi Services — Seedha Form Page Kholne Ke Liye Click Karein
           </h1>
-          <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">
-            Zero-Save {zeroSave ? 'ON' : 'OFF'}
-          </span>
+          <div className="flex items-center gap-3 shrink-0">
+            {onOpenDirectory && (
+              <button
+                type="button"
+                onClick={onOpenDirectory}
+                className="text-xs font-semibold text-sky-700 hover:underline whitespace-nowrap"
+              >
+                85+ Sarkari Portals Directory →
+              </button>
+            )}
+            <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">
+              Zero-Save {zeroSave ? 'ON' : 'OFF'}
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">

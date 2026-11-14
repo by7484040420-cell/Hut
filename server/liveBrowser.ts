@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import type { WebSocket, WebSocketServer } from 'ws';
 import type {
@@ -8,8 +10,132 @@ import type {
 import {
   decideLiveBrowserStep,
   formatGeminiError,
+  isGeminiConfigured,
+  mapFormFieldsWithAI,
   type InteractiveDomElement,
+  type UnmatchedFormField,
 } from './geminiAgent.js';
+
+function loadFillEngineSource(): string | null {
+  try {
+    const enginePath = path.resolve('public', 'sarthi-fill-engine.js');
+    if (fs.existsSync(enginePath)) {
+      return fs.readFileSync(enginePath, 'utf-8');
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function buildServerFillPayload(params: {
+  profile: ProfileVault;
+  ephemeralDocs: EphemeralDocumentExtract[];
+  zeroSave: boolean;
+  goal?: string;
+}): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!params.zeroSave) {
+    const p = params.profile;
+    const entries: [string, string][] = [
+      ['fullName', p.fullName],
+      ['fatherName', p.fatherName],
+      ['motherName', p.motherName],
+      ['dob', p.dob],
+      ['gender', p.gender],
+      ['category', p.category],
+      ['maritalStatus', p.maritalStatus],
+      ['mobile', p.mobile],
+      ['alternateMobile', p.alternateMobile],
+      ['email', p.email],
+      ['addressLine', p.addressLine],
+      ['villageOrWard', p.villageOrWard],
+      ['postOffice', p.postOffice],
+      ['policeStation', p.policeStation],
+      ['blockOrTehsil', p.blockOrTehsil],
+      ['district', p.district],
+      ['state', p.state],
+      ['pinCode', p.pinCode],
+      ['qualification', p.qualification],
+      ['boardOrUniversity', p.boardOrUniversity],
+      ['passingYear', p.passingYear],
+      ['percentageOrGrade', p.percentageOrGrade],
+      ['panNumber', p.panNumber],
+      ['passportNumber', p.passportNumber],
+      ['dlNumber', p.dlNumber],
+      ['voterId', p.voterId],
+      ['preferredDepartureCity', p.preferredDepartureCity],
+      ['bloodGroup', p.bloodGroup],
+      ['birthPlace', p.birthPlace],
+      ['tenthBoard', p.tenthBoard],
+      ['tenthRoll', p.tenthRoll],
+      ['tenthYear', p.tenthYear],
+      ['tenthPercent', p.tenthPercent],
+      ['twelfthBoard', p.twelfthBoard],
+      ['twelfthRoll', p.twelfthRoll],
+      ['twelfthYear', p.twelfthYear],
+      ['twelfthPercent', p.twelfthPercent],
+      ['twelfthStream', p.twelfthStream],
+      ['graduationDegree', p.graduationDegree],
+      ['collegeName', p.collegeName],
+      ['graduationYear', p.graduationYear],
+      ['graduationPercent', p.graduationPercent],
+    ];
+    for (const [k, v] of entries) {
+      if (v && v.trim()) map[k] = v.trim();
+    }
+  }
+  for (const doc of params.ephemeralDocs) {
+    const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
+    const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
+    const isTwelfthDoc = /12th|inter|hsc|senior\s*secondary|class\s*xii/.test(docTypeLower);
+    for (const f of doc.fields) {
+      const k = f.key.trim();
+      const v = f.value.trim();
+      if (!v) continue;
+      const lower = `${k} ${f.label}`.toLowerCase();
+      if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
+        map.fullName = map.fullName || v;
+      } else if (lower.includes('father')) map.fatherName = map.fatherName || v;
+      else if (lower.includes('mother')) map.motherName = map.motherName || v;
+      else if (lower.includes('dob') || (lower.includes('birth') && lower.includes('date'))) map.dob = map.dob || v;
+      else if (lower.includes('birth') && lower.includes('place')) map.birthPlace = map.birthPlace || v;
+      else if (lower.includes('blood')) map.bloodGroup = map.bloodGroup || v;
+      else if (lower.includes('gender') || lower.includes('sex')) map.gender = map.gender || v;
+      else if (lower.includes('category') || lower.includes('caste')) map.category = map.category || v;
+      else if (lower.includes('mobile') || lower.includes('phone')) map.mobile = map.mobile || v;
+      else if (lower.includes('email')) map.email = map.email || v;
+      else if (lower.includes('pin')) map.pinCode = map.pinCode || v;
+      else if (lower.includes('pan')) map.panNumber = map.panNumber || v;
+      else if (lower.includes('aadhaar') || lower.includes('aadhar') || lower.includes('uid')) map.aadhaarNumber = map.aadhaarNumber || v;
+      else if (lower.includes('passport')) map.passportNumber = map.passportNumber || v;
+      else if (lower.includes('dl') || lower.includes('driving')) map.dlNumber = map.dlNumber || v;
+      else if (lower.includes('voter') || lower.includes('epic')) map.voterId = map.voterId || v;
+      else if (lower.includes('address')) map.addressLine = map.addressLine || v;
+      else if (lower.includes('district')) map.district = map.district || v;
+      else if (lower.includes('state')) map.state = map.state || v;
+      else if (lower.includes('roll')) {
+        if (isTenthDoc) map.tenthRoll = map.tenthRoll || v;
+        else if (isTwelfthDoc) map.twelfthRoll = map.twelfthRoll || v;
+      } else if (lower.includes('year')) {
+        map.passingYear = map.passingYear || v;
+        if (isTenthDoc) map.tenthYear = map.tenthYear || v;
+        else if (isTwelfthDoc) map.twelfthYear = map.twelfthYear || v;
+      } else if (lower.includes('percent') || lower.includes('cgpa') || lower.includes('marks')) {
+        map.percentageOrGrade = map.percentageOrGrade || v;
+        if (isTenthDoc) map.tenthPercent = map.tenthPercent || v;
+        else if (isTwelfthDoc) map.twelfthPercent = map.twelfthPercent || v;
+      } else if (lower.includes('board') || lower.includes('university')) {
+        map.boardOrUniversity = map.boardOrUniversity || v;
+        if (isTenthDoc) map.tenthBoard = map.tenthBoard || v;
+        else if (isTwelfthDoc) map.twelfthBoard = map.twelfthBoard || v;
+      }
+      map[`ocr_${k}`] = v;
+    }
+  }
+  if (params.goal?.trim()) map.goal = params.goal.trim();
+  return map;
+}
 
 const VIEWPORT_WIDTH = 1280;
 const VIEWPORT_HEIGHT = 720;
@@ -148,15 +274,22 @@ export class LiveBrowserController {
     }
 
     if (!this.browser || !this.browser.isConnected()) {
-      this.browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-        ],
-      });
+      try {
+        this.browser = await chromium.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Cloud Chromium browser launch nahi ho saka (${msg.split('\n')[0]}). Aap "External / Open Direct Form on Device" button se seedha phone/PC browser me portal khol sakte hain.`
+        );
+      }
     }
 
     if (!this.context) {
@@ -655,6 +788,126 @@ export class LiveBrowserController {
       this.status.agentStatus = formatted.message;
       this.appendLog(`Error: ${formatted.message}`);
       this.broadcastStatus();
+    }
+  }
+
+  async runInstantRuleAndAiFill(params: {
+    profile: ProfileVault;
+    ephemeralDocs: EphemeralDocumentExtract[];
+    zeroSave: boolean;
+    goal?: string;
+    startUrl?: string;
+  }): Promise<LiveBrowserStatus> {
+    const engineSource = loadFillEngineSource();
+    if (!engineSource) {
+      throw new Error('Sarthi Fill Engine (public/sarthi-fill-engine.js) not found.');
+    }
+
+    const page = await this.ensurePage();
+    if (params.startUrl && params.startUrl.trim() && page.url() === 'about:blank') {
+      await this.navigate(params.startUrl.trim());
+    }
+
+    const payload = buildServerFillPayload({
+      profile: params.profile,
+      ephemeralDocs: params.ephemeralDocs,
+      zeroSave: params.zeroSave,
+      goal: params.goal,
+    });
+
+    if (Object.keys(payload).filter((k) => k !== 'goal').length === 0) {
+      this.status.waitingForHuman = true;
+      this.status.humanPrompt = params.zeroSave
+        ? 'Zero-Save ON hai aur koi document OCR nahi hua hai — pehle document scan karein ya header me Zero-Save OFF karke Vault use karein.'
+        : 'Profile Vault abhi khaali hai — pehle Profile Vault me details save karein ya document scan karein.';
+      this.status.agentStatus = 'No user data available to fill';
+      this.broadcastStatus();
+      return this.getStatus();
+    }
+
+    this.status.agentRunning = true;
+    this.status.agentStatus = 'Sarthi-Narad Fill Engine: Rule-engine + Gemini AI scanning page...';
+    this.broadcastStatus();
+
+    try {
+      await page.evaluate((src: string) => {
+        const w = window as unknown as { SarthiFill?: unknown };
+        if (!w.SarthiFill) {
+          // eslint-disable-next-line no-eval
+          (0, eval)(src);
+        }
+      }, engineSource);
+
+      const summary = await page.evaluate((pl: Record<string, string>) => {
+        const w = window as unknown as {
+          SarthiFill: {
+            run: (p: Record<string, string>, o?: Record<string, unknown>) => {
+              filled: number;
+              hasCaptcha: boolean;
+              hasOtp: boolean;
+              declarations: number;
+              unmatched: UnmatchedFormField[];
+            };
+            watch: (p: Record<string, string>) => void;
+          };
+        };
+        const res = w.SarthiFill.run(pl, {});
+        w.SarthiFill.watch(pl);
+        return res;
+      }, payload);
+
+      let aiFilled = 0;
+      if (Array.isArray(summary.unmatched) && summary.unmatched.length > 0 && isGeminiConfigured()) {
+        const pageTitle = await page.title().catch(() => '');
+        const pageUrl = page.url();
+        const mapping = await mapFormFieldsWithAI({
+          fields: summary.unmatched,
+          data: payload,
+          pageTitle,
+          pageUrl,
+        });
+        if (Object.keys(mapping).length > 0) {
+          const applied = await page.evaluate((m: Record<string, string>) => {
+            const w = window as unknown as {
+              SarthiFill: { applyMap: (map: Record<string, string>) => { filled: number } };
+            };
+            return w.SarthiFill.applyMap(m);
+          }, mapping);
+          aiFilled = applied.filled || 0;
+        }
+      }
+
+      const totalFilled = (summary.filled || 0) + aiFilled;
+      this.appendLog(
+        `Instant Fill: ${summary.filled || 0} rule-matched + ${aiFilled} Gemini AI-mapped = ${totalFilled} fields filled.`
+      );
+
+      const guards: string[] = [];
+      if (summary.hasCaptcha) guards.push('CAPTCHA');
+      if (summary.hasOtp) guards.push('OTP');
+      if (summary.declarations > 0) guards.push('Declaration checkbox');
+
+      this.status.agentRunning = false;
+      if (guards.length > 0) {
+        this.status.waitingForHuman = true;
+        this.status.humanPrompt = `${totalFilled} fields auto-fill ho chuke hain! Ab screen par ${guards.join(', ')} aap khud bharein aur verify karke submit karein.`;
+        this.status.agentStatus = `Auto-filled ${totalFilled} fields · Waiting for ${guards.join('/')}`;
+      } else {
+        this.status.waitingForHuman = false;
+        this.status.humanPrompt = null;
+        this.status.agentStatus = `Instant Fill complete (${totalFilled} fields filled)`;
+      }
+
+      this.broadcastStatus();
+      await this.captureAndBroadcastFrame();
+      return this.getStatus();
+    } catch (err) {
+      const formatted = formatGeminiError(err);
+      this.status.agentRunning = false;
+      this.status.agentStatus = formatted.message;
+      this.appendLog(`Instant Fill note: ${formatted.message}`);
+      this.broadcastStatus();
+      return this.getStatus();
     }
   }
 }

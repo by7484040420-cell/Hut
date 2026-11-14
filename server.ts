@@ -21,6 +21,7 @@ import {
   getServiceBriefWithAI,
   inspectUrlWithAI,
   isGeminiConfigured,
+  mapFormFieldsWithAI,
   runLiveAgentChat,
 } from './server/geminiAgent.ts';
 import { LiveBrowserController } from './server/liveBrowser.ts';
@@ -71,6 +72,21 @@ function createEmptyProfile(): ProfileVault {
     voterId: '',
     preferredDepartureCity: '',
     preferredTrainClass: '3A (AC 3 Tier)',
+    bloodGroup: '',
+    birthPlace: '',
+    tenthBoard: '',
+    tenthRoll: '',
+    tenthYear: '',
+    tenthPercent: '',
+    twelfthBoard: '',
+    twelfthRoll: '',
+    twelfthYear: '',
+    twelfthPercent: '',
+    twelfthStream: '',
+    graduationDegree: '',
+    collegeName: '',
+    graduationYear: '',
+    graduationPercent: '',
     customFields: [],
     updatedAt: new Date().toISOString(),
   };
@@ -290,6 +306,38 @@ app.post('/api/ocr/extract', uploadMemory.single('document'), async (req, res) =
       fileName: req.file.originalname,
     });
     res.json({ extracted });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
+// ---- AI Field Mapper: rule-engine se bache hue form fields ko Gemini map karta hai ----
+app.post('/api/ai/map-fields', async (req, res) => {
+  const body = (req.body || {}) as {
+    fields?: unknown;
+    data?: unknown;
+    title?: unknown;
+    url?: unknown;
+  };
+  if (!Array.isArray(body.fields) || body.fields.length === 0) {
+    res.json({ mapping: {} });
+    return;
+  }
+  const data: Record<string, string> = {};
+  if (body.data && typeof body.data === 'object') {
+    for (const [k, v] of Object.entries(body.data as Record<string, unknown>)) {
+      if (typeof v === 'string') data[k] = v;
+    }
+  }
+  try {
+    const mapping = await mapFormFieldsWithAI({
+      fields: body.fields as Parameters<typeof mapFormFieldsWithAI>[0]['fields'],
+      data,
+      pageTitle: typeof body.title === 'string' ? body.title : undefined,
+      pageUrl: typeof body.url === 'string' ? body.url : undefined,
+    });
+    res.json({ mapping });
   } catch (err) {
     const formatted = formatGeminiError(err);
     res.status(formatted.status).json({ error: formatted.message });
@@ -548,8 +596,37 @@ app.post('/api/live-browser/navigate', async (req, res) => {
     res.status(400).json({ error: 'URL is required' });
     return;
   }
-  const status = await liveBrowser.navigate(url);
-  res.json({ status });
+  try {
+    const status = await liveBrowser.navigate(url);
+    res.json({ status });
+  } catch (err) {
+    res.status(503).json({
+      error: err instanceof Error ? err.message : 'Unable to open Live Chromium Browser.',
+    });
+  }
+});
+
+app.post('/api/live-browser/autofill', async (req, res) => {
+  const goal = String(req.body?.goal || '').trim() || undefined;
+  const startUrl = String(req.body?.startUrl || '').trim() || undefined;
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+
+  try {
+    const status = await liveBrowser.runInstantRuleAndAiFill({
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+      zeroSave,
+      goal,
+      startUrl,
+    });
+    res.json({ status });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
 });
 
 app.post('/api/live-browser/back', async (_req, res) => {

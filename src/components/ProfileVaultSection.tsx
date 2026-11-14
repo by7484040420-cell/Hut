@@ -162,6 +162,27 @@ export const ProfileVaultSection: React.FC<ProfileVaultSectionProps> = ({
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+          <h2 className="text-sm font-bold text-slate-900">Detailed Education &amp; Personal (Job Forms)</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <FieldInput label="Blood Group" value={form.bloodGroup} onChange={(v) => updateField('bloodGroup', v)} placeholder="e.g. B+" />
+            <FieldInput label="Place of Birth" value={form.birthPlace} onChange={(v) => updateField('birthPlace', v)} placeholder="e.g. Patna, Bihar" />
+            <FieldInput label="10th Board" value={form.tenthBoard} onChange={(v) => updateField('tenthBoard', v)} placeholder="e.g. BSEB Patna" />
+            <FieldInput label="10th Roll No" value={form.tenthRoll} onChange={(v) => updateField('tenthRoll', v)} placeholder="e.g. 201402891" />
+            <FieldInput label="10th Passing Year" value={form.tenthYear} onChange={(v) => updateField('tenthYear', v)} placeholder="e.g. 2014" />
+            <FieldInput label="10th Percentage" value={form.tenthPercent} onChange={(v) => updateField('tenthPercent', v)} placeholder="e.g. 82.4%" />
+            <FieldInput label="12th Board" value={form.twelfthBoard} onChange={(v) => updateField('twelfthBoard', v)} placeholder="e.g. BSEB Patna" />
+            <FieldInput label="12th Roll No" value={form.twelfthRoll} onChange={(v) => updateField('twelfthRoll', v)} placeholder="e.g. 201604128" />
+            <FieldInput label="12th Passing Year" value={form.twelfthYear} onChange={(v) => updateField('twelfthYear', v)} placeholder="e.g. 2016" />
+            <FieldInput label="12th Percentage" value={form.twelfthPercent} onChange={(v) => updateField('twelfthPercent', v)} placeholder="e.g. 79.6%" />
+            <FieldInput label="12th Stream" value={form.twelfthStream} onChange={(v) => updateField('twelfthStream', v)} placeholder="e.g. Science (PCM)" />
+            <FieldInput label="Graduation Degree" value={form.graduationDegree} onChange={(v) => updateField('graduationDegree', v)} placeholder="e.g. B.Sc Computer Science" />
+            <FieldInput label="College / University" value={form.collegeName} onChange={(v) => updateField('collegeName', v)} placeholder="e.g. Patna University" />
+            <FieldInput label="Graduation Year" value={form.graduationYear} onChange={(v) => updateField('graduationYear', v)} placeholder="e.g. 2020" />
+            <FieldInput label="Graduation Percentage" value={form.graduationPercent} onChange={(v) => updateField('graduationPercent', v)} placeholder="e.g. 78.2%" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
           <h2 className="text-sm font-bold text-slate-900">Official IDs &amp; Travel</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <FieldInput label="PAN Number" value={form.panNumber} onChange={(v) => updateField('panNumber', v.toUpperCase())} placeholder="ABCDE1234F (if issued)" />

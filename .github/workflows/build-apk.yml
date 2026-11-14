@@ -1,4 +1,4 @@
-name: Build SarthiAI Android APK (AI-Controlled WebView + On-Device ML Kit OCR + Ad-Blocker)
+name: Build Sarthi Narad AI Android APK (AI Fill Engine + AI Field Mapper + ML Kit OCR + Ad-Blocker)
 
 on:
   push:
@@ -39,11 +39,11 @@ jobs:
       - name: Initialize Capacitor Android wrapper
         run: |
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init "SarthiAI" "com.sarthiai.assistant" --web-dir dist
+          npx cap init "Sarthi Narad AI" "com.sarthiai.assistant" --web-dir dist
           cat << 'EOF' > capacitor.config.json
           {
             "appId": "com.sarthiai.assistant",
-            "appName": "SarthiAI",
+            "appName": "Sarthi Narad AI",
             "webDir": "dist",
             "server": {
               "androidScheme": "https",
@@ -301,95 +301,103 @@ jobs:
                   root.addView(portalOverlay);
               }
 
+              private String loadFillEngine() {
+                  try {
+                      java.io.InputStream is = getAssets().open("public/sarthi-fill-engine.js");
+                      java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                      byte[] buf = new byte[8192];
+                      int n;
+                      while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+                      is.close();
+                      return bos.toString("UTF-8");
+                  } catch (Exception e) {
+                      return null;
+                  }
+              }
+
+              private String decodeJsResult(String raw) throws Exception {
+                  String cleaned = raw;
+                  if (cleaned != null && cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
+                      cleaned = new JSONObject("{\"v\":" + cleaned + "}").getString("v");
+                  }
+                  return cleaned;
+              }
+
+              private void emitUnmatchedFields(JSONArray unmatched, String url, String title) {
+                  try {
+                      JSONObject obj = new JSONObject();
+                      obj.put("fields", unmatched);
+                      obj.put("url", url == null ? "" : url);
+                      obj.put("title", title == null ? "" : title);
+                      final String script =
+                          "window.onSarthiNativeUnmatched && window.onSarthiNativeUnmatched("
+                          + JSONObject.quote(obj.toString()) + ");";
+                      runOnUiThread(() -> {
+                          if (bridge != null && bridge.getWebView() != null) {
+                              bridge.getWebView().evaluateJavascript(script, null);
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
               private void runAutoFillOnPortal() {
                   if (portalWebView == null) return;
-                  final String safePayload = JSONObject.quote(activePayloadJson == null ? "{}" : activePayloadJson);
-                  final String js = "(function(){"
-                      + "try{"
-                      + "var data=JSON.parse(" + safePayload + ");"
-                      + "var full=(data.fullName||'').trim();"
-                      + "var parts=full?full.split(/\\s+/):[];"
-                      + "var firstName=parts[0]||'';"
-                      + "var lastName=parts.length>1?parts[parts.length-1]:'';"
-                      + "var middleName=parts.length>2?parts.slice(1,-1).join(' '):'';"
-                      + "function setVal(el,val){"
-                      + "if(!val)return false;"
-                      + "if(el.tagName==='SELECT'){"
-                      + "var lv=val.toLowerCase();"
-                      + "for(var i=0;i<el.options.length;i++){"
-                      + "var o=el.options[i];"
-                      + "if((o.text||'').toLowerCase().indexOf(lv)>=0||(o.value||'').toLowerCase()===lv){"
-                      + "el.selectedIndex=i;el.dispatchEvent(new Event('change',{bubbles:true}));"
-                      + "el.style.outline='2px solid #10b981';return true;"
-                      + "}}"
-                      + "return false;"
-                      + "}"
-                      + "if(el.type==='date'&&/^\\d{2}[\\/\\-]\\d{2}[\\/\\-]\\d{4}$/.test(val)){"
-                      + "var p=val.split(/[\\/\\-]/);val=p[2]+'-'+p[1]+'-'+p[0];"
-                      + "}"
-                      + "el.focus();"
-                      + "var proto=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;"
-                      + "var desc=Object.getOwnPropertyDescriptor(proto,'value');"
-                      + "if(desc&&desc.set){desc.set.call(el,val);}else{el.value=val;}"
-                      + "el.dispatchEvent(new Event('input',{bubbles:true}));"
-                      + "el.dispatchEvent(new Event('change',{bubbles:true}));"
-                      + "el.dispatchEvent(new Event('blur',{bubbles:true}));"
-                      + "el.style.outline='2px solid #10b981';"
-                      + "return true;"
-                      + "}"
-                      + "var inputs=document.querySelectorAll('input,select,textarea');"
-                      + "var filled=0;var hasCaptcha=false;var hasOtp=false;"
-                      + "inputs.forEach(function(el){"
-                      + "if(el.disabled||el.readOnly||el.type==='hidden'||el.type==='submit'||el.type==='button')return;"
-                      + "var lbl='';"
-                      + "if(el.id){var lb=document.querySelector('label[for=\"'+el.id+'\"]');if(lb)lbl=lb.innerText||'';}"
-                      + "if(!lbl&&el.closest('label'))lbl=el.closest('label').innerText||'';"
-                      + "var hint=((el.name||'')+' '+(el.id||'')+' '+(el.placeholder||'')+' '+(el.getAttribute('aria-label')||'')+' '+lbl).toLowerCase();"
-                      + "if(hint.indexOf('captcha')>=0||hint.indexOf('security code')>=0){hasCaptcha=true;el.style.outline='2px solid #f59e0b';return;}"
-                      + "if(hint.indexOf('otp')>=0){hasOtp=true;el.style.outline='2px solid #f59e0b';return;}"
-                      + "if(el.value&&String(el.value).trim().length>0&&el.tagName!=='SELECT')return;"
-                      + "var match='';"
-                      + "if(hint.indexOf('first')>=0&&hint.indexOf('name')>=0)match=firstName;"
-                      + "else if(hint.indexOf('last')>=0||hint.indexOf('surname')>=0)match=lastName;"
-                      + "else if(hint.indexOf('middle')>=0)match=middleName;"
-                      + "else if(hint.indexOf('father')>=0)match=data.fatherName||'';"
-                      + "else if(hint.indexOf('mother')>=0)match=data.motherName||'';"
-                      + "else if(hint.indexOf('email')>=0||el.type==='email')match=data.email||'';"
-                      + "else if(hint.indexOf('mobile')>=0||hint.indexOf('phone')>=0||el.type==='tel')match=data.mobile||'';"
-                      + "else if(hint.indexOf('dob')>=0||hint.indexOf('birth')>=0)match=data.dob||'';"
-                      + "else if(hint.indexOf('gender')>=0||hint.indexOf('sex')>=0)match=data.gender||'';"
-                      + "else if(hint.indexOf('category')>=0||hint.indexOf('caste')>=0)match=data.category||'';"
-                      + "else if(hint.indexOf('pin')>=0||hint.indexOf('postal')>=0)match=data.pinCode||'';"
-                      + "else if(hint.indexOf('district')>=0)match=data.district||'';"
-                      + "else if(hint.indexOf('state')>=0)match=data.state||'';"
-                      + "else if(hint.indexOf('address')>=0)match=data.addressLine||'';"
-                      + "else if(hint.indexOf('aadhaar')>=0||hint.indexOf('uid')>=0)match=data.aadhaarNumber||'';"
-                      + "else if(hint.indexOf('pan')>=0&&hint.indexOf('company')<0)match=data.panNumber||'';"
-                      + "else if(hint.indexOf('passport')>=0)match=data.passportNumber||'';"
-                      + "else if(hint.indexOf('applicant')>=0||hint.indexOf('candidate')>=0||hint.indexOf('fullname')>=0||hint.indexOf('full name')>=0||(hint.indexOf('name')>=0&&hint.indexOf('user')<0))match=full;"
-                      + "if(match&&setVal(el,match))filled++;"
-                      + "});"
-                      + "return JSON.stringify({filled:filled,hasCaptcha:hasCaptcha,hasOtp:hasOtp,url:location.href});"
-                      + "}catch(e){return JSON.stringify({error:String(e)});}"
-                      + "})();";
+                  final String engine = loadFillEngine();
+                  if (engine == null) {
+                      emitPortalEvent("Fill engine load nahi hua (sarthi-fill-engine.js missing)", null);
+                      return;
+                  }
+                  final String payload = activePayloadJson == null ? "{}" : activePayloadJson;
+                  final String js = engine
+                      + "\n;(function(){try{"
+                      + "var p=JSON.parse(" + JSONObject.quote(payload) + ");"
+                      + "var r=window.SarthiFill.run(p,{});"
+                      + "window.SarthiFill.watch(p);"
+                      + "return JSON.stringify(r);"
+                      + "}catch(e){return JSON.stringify({error:String(e)});}})();";
 
                   runOnUiThread(() -> portalWebView.evaluateJavascript(js, raw -> {
                       try {
-                          String cleaned = raw;
-                          if (cleaned != null && cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
-                              cleaned = new JSONObject("{\"v\":" + cleaned + "}").getString("v");
+                          JSONObject res = new JSONObject(decodeJsResult(raw));
+                          if (res.has("error")) {
+                              emitPortalEvent("Fill engine error: " + res.optString("error"), null);
+                              return;
                           }
-                          JSONObject res = new JSONObject(cleaned);
                           int filled = res.optInt("filled", 0);
-                          boolean captcha = res.optBoolean("hasCaptcha", false);
-                          boolean otp = res.optBoolean("hasOtp", false);
                           String url = res.optString("url", "");
-                          String msg = "AI Auto-Fill: " + filled + " fields bhare";
-                          if (captcha) msg += " · CAPTCHA box highlight hai";
-                          if (otp) msg += " · OTP aap dalein";
-                          emitPortalEvent(msg, url);
+                          StringBuilder msg = new StringBuilder("AI Auto-Fill: " + filled + " fields bhare");
+                          if (res.optBoolean("hasCaptcha", false)) msg.append(" | CAPTCHA aap dalein");
+                          if (res.optBoolean("hasOtp", false)) msg.append(" | OTP aap dalein");
+                          if (res.optBoolean("hasPassword", false)) msg.append(" | Password aap dalein");
+                          if (res.optBoolean("hasPayment", false)) msg.append(" | Payment/Bank details aap dalein");
+                          int decl = res.optInt("declarations", 0);
+                          if (decl > 0) msg.append(" | Declaration tick aap karein (" + decl + ")");
+                          JSONArray need = res.optJSONArray("needsUser");
+                          if (need != null && need.length() > 0) msg.append(" | Vault me kami: " + need.join(", ").replace("\"", ""));
+                          JSONArray unmatched = res.optJSONArray("unmatched");
+                          if (unmatched != null && unmatched.length() > 0) {
+                              msg.append(" | " + unmatched.length() + " fields AI se map ho rahe hain...");
+                              emitUnmatchedFields(unmatched, url, res.optString("title", ""));
+                          }
+                          emitPortalEvent(msg.toString(), url);
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
+                      }
+                  }));
+              }
+
+              private void applyAiFieldMapOnPortal(String mapJson) {
+                  if (portalWebView == null) return;
+                  final String js = "(function(){try{"
+                      + "var m=JSON.parse(" + JSONObject.quote(mapJson == null ? "{}" : mapJson) + ");"
+                      + "return JSON.stringify(window.SarthiFill?window.SarthiFill.applyMap(m):{filled:0});"
+                      + "}catch(e){return JSON.stringify({error:String(e)});}})();";
+                  runOnUiThread(() -> portalWebView.evaluateJavascript(js, raw -> {
+                      try {
+                          JSONObject res = new JSONObject(decodeJsResult(raw));
+                          emitPortalEvent("AI ne " + res.optInt("filled", 0) + " aur fields bhare (blue highlight) - ek baar check kar lein", null);
+                      } catch (Exception ignored) {
+                          emitPortalEvent("AI field map apply ho gaya", null);
                       }
                   }));
               }
@@ -500,6 +508,11 @@ jobs:
                   public void autoFillPortal(String payloadJson) {
                       if (payloadJson != null) activePayloadJson = payloadJson;
                       runOnUiThread(() -> runAutoFillOnPortal());
+                  }
+
+                  @JavascriptInterface
+                  public void applyAiFieldMap(String mapJson) {
+                      applyAiFieldMapOnPortal(mapJson);
                   }
 
                   @JavascriptInterface

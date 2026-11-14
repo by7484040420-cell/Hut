@@ -44,6 +44,21 @@ export interface ProfileVault {
   voterId: string;
   preferredDepartureCity: string;
   preferredTrainClass: string;
+  bloodGroup: string;
+  birthPlace: string;
+  tenthBoard: string;
+  tenthRoll: string;
+  tenthYear: string;
+  tenthPercent: string;
+  twelfthBoard: string;
+  twelfthRoll: string;
+  twelfthYear: string;
+  twelfthPercent: string;
+  twelfthStream: string;
+  graduationDegree: string;
+  collegeName: string;
+  graduationYear: string;
+  graduationPercent: string;
   customFields: CustomVaultField[];
   updatedAt: string;
 }

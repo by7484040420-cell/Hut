@@ -4,6 +4,7 @@ import {
   Compass,
   FileSpreadsheet,
   Home,
+  Landmark,
   Loader2,
   Monitor,
   Server,
@@ -20,6 +21,7 @@ import type {
   WorkspaceBootstrap,
 } from './types';
 import { HomePortalSection } from './components/HomePortalSection';
+import { DirectorySection } from './components/DirectorySection';
 import { AiAgentSection } from './components/AiAgentSection';
 import { FormStudioSection } from './components/FormStudioSection';
 import { MiniBrowserSection } from './components/MiniBrowserSection';
@@ -38,7 +40,7 @@ import {
   type AppViewMode,
 } from './lib/api';
 
-type TabKey = 'home' | 'agent' | 'browser' | 'forms' | 'vault';
+type TabKey = 'home' | 'directory' | 'agent' | 'browser' | 'forms' | 'vault';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('home');
@@ -164,6 +166,40 @@ export function App() {
     setWorkspace((prev) => (prev ? { ...prev, bookmarks } : prev));
   };
 
+  const handleSavePortalBookmark = async (portal: { name: string; url: string; note: string }) => {
+    if (!workspace) return;
+    const exists = workspace.bookmarks.some(
+      (b) => b.url.replace(/\/+$/, '').toLowerCase() === portal.url.replace(/\/+$/, '').toLowerCase()
+    );
+    if (exists) return;
+    try {
+      const data = await apiFetchJson<{ bookmarks?: PortalBookmark[] }>('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: portal.name,
+          url: portal.url,
+          category: 'general',
+          description: portal.note,
+        }),
+      });
+      if (Array.isArray(data.bookmarks)) {
+        handleBookmarksChange(data.bookmarks);
+        return;
+      }
+    } catch {
+      // fallback locally
+    }
+    const localBm: PortalBookmark = {
+      id: `bm-${Date.now()}`,
+      name: portal.name,
+      url: portal.url,
+      category: 'general',
+      description: portal.note,
+    };
+    handleBookmarksChange([localBm, ...workspace.bookmarks]);
+  };
+
   const handleProfileSaved = (profile: ProfileVault) => {
     if (serverOfflineMode) {
       saveLocalFallbackProfile(profile);
@@ -200,6 +236,7 @@ export function App() {
 
   const navItems: { key: TabKey; label: string; shortLabel: string; icon: React.ReactNode }[] = [
     { key: 'home', label: 'Home', shortLabel: 'Home', icon: <Home className="w-4 h-4" /> },
+    { key: 'directory', label: 'Directory', shortLabel: 'Portals', icon: <Landmark className="w-4 h-4" /> },
     { key: 'agent', label: 'AI Agent', shortLabel: 'AI Agent', icon: <Bot className="w-4 h-4" /> },
     { key: 'browser', label: 'Live Browser', shortLabel: 'Browser', icon: <Compass className="w-4 h-4" /> },
     {
@@ -230,7 +267,7 @@ export function App() {
               S
             </span>
             <span className="font-display font-bold text-base tracking-tight text-white">
-              SarthiAI
+              Sarthi Narad AI
             </span>
           </button>
 
@@ -343,6 +380,16 @@ export function App() {
                 onOpenDirectFormBrowser={openUrlInLiveBrowser}
                 onOpenAiChat={openAiWithPrompt}
                 onOpenFormStudio={() => setActiveTab('forms')}
+                onOpenDirectory={() => setActiveTab('directory')}
+              />
+            )}
+
+            {activeTab === 'directory' && (
+              <DirectorySection
+                onOpenBrowser={openUrlInLiveBrowser}
+                onAskAi={openAiWithPrompt}
+                bookmarks={workspace.bookmarks}
+                onSaveBookmark={(p) => void handleSavePortalBookmark(p)}
               />
             )}
 
@@ -412,7 +459,7 @@ export function App() {
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
-        <div className="grid grid-cols-5 gap-1 px-1.5 py-1.5">
+        <div className="grid grid-cols-6 gap-1 px-1.5 py-1.5">
           {navItems.map((item) => {
             const active = activeTab === item.key;
             return (

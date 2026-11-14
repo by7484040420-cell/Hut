@@ -20,6 +20,7 @@ import {
   Square,
   Trash2,
   Upload,
+  Zap,
 } from 'lucide-react';
 import type {
   ApplicationDraft,
@@ -30,6 +31,7 @@ import type {
 } from '../types';
 import { apiFetchJson, buildWsUrl } from '../lib/api';
 import {
+  buildAutoFillPayload,
   hasNativePortalBridge,
   launchNativeControlledPortal,
   runNativeOnDeviceOcr,
@@ -118,7 +120,12 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [uploadedReqMap, setUploadedReqMap] = useState<Record<string, string>>({});
   const [nativePortalLogs, setNativePortalLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [instantFilling, setInstantFilling] = useState(false);
   const nativeApkMode = hasNativePortalBridge();
+
+  // effect [] me stale closure se bachne ke liye latest values ref me rakhte hain
+  const latestRef = useRef({ profile, ephemeralDocs, zeroSave, goal: agentGoal });
+  latestRef.current = { profile, ephemeralDocs, zeroSave, goal: agentGoal };
 
   const wsRef = useRef<WebSocket | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -161,6 +168,46 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     };
 
     connect();
+
+    // Rule-engine jo fields nahi pehchan paya -> server (Gemini) se map karwao -> native WebView me apply
+    window.onSarthiNativeUnmatched = (eventJson: string) => {
+      void (async () => {
+        try {
+          const parsed = JSON.parse(eventJson) as {
+            fields?: unknown[];
+            url?: string;
+            title?: string;
+          };
+          if (!parsed.fields || parsed.fields.length === 0) return;
+          const latest = latestRef.current;
+          const data = buildAutoFillPayload({
+            profile: latest.profile,
+            ephemeralDocs: latest.ephemeralDocs,
+            zeroSave: latest.zeroSave,
+            goal: latest.goal,
+          });
+          const res = await apiFetchJson<{ mapping?: Record<string, string> }>('/api/ai/map-fields', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fields: parsed.fields,
+              data,
+              url: parsed.url,
+              title: parsed.title,
+            }),
+          });
+          const mapping = res.mapping || {};
+          if (Object.keys(mapping).length > 0) {
+            window.SarthiNative?.applyAiFieldMap?.(JSON.stringify(mapping));
+          } else {
+            setNativePortalLogs((prev) => ['AI ko bache hue fields ke liye vault me data nahi mila - aap khud bharein', ...prev].slice(0, 30));
+          }
+        } catch {
+          setNativePortalLogs((prev) => ['AI field mapping abhi available nahi (server connect karein)', ...prev].slice(0, 30));
+        }
+      })();
+    };
+
     window.onSarthiNativePortalEvent = (eventJson: string) => {
       try {
         const parsed = JSON.parse(eventJson) as { message?: string; url?: string };
@@ -176,6 +223,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       wsRef.current?.close();
+      delete window.onSarthiNativeUnmatched;
     };
   }, []);
 
@@ -253,6 +301,42 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       if (data.status) setStatus(data.status);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start AI Copilot');
+    }
+  };
+
+  const runInstantAutoFill = async () => {
+    setError(null);
+    if (nativeApkMode && window.SarthiNative?.autoFillPortal) {
+      const payload = buildAutoFillPayload({
+        profile,
+        ephemeralDocs,
+        zeroSave,
+        goal: agentGoal,
+      });
+      window.SarthiNative.autoFillPortal(JSON.stringify(payload));
+      setNativePortalLogs((prev) => ['Instant Rule + AI Fill triggered in APK WebView', ...prev].slice(0, 30));
+      return;
+    }
+    setInstantFilling(true);
+    try {
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/autofill',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goal: agentGoal,
+            startUrl: status.active ? undefined : addressInput,
+            zeroSave,
+            ephemeralDocs,
+          }),
+        }
+      );
+      if (data.status) setStatus(data.status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Instant Auto-Fill failed');
+    } finally {
+      setInstantFilling(false);
     }
   };
 
@@ -577,6 +661,20 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
               {status.waitingForHuman ? 'Resume AI' : 'Run Live AI'}
             </button>
           )}
+          <button
+            type="button"
+            disabled={instantFilling || status.agentRunning}
+            onClick={() => void runInstantAutoFill()}
+            title="Sarthi-Narad Fill Engine (Rules + Gemini AI) se khule hue page par turant form bharein"
+            className="min-h-[42px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5"
+          >
+            {instantFilling ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Zap className="w-3.5 h-3.5 text-amber-200" />
+            )}
+            Instant Fill Page
+          </button>
         </form>
 
         <input

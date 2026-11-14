@@ -217,6 +217,21 @@ function serializeVaultContext(profile: ProfileVault): string {
     ['Voter ID', profile.voterId],
     ['Preferred Departure City', profile.preferredDepartureCity],
     ['Preferred Train Class', profile.preferredTrainClass],
+    ['Blood Group', profile.bloodGroup],
+    ['Place of Birth', profile.birthPlace],
+    ['10th Board', profile.tenthBoard],
+    ['10th Roll No', profile.tenthRoll],
+    ['10th Passing Year', profile.tenthYear],
+    ['10th Percentage', profile.tenthPercent],
+    ['12th Board', profile.twelfthBoard],
+    ['12th Roll No', profile.twelfthRoll],
+    ['12th Passing Year', profile.twelfthYear],
+    ['12th Percentage', profile.twelfthPercent],
+    ['12th Stream', profile.twelfthStream],
+    ['Graduation Degree', profile.graduationDegree],
+    ['College / University', profile.collegeName],
+    ['Graduation Year', profile.graduationYear],
+    ['Graduation Percentage', profile.graduationPercent],
   ];
 
   const populated = entries
@@ -1259,5 +1274,116 @@ export async function getServiceBriefWithAI(params: {
     return fallback;
   }
 }
+
+// ---------------------------------------------------------------------------
+// AI Field Mapper (Narad AI "ai-autofill" idea, merged into SarthiAI)
+// Rule-engine jo fields nahi pehchan paya, unko Gemini profile data se map karta hai.
+// ---------------------------------------------------------------------------
+
+export interface UnmatchedFormField {
+  id: string;
+  tag?: string;
+  type?: string;
+  name?: string;
+  label?: string;
+  placeholder?: string;
+  options?: string[];
+}
+
+const NEVER_FILL_PATTERN =
+  /captcha|security code|\botp\b|one[\s-]?time|pass ?word|passwd|\bpwd\b|\bcvv\b|\bcvc\b|card ?(no|number)|\bupi\b|\bvpa\b|net ?banking|\bifsc\b|account ?(no|number)/i;
+
+export async function mapFormFieldsWithAI(params: {
+  fields: UnmatchedFormField[];
+  data: Record<string, string>;
+  pageTitle?: string;
+  pageUrl?: string;
+}): Promise<Record<string, string>> {
+  const safeFields = params.fields
+    .filter((f) => f && typeof f.id === 'string' && f.id.length > 0)
+    .filter((f) => !NEVER_FILL_PATTERN.test(`${f.label || ''} ${f.name || ''} ${f.placeholder || ''}`))
+    .slice(0, 40)
+    .map((f) => ({
+      id: f.id,
+      type: f.type || f.tag || 'text',
+      label: (f.label || '').slice(0, 120),
+      name: (f.name || '').slice(0, 60),
+      placeholder: (f.placeholder || '').slice(0, 80),
+      options: Array.isArray(f.options) ? f.options.slice(0, 40) : [],
+    }));
+
+  if (safeFields.length === 0) return {};
+
+  // Sirf wahi data bhejo jo user ke payload me hai (zero-save me vault khali hota hai)
+  const cleanData: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params.data || {})) {
+    if (k === 'goal') continue;
+    if (typeof v === 'string' && v.trim()) cleanData[k] = v.trim().slice(0, 300);
+  }
+  if (Object.keys(cleanData).length === 0) return {};
+
+  const ai = getGeminiClient();
+  const response = await generateContentResilient(ai, {
+    contents: {
+      parts: [
+        {
+          text: [
+            'You are a careful Indian government/recruitment form-filling assistant.',
+            `Page: ${params.pageTitle || 'unknown'} (${params.pageUrl || 'unknown url'})`,
+            '',
+            'USER DATA (the only source of truth, JSON):',
+            JSON.stringify(cleanData),
+            '',
+            'FORM FIELDS that the rule-engine could not identify (JSON):',
+            JSON.stringify(safeFields),
+            '',
+            'TASK: For each field, decide the value to enter using ONLY the user data above.',
+            'RULES:',
+            '- NEVER invent, guess or estimate values. If the user data does not contain the answer, OMIT that field.',
+            '- For <select> fields (options given), return the exact text of the best matching option.',
+            '- Dates: return YYYY-MM-DD.',
+            '- Do not answer CAPTCHA, OTP, password, bank, card, UPI, or declaration/consent fields.',
+            '- Labels may be Hindi / Hinglish / English.',
+            'Return JSON: an array "mappings" of { id, value }.',
+          ].join('\n'),
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          mappings: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                value: { type: Type.STRING },
+              },
+              required: ['id', 'value'],
+            },
+          },
+        },
+        required: ['mappings'],
+      },
+    },
+  });
+
+  const parsed = JSON.parse((response.text ?? '{}').trim()) as {
+    mappings?: Array<{ id?: string; value?: string }>;
+  };
+
+  const allowedIds = new Set(safeFields.map((f) => f.id));
+  const out: Record<string, string> = {};
+  for (const m of parsed.mappings || []) {
+    const id = String(m.id || '');
+    const value = String(m.value || '').trim();
+    if (id && value && allowedIds.has(id)) out[id] = value;
+  }
+  return out;
+}
+
 
 
