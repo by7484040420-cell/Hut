@@ -149,6 +149,17 @@ jobs:
               private LinearLayout portalOverlay;
               private WebView portalWebView;
               private int tickCount = 0;
+              private boolean askOpen = false;
+              private boolean resetAsk = false;
+              private boolean formDone = false;
+              private android.webkit.ValueCallback<android.net.Uri[]> fileCallback;
+              private final androidx.activity.result.ActivityResultLauncher<String[]> filePicker =
+                  registerForActivityResult(new androidx.activity.result.contract.ActivityResultContracts.OpenDocument(), uri -> {
+                      if (fileCallback != null) {
+                          fileCallback.onReceiveValue(uri == null ? null : new android.net.Uri[]{uri});
+                          fileCallback = null;
+                      }
+                  });
               private final android.os.Handler tickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
               private final Runnable tickRunnable = () -> runAutoFillOnPortal();
 
@@ -246,7 +257,7 @@ jobs:
                   fillBtn.setTextSize(11f);
                   fillBtn.setTextColor(Color.WHITE);
                   fillBtn.setBackgroundColor(Color.parseColor("#059669"));
-                  fillBtn.setOnClickListener(v -> { tickCount = 0; runAutoFillOnPortal(); });
+                  fillBtn.setOnClickListener(v -> { tickCount = 0; resetAsk = true; runAutoFillOnPortal(); });
 
                   Button closeBtn = new Button(this);
                   closeBtn.setText("Close");
@@ -259,6 +270,16 @@ jobs:
                   closeParams.setMargins(pad / 2, 0, 0, 0);
                   closeBtn.setLayoutParams(closeParams);
                   closeBtn.setOnClickListener(v -> {
+                      if (formDone) {
+                          formDone = false;
+                          if (portalWebView != null) {
+                              portalWebView.clearCache(true);
+                              portalWebView.clearHistory();
+                              portalWebView.loadUrl("about:blank");
+                          }
+                          CookieManager.getInstance().removeAllCookies(null);
+                          WebStorage.getInstance().deleteAllData();
+                      }
                       if (portalOverlay != null) portalOverlay.setVisibility(View.GONE);
                   });
 
@@ -287,7 +308,20 @@ jobs:
                   cm.setAcceptCookie(true);
                   cm.setAcceptThirdPartyCookies(portalWebView, true);
 
-                  portalWebView.setWebChromeClient(new WebChromeClient());
+                  portalWebView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onShowFileChooser(WebView wv, android.webkit.ValueCallback<android.net.Uri[]> cb, FileChooserParams params) {
+                          if (fileCallback != null) fileCallback.onReceiveValue(null);
+                          fileCallback = cb;
+                          try {
+                              filePicker.launch(new String[]{"*/*"});
+                          } catch (Exception e) {
+                              fileCallback = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
                   portalWebView.setWebViewClient(new WebViewClient() {
                       @Override
                       public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -367,6 +401,99 @@ jobs:
                   view.evaluateJavascript(js, null);
               }
 
+              private void handleFormDone() {
+                  activePayloadJson = "{}";
+                  formDone = true;
+                  tickHandler.removeCallbacks(tickRunnable);
+                  runOnUiThread(() -> {
+                      if (bridge != null && bridge.getWebView() != null) {
+                          bridge.getWebView().evaluateJavascript(
+                              "window.onSarthiNativeFormDone && window.onSarthiNativeFormDone();", null);
+                      }
+                  });
+              }
+
+              // AI ko jo details chahiye (mata-pita, mobile, email, username...) user se poochne ka popup
+              private void showAskDialog(final JSONArray asks) {
+                  if (askOpen) return;
+                  askOpen = true;
+                  runOnUiThread(() -> {
+                      final int pad = (int) (16 * getResources().getDisplayMetrics().density);
+                      android.widget.ScrollView sv = new android.widget.ScrollView(this);
+                      LinearLayout box = new LinearLayout(this);
+                      box.setOrientation(LinearLayout.VERTICAL);
+                      box.setPadding(pad, pad, pad, pad);
+                      sv.addView(box);
+                      final java.util.ArrayList<JSONObject> items = new java.util.ArrayList<>();
+                      final java.util.ArrayList<View> inputs = new java.util.ArrayList<>();
+                      for (int i = 0; i < asks.length(); i++) {
+                          JSONObject a = asks.optJSONObject(i);
+                          if (a == null) continue;
+                          TextView lbl = new TextView(this);
+                          lbl.setText(a.optString("label", "Detail"));
+                          lbl.setTextSize(13f);
+                          lbl.setPadding(0, pad / 2, 0, 0);
+                          box.addView(lbl);
+                          JSONArray opts = a.optJSONArray("options");
+                          View input;
+                          if (opts != null && opts.length() > 0) {
+                              android.widget.Spinner sp = new android.widget.Spinner(this);
+                              java.util.ArrayList<String> names = new java.util.ArrayList<>();
+                              names.add("-- chuno --");
+                              for (int j = 0; j < opts.length(); j++) names.add(opts.optString(j));
+                              sp.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));
+                              input = sp;
+                          } else {
+                              android.widget.EditText et = new android.widget.EditText(this);
+                              et.setSingleLine(true);
+                              String key = a.optString("key", "");
+                              if ("mobile".equals(key) || "alternateMobile".equals(key)) {
+                                  et.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
+                              } else if ("email".equals(key)) {
+                                  et.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+                              }
+                              input = et;
+                          }
+                          box.addView(input);
+                          items.add(a);
+                          inputs.add(input);
+                      }
+                      new AlertDialog.Builder(this)
+                          .setTitle("AI ko ye details chahiye")
+                          .setView(sv)
+                          .setCancelable(false)
+                          .setPositiveButton("Bhar do", (d, w) -> submitAsks(items, inputs))
+                          .setNegativeButton("Baad me", (d, w) -> askOpen = false)
+                          .show();
+                  });
+              }
+
+              private void submitAsks(java.util.ArrayList<JSONObject> items, java.util.ArrayList<View> inputs) {
+                  try {
+                      JSONObject payload = new JSONObject(activePayloadJson == null ? "{}" : activePayloadJson);
+                      JSONObject direct = new JSONObject();
+                      for (int i = 0; i < items.size(); i++) {
+                          JSONObject a = items.get(i);
+                          View v = inputs.get(i);
+                          String val = "";
+                          if (v instanceof android.widget.Spinner) {
+                              android.widget.Spinner sp = (android.widget.Spinner) v;
+                              if (sp.getSelectedItemPosition() > 0) val = String.valueOf(sp.getSelectedItem());
+                          } else if (v instanceof android.widget.EditText) {
+                              val = ((android.widget.EditText) v).getText().toString().trim();
+                          }
+                          if (val.isEmpty()) continue;
+                          String key = a.optString("key", "");
+                          if (!key.isEmpty()) payload.put(key, val);        // session memory: agle pages pe bhi kaam aayega
+                          else direct.put(a.optString("id"), val);
+                      }
+                      activePayloadJson = payload.toString();
+                      if (direct.length() > 0) applyAiFieldMapOnPortal(direct.toString());
+                  } catch (Exception ignored) {}
+                  askOpen = false;
+                  scheduleTick(600);
+              }
+
               private void runAutoFillOnPortal() {
                   if (portalWebView == null) return;
                   final String engine = loadFillEngine();
@@ -375,10 +502,12 @@ jobs:
                       return;
                   }
                   final String payload = activePayloadJson == null ? "{}" : activePayloadJson;
+                  final boolean rs = resetAsk;
+                  resetAsk = false;
                   final String js = engine
                       + "\n;(function(){try{"
                       + "var p=JSON.parse(" + JSONObject.quote(payload) + ");"
-                      + "var r=window.SarthiFill.autopilot(p);"
+                      + "var r=window.SarthiFill.autopilot(p,{reset:" + (rs ? "true" : "false") + "});"
                       + "window.SarthiFill.watch(p);"
                       + "return JSON.stringify(r);"
                       + "}catch(e){return JSON.stringify({error:String(e)});}})();";
@@ -409,7 +538,16 @@ jobs:
                           String st = res.optString("state", "");
                           if ("next".equals(st)) msg.append(" | Aage badh gaya: " + res.optString("clicked"));
                           else if ("final".equals(st)) msg.append(" | Next button nahi mila - aap check karke Submit karein");
+                          JSONArray ups = res.optJSONArray("uploads");
+                          if (ups != null && ups.length() > 0) msg.append(" | Document upload karo (field pe tap karke file chuno): " + ups.join(", ").replace("\"", ""));
+                          if (res.optBoolean("done", false)) {
+                              emitPortalEvent("Form complete - chat aur documents saaf. Receipt save karke CLOSE dabao", url);
+                              handleFormDone();
+                              return;
+                          }
                           emitPortalEvent(msg.toString(), url);
+                          JSONArray asks = res.optJSONArray("asks");
+                          if (asks != null && asks.length() > 0) showAskDialog(asks);
                           if (tickCount++ < 40) scheduleTick(3000);
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
