@@ -22,6 +22,8 @@ import {
   inspectUrlWithAI,
   isGeminiConfigured,
   mapFormFieldsWithAI,
+  planPageWithAI,
+  formRecipeWithAI,
   runLiveAgentChat,
 } from './server/geminiAgent.ts';
 import { LiveBrowserController } from './server/liveBrowser.ts';
@@ -306,6 +308,47 @@ app.post('/api/ocr/extract', uploadMemory.single('document'), async (req, res) =
       fileName: req.file.originalname,
     });
     res.json({ extracted });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
+// ---- AI Page Reader: rules jo page nahi samjhe, Gemini page padhke plan banata hai ----
+app.post('/api/ai/plan-page', async (req, res) => {
+  const body = (req.body || {}) as { snapshot?: unknown; data?: unknown };
+  if (!body.snapshot || typeof body.snapshot !== 'object') {
+    res.json({ plan: { fills: {}, click: '' } });
+    return;
+  }
+  const data: Record<string, string> = {};
+  if (body.data && typeof body.data === 'object') {
+    for (const [k, v] of Object.entries(body.data as Record<string, unknown>)) {
+      if (typeof v === 'string') data[k] = v;
+    }
+  }
+  try {
+    const plan = await planPageWithAI({
+      snapshot: body.snapshot as Parameters<typeof planPageWithAI>[0]['snapshot'],
+      data,
+    });
+    res.json({ plan });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
+// ---- Form Recipe: form shuru karne se pehle poori details/documents ki list ----
+app.post('/api/ai/form-recipe', async (req, res) => {
+  const body = (req.body || {}) as { url?: unknown; title?: unknown; goal?: unknown };
+  try {
+    const recipe = await formRecipeWithAI({
+      url: typeof body.url === 'string' ? body.url : undefined,
+      title: typeof body.title === 'string' ? body.title : undefined,
+      goal: typeof body.goal === 'string' ? body.goal : undefined,
+    });
+    res.json({ recipe });
   } catch (err) {
     const formatted = formatGeminiError(err);
     res.status(formatted.status).json({ error: formatted.message });
