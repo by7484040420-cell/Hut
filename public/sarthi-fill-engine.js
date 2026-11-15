@@ -237,7 +237,8 @@
       case 'passingYear': return data.passingYear || data.tenthYear || data.twelfthYear || data.graduationYear || '';
       case 'percentageOrGrade': return data.percentageOrGrade || data.tenthPercent || data.twelfthPercent || data.graduationPercent || '';
       case 'qualification': return data.qualification || data.graduationDegree || (data.twelfthBoard || data.twelfthYear ? '12th' : (data.tenthBoard || data.tenthYear || data.tenthRoll ? '10th' : ''));
-      case 'villageOrWard': return data.villageOrWard || data.addressLine || '';
+      case 'addressLine': return data.addressLine || data.villageOrWard || data.district || '';
+      case 'villageOrWard': return data.villageOrWard || data.addressLine || data.district || '';
       case 'postOffice': return data.postOffice || data.villageOrWard || data.district || '';
       case 'blockOrTehsil': return data.blockOrTehsil || data.district || '';
       case 'policeStation': return data.policeStation || data.district || '';
@@ -435,6 +436,8 @@
 
   function isVisible(el) {
     if (!el || el.disabled) return false;
+    try { if (el.matches && el.matches(':disabled')) return false; } catch (e) { /* ignore */ }
+    try { if (el.closest && el.closest('fieldset[disabled], [aria-disabled="true"]')) return false; } catch (e) { /* ignore */ }
     var st = root.getComputedStyle ? root.getComputedStyle(el) : null;
     if (st && (st.display === 'none' || st.visibility === 'hidden')) return false;
     if (el.offsetParent === null && st && st.position !== 'fixed') return false;
@@ -463,7 +466,8 @@
         });
       }
       // First check direct sibling / strictly local field wrapper BEFORE touching multi-column row parents
-      if (!txt.trim()) {
+      var isToggle = /^(checkbox|radio)$/i.test(el.type || '');
+      if (!txt.trim() && !isToggle) {
         var prev = el.previousElementSibling;
         if (prev && !(prev.querySelector && prev.querySelector('input,select,textarea')) && prev.innerText && prev.innerText.length < 260) {
           txt += ' ' + prev.innerText;
@@ -475,8 +479,9 @@
         for (var up = 0; up < 3 && !txt.trim() && curNode && curNode.parentElement; up++) {
           var par = curNode.parentElement;
           if (par.tagName === 'FORM' || par.tagName === 'BODY') break;
-          // Stop before crossing into a shared row/table holding OTHER form controls
-          if (up > 0 && par.querySelectorAll && par.querySelectorAll('input:not([type="hidden"]),select,textarea').length > 1) break;
+          var parCount = par.querySelectorAll ? par.querySelectorAll('input:not([type="hidden"]),select,textarea').length : 1;
+          // Stop before crossing into a shared row/table holding OTHER form controls (and never guess toggle labels from preceding siblings in a multi-input box)
+          if ((up > 0 || isToggle) && parCount > 1) break;
           var kids = par.childNodes || par.children || [];
           var collected = '';
           for (var ki = 0; ki < kids.length; ki++) {
@@ -486,8 +491,11 @@
               var nt = (ch.nodeValue || '').trim();
               if (nt) collected += ' ' + nt;
             } else if (ch.nodeType === 1) {
-              if (/^(SCRIPT|STYLE|SELECT|INPUT|TEXTAREA|OPTION|BUTTON)$/.test(ch.tagName)) continue;
-              if (ch.querySelector && ch.querySelector('input:not([type="hidden"]),select,textarea')) continue;
+              if (/^(INPUT|SELECT|TEXTAREA)$/.test(ch.tagName) || (ch.querySelector && ch.querySelector('input:not([type="hidden"]),select,textarea'))) {
+                collected = '';
+                continue;
+              }
+              if (/^(SCRIPT|STYLE|OPTION|BUTTON)$/.test(ch.tagName)) continue;
               var ct = (ch.innerText || ch.textContent || '').trim();
               if (ct && ct.length < 240 && !/please select|^\s*select\s*$|^[-]+select[-]+$/i.test(ct)) collected = ct;
             }
@@ -525,6 +533,52 @@
       }
     } catch (e) { /* ignore */ }
     return txt;
+  }
+
+  // Radio / checkbox ke explicit ya aage (right side) likha label padho — pichhle checkbox ka text kabhi na churao
+  function adjacentControlLabel(el) {
+    var explicit = '';
+    try {
+      if (el.labels && el.labels.length) {
+        for (var i = 0; i < el.labels.length; i++) explicit += ' ' + (el.labels[i].innerText || el.labels[i].textContent || '');
+      }
+      if (!explicit && el.id) {
+        var lb = document.querySelector('label[for="' + el.id.replace(/"/g, '\\"') + '"]');
+        if (lb) explicit += ' ' + (lb.innerText || lb.textContent || '');
+      }
+      if (!explicit) {
+        var wrap = el.closest ? el.closest('label') : null;
+        if (wrap) explicit += ' ' + (wrap.innerText || wrap.textContent || '');
+      }
+      if (!explicit && el.getAttribute) {
+        var al = el.getAttribute('aria-label');
+        if (al) explicit = al;
+      }
+      if (explicit && explicit.trim()) return explicit.trim();
+
+      var n = el.nextSibling, acc = '', steps = 0;
+      while (n && steps < 4) {
+        if (n.nodeType === 1 && /^(INPUT|SELECT|TEXTAREA|BR)$/.test(n.tagName)) break;
+        if (n.nodeType === 1 && n.querySelector && n.querySelector('input,select,textarea')) break;
+        var t = (n.nodeType === 3 ? n.nodeValue : (n.innerText || n.textContent || '')) || '';
+        t = t.trim();
+        if (t && t.length < 120) acc += ' ' + t;
+        n = n.nextSibling;
+        steps++;
+      }
+      if (acc.trim()) return acc.trim();
+      var p = el.parentElement;
+      if (p && p.querySelectorAll && p.querySelectorAll('input:not([type="hidden"]),select,textarea').length <= 1) {
+        var pt = (p.innerText || p.textContent || '').trim();
+        if (pt && pt.length < 140) return pt;
+      }
+      if (el.tagName === 'INPUT' && p && p.tagName === 'TD' && p.nextElementSibling) {
+        var nt = (p.nextElementSibling.innerText || p.nextElementSibling.textContent || '').trim();
+        if (nt && nt.length < 120) return nt;
+      }
+    } catch (e) { /* ignore */ }
+    var base = labelTextOf(el);
+    return (base && base.trim()) ? base.trim() : '';
   }
 
   function parentSectionTag(el) {
@@ -734,7 +788,7 @@
   }
 
   function radioLabel(r) {
-    return norm(labelTextOf(r) + ' ' + (r.value || '') + ' ' + (r.getAttribute('aria-label') || ''));
+    return norm(adjacentControlLabel(r) + ' ' + (r.value || '') + ' ' + (r.getAttribute('aria-label') || ''));
   }
 
   function readableLabelOf(el, key) {
@@ -2007,26 +2061,34 @@
         var grp = gs[gk];
         if (grp.some(function (r) { return r.checked; })) return;
         var ctx = norm(grp.map(function (r) { return ancestorText(r); }).join(' ') + ' ' + sectionOf(grp[0]));
-        var optLabs = grp.map(function (r) { return norm(labelTextOf(r)) || radioLabel(r); });
+        var optLabs = grp.map(function (r) { return norm(adjacentControlLabel(r)) || radioLabel(r); });
         var hasOpt = function (re) { return optLabs.some(function (l) { return re.test(l); }); };
+        var pickOpt = function (re) {
+          return grp.find(function (r) {
+            var lb = norm(adjacentControlLabel(r)) || radioLabel(r);
+            return re.test(lb);
+          }) || null;
+        };
 
         var pickedRadio = null;
         if (hasOpt(/^(residence|residential)(\s|$)/) && hasOpt(/^office(\s|$)/)) {
-          pickedRadio = grp.find(function (r) { return /^(residence|residential)(\s|$)/.test(norm(labelTextOf(r)) || radioLabel(r)); });
+          pickedRadio = pickOpt(/^(residence|residential)(\s|$)/);
         } else if (hasOpt(/^resident(\s|$)/) && hasOpt(/non ?resident/)) {
-          pickedRadio = grp.find(function (r) { var lb = norm(labelTextOf(r)) || radioLabel(r); return /^resident(\s|$)/.test(lb) && !/non ?resident/.test(lb); });
+          pickedRadio = grp.find(function (r) { var lb = norm(adjacentControlLabel(r)) || radioLabel(r); return /^resident(\s|$)/.test(lb) && !/non ?resident/.test(lb); });
         } else if (hasOpt(/indian citizen/) && hasOpt(/nri|foreign/)) {
-          pickedRadio = grp.find(function (r) { return /indian citizen/.test(radioLabel(r)); });
+          pickedRadio = pickOpt(/indian citizen/);
         } else if (hasOpt(/father.?s name/) && hasOpt(/mother.?s name/)) {
           var wantMother = data && data.motherName && !data.fatherName;
-          pickedRadio = grp.find(function (r) { return (wantMother ? /mother/ : /father/).test(radioLabel(r)); });
-        } else if (/single parent/.test(ctx) && hasOpt(/^yes$/) && hasOpt(/^no$/)) {
+          pickedRadio = pickOpt(wantMother ? /mother/ : /father/);
+        } else if (/single parent/.test(ctx) && hasOpt(/^yes\b/) && hasOpt(/^no\b/)) {
           var isSingle = data && data.motherName && !data.fatherName;
-          pickedRadio = grp.find(function (r) { return (isSingle ? /^yes/ : /^no/).test(radioLabel(r)); });
+          pickedRadio = pickOpt(isSingle ? /^yes\b/ : /^no\b/);
+        } else if (/representative assessee/.test(ctx) && hasOpt(/^yes\b/) && hasOpt(/^no\b/)) {
+          pickedRadio = pickOpt(/^no\b/);
         } else {
           DEF_RADIOS.forEach(function (d) {
             if (pickedRadio || !d.q.test(ctx)) return;
-            pickedRadio = grp.find(function (r) { return d.pick.test(norm(labelTextOf(r) || r.value || '')); }) || null;
+            pickedRadio = pickOpt(d.pick);
           });
         }
         if (pickedRadio) {
@@ -2091,18 +2153,19 @@
           }
         }
       }
-      // source of income (checkbox group on PAN Step 3) -> match direct checkbox labels directly so container length never hides it!
+      // source of income (checkbox group on PAN Step 3) -> use adjacentControlLabel so right-side labels like "<input> No income" never miss!
       var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"]')).filter(function (c) { return !c.disabled && isVisible(c); });
       var inc = boxes.filter(function (c) {
-        var lb = norm(labelTextOf(c) + ' ' + (c.value || '') + ' ' + (c.id || '') + ' ' + (c.name || ''));
-        if (/^(no income|income from other sources|income from house property|income from business|capital gains|salary)$/.test(lb)) return true;
-        return ancestorMatches(c, /source of income/, 2600) && /salary|business|profession|house property|other sources|capital gains|no income/.test(lb);
+        var lbl = norm(adjacentControlLabel(c));
+        var meta = norm(lbl + ' ' + (c.value || '') + ' ' + (c.id || '') + ' ' + (c.name || ''));
+        if (/^(no income|income from other sources|income from house property|income from business( profession)?|capital gains|salary)$/.test(lbl)) return true;
+        return ancestorMatches(c, /source of income/, 3000) && /salary|business|profession|house property|other sources|capital gains|no income/.test(meta);
       });
       if (inc.length && !inc.some(function (c) { return c.checked; })) {
         var want = norm((data && data.incomeSource) || '');
         if (!want) {
-          var noInc = inc.find(function (c) { return /no income/.test(norm(labelTextOf(c))); }) ||
-                      inc.find(function (c) { return /other sources/.test(norm(labelTextOf(c))); });
+          var noInc = inc.find(function (c) { return /\bno income\b/.test(norm(adjacentControlLabel(c))); }) ||
+                      inc.find(function (c) { return /\bother sources\b/.test(norm(adjacentControlLabel(c))); });
           if (noInc) {
             try { noInc.click(); } catch (e) { /* ignore */ }
             if (!noInc.checked) { noInc.checked = true; fire(noInc, ['input', 'change']); }
@@ -2113,7 +2176,7 @@
         } else {
           var toks = want.split(/[,;|\/]+/).map(function (x) { return x.trim(); }).filter(Boolean);
           inc.forEach(function (c) {
-            var lb = norm(labelTextOf(c));
+            var lb = norm(adjacentControlLabel(c));
             if (toks.some(function (t) { return t && (lb.indexOf(t) >= 0 || t.indexOf(lb.split(' ')[0]) === 0); })) {
               try { c.click(); } catch (e) { /* ignore */ }
               if (!c.checked) { c.checked = true; fire(c, ['input', 'change']); }
@@ -2188,9 +2251,13 @@
     return '';
   }
 
-  function irctcClickableChild(tile, wantRefresh) {
+  function irctcClickableChild(tile, wantRefresh, retryOuter) {
     if (!tile || !tile.querySelectorAll) return tile;
-    var pre = tile.querySelector('.pre-avl');
+    if (retryOuter && !wantRefresh && tile.closest) {
+      var tdWrap = tile.closest('td, .link, [role="gridcell"]');
+      if (tdWrap && isVisible(tdWrap)) return tdWrap;
+    }
+    var pre = tile.classList && tile.classList.contains('pre-avl') ? tile : tile.querySelector('.pre-avl');
     var rootTile = pre || tile;
     if (wantRefresh) {
       var list = rootTile.querySelectorAll('a, button, [role="button"], .link, [class*="refresh"], i.fa-refresh, div, span, strong');
@@ -2204,8 +2271,52 @@
         }
       }
     }
-    var inner = rootTile.querySelector('a, button, [role="button"], strong');
+    // Date slots: NEVER click inner static <strong> (can miss Angular (click) on div.pre-avl / td.link)
+    var inner = rootTile.querySelector('a, button, [role="button"]');
     return (inner && isVisible(inner)) ? inner : rootTile;
+  }
+
+  function irctcIsBookBtnEnabled(b) {
+    if (!b || !isVisible(b) || b.disabled) return false;
+    if (!/^book now$/.test(norm(b.innerText || b.value || ''))) return false;
+    if (b.getAttribute && b.getAttribute('aria-disabled') === 'true') return false;
+    var p = b, hops = 0;
+    while (p && hops < 4) {
+      if (/disable-btn|btn-disabled|\bdisabled\b/.test(p.className || '')) return false;
+      p = p.parentElement; hops++;
+    }
+    try {
+      var st = root.getComputedStyle ? root.getComputedStyle(b) : null;
+      if (st) {
+        if (st.opacity !== '' && parseFloat(st.opacity) < 0.85) return false;
+        if (st.pointerEvents === 'none' || st.cursor === 'not-allowed') return false;
+        var bg = String(st.backgroundColor || '').match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\s*\)/i);
+        if (bg) {
+          var r = parseInt(bg[1], 10), g = parseInt(bg[2], 10), bl = parseInt(bg[3], 10);
+          var alpha = bg[4] !== undefined ? parseFloat(bg[4]) : 1;
+          if (alpha > 0 && alpha < 0.85) return false;
+          // Faded IRCTC Book Now is pale peach (high G & B); active IRCTC Book Now is deep orange #fb792b (g~121, b~43)
+          if (r >= 230 && g >= 175 && bl >= 135) return false;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return true;
+  }
+
+  function irctcIsSlotSelected(sl) {
+    if (!sl) return false;
+    var nodes = [sl];
+    try {
+      if (sl.parentElement) nodes.push(sl.parentElement);
+      var td = sl.closest && sl.closest('td, .link, .pre-avl');
+      if (td && nodes.indexOf(td) < 0) nodes.push(td);
+    } catch (e) { /* ignore */ }
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (/selected|active|highlighted|ui-state-highlight|p-highlight|border-orange/.test(n.className || '')) return true;
+      if (n.getAttribute && n.getAttribute('aria-selected') === 'true') return true;
+    }
+    return false;
   }
 
   function irctcInferPageClassHint() {
@@ -2277,9 +2388,7 @@
         });
         var hasPrimary = cardTiles.some(function (t) { return irctcClassTokenOf(t.innerText || '') === wantedClasses[0]; });
         var hasSecondary = wantedClasses[1] && cardTiles.some(function (t) { return irctcClassTokenOf(t.innerText || '') === wantedClasses[1]; });
-        var bookBtn = Array.prototype.slice.call(card.querySelectorAll('button, input[type="button"]')).find(function (b) {
-          return isVisible(b) && !b.disabled && !/disable-btn|disabled/.test(b.className || '') && /^book now$/.test(norm(b.innerText || b.value || ''));
-        });
+        var bookBtn = Array.prototype.slice.call(card.querySelectorAll('button, input[type="button"]')).find(irctcIsBookBtnEnabled);
         if (hasPrimary) sc += 180;
         else if (hasSecondary) sc += 80;
         if (hasAvl) sc += 500;
@@ -2311,14 +2420,12 @@
         return { state: 'filling', note: 'Train regret hai - agli available train dekh raha hai...' };
       }
 
-      // Check enabled Book Now button
-      var chosenBookBtn = Array.prototype.slice.call(chosen.querySelectorAll('button, input[type="button"]')).find(function (b) {
-        if (!isVisible(b) || b.disabled) return false;
-        if (b.getAttribute && b.getAttribute('aria-disabled') === 'true') return false;
-        if (/disable-btn|disabled/.test(b.className || '')) return false;
-        if (b.parentElement && /disable-btn/.test(b.parentElement.className || '')) return false;
-        return /^book now$/.test(norm(b.innerText || b.value || ''));
+      // Agar IRCTC ka yellow toast "please select class" dikh raha hai to slot abhi select nahi hua — dobara td/pre-avl pe click karo
+      var toastErr = Array.prototype.slice.call(document.querySelectorAll('.ui-toast, .p-toast, .toast, [role="alert"]')).some(function (t) {
+        return isVisible(t) && /please select class/i.test(t.innerText || '');
       });
+      // Check genuinely enabled Book Now button (never click faded/disabled orange button)
+      var chosenBookBtn = toastErr ? null : Array.prototype.slice.call(chosen.querySelectorAll('button, input[type="button"]')).find(irctcIsBookBtnEnabled);
 
       if (bookableSlots.length > 0) {
         // Pick best slot: AVAILABLE/CURR_AVBL first, then RAC, then WL
@@ -2326,17 +2433,24 @@
         bookableSlots.forEach(function (sl) {
           var u = (sl.innerText || '').toUpperCase();
           var sc = /\b(AVAILABLE|CURR[_\s-]?AVBL|AVBL)\b/.test(u) ? 300 : (/\bRAC\s*\d*\b/.test(u) ? 200 : 100);
-          if (/selected|active/.test(sl.className || '') || sl.getAttribute('aria-selected') === 'true') sc += 20;
+          if (irctcIsSlotSelected(sl)) sc += 20;
           if (sc > bestSlotScore) { bestSlotScore = sc; bestSlot = sl; }
         });
         var slotAt = parseInt(chosen.getAttribute('data-sarthi-slot-at') || '0', 10);
-        var isSlotSelected = /selected|active/.test(bestSlot.className || '') || bestSlot.getAttribute('aria-selected') === 'true' || !!chosenBookBtn || (now - slotAt < 2500);
-        if (!isSlotSelected && now - irctcLastActAt >= 1100) {
-          irctcLastActAt = now;
-          chosen.setAttribute('data-sarthi-slot-at', String(now));
-          mark(bestSlot, GREEN);
-          clickLikeUser(irctcClickableChild(bestSlot, false));
-          return { state: 'filling', note: 'Available/Waiting date slot select kiya...' };
+        var slotTries = parseInt(chosen.getAttribute('data-sarthi-slot-tries') || '0', 10);
+        var slotClicked = chosen.getAttribute('data-sarthi-slot-clicked') === '1';
+        var isSlotSelected = !toastErr && (irctcIsSlotSelected(bestSlot) || (!!chosenBookBtn && slotClicked));
+        if (!isSlotSelected) {
+          if (now - slotAt >= 1800 && now - irctcLastActAt >= 1100) {
+            irctcLastActAt = now;
+            chosen.setAttribute('data-sarthi-slot-at', String(now));
+            chosen.setAttribute('data-sarthi-slot-tries', String(slotTries + 1));
+            chosen.setAttribute('data-sarthi-slot-clicked', '1');
+            mark(bestSlot, GREEN);
+            clickLikeUser(irctcClickableChild(bestSlot, false, slotTries % 2 === 1));
+            return { state: 'filling', note: 'Date slot select kiya...' };
+          }
+          return { state: 'filling', note: 'Date slot active hone ka wait...' };
         }
         if (chosenBookBtn && now - irctcLastActAt >= 600 && now - irctcBookAt >= 4000) {
           irctcBookAt = now;
@@ -2345,7 +2459,7 @@
           clickLikeUser(chosenBookBtn);
           return { state: 'next', clicked: 'book now', note: 'Book Now dabaya!' };
         }
-        return { state: 'filling', note: 'Seat slot check ho raha hai...' };
+        return { state: 'filling', note: 'Book Now button activate ho raha hai...' };
       }
 
       // 4) No availability slots open yet in chosen card -> click wanted class tab's inner clickable/Refresh target so Angular catches it!
@@ -2589,7 +2703,7 @@
       parseDate: parseDate, formatDateForInput: formatDateForInput,
       scoreOption: scoreOption, bestOptionIndex: bestOptionIndex, expandSyn: expandSyn, splitName: splitName, valueFor: valueFor,
       irctcWantedClasses: irctcWantedClasses, irctcCardMatchesTrain: irctcCardMatchesTrain,
-      irctcClassTokenOf: irctcClassTokenOf, irctcTrainListStep: irctcTrainListStep, isAutocompleteCommitted: isAutocompleteCommitted
+      irctcClassTokenOf: irctcClassTokenOf, irctcTrainListStep: irctcTrainListStep, irctcIsBookBtnEnabled: irctcIsBookBtnEnabled, isAutocompleteCommitted: isAutocompleteCommitted
     }
   };
   root.SarthiFill = api;
