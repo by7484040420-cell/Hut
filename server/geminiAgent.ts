@@ -1422,3 +1422,241 @@ export async function mapFormFieldsWithAI(params: {
 
 
 
+
+
+// ---------------------------------------------------------------------------
+// AI PAGE READER + FORM RECIPE (native APK portal ke liye)
+// ---------------------------------------------------------------------------
+export interface PageSnapshot {
+  url?: string;
+  title?: string;
+  headings?: unknown[];
+  fields?: Array<{
+    id?: string;
+    tag?: string;
+    type?: string;
+    label?: string;
+    value?: string;
+    required?: boolean;
+    section?: string;
+    options?: string[];
+  }>;
+  buttons?: Array<{ id?: string; text?: string }>;
+}
+
+const PLAN_BLOCKED_BUTTON =
+  /submit|pay|payment|final|confirm|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e sign|digilocker/i;
+
+// Page ko padhkar: kaun se field me kya bharna hai + agla step kaunsa button hai
+export async function planPageWithAI(params: {
+  snapshot: PageSnapshot;
+  data: Record<string, string>;
+}): Promise<{ fills: Record<string, string>; click: string }> {
+  const snap = params.snapshot || {};
+  const fields = (Array.isArray(snap.fields) ? snap.fields : [])
+    .filter((f) => f && typeof f.id === 'string' && f.id)
+    .filter((f) => !NEVER_FILL_PATTERN.test(`${f.label || ''} ${f.section || ''}`))
+    .slice(0, 80)
+    .map((f) => ({
+      id: f.id as string,
+      type: f.type || f.tag || 'text',
+      label: String(f.label || '').slice(0, 120),
+      section: String(f.section || '').slice(0, 60),
+      value: String(f.value || '').slice(0, 60),
+      required: !!f.required,
+      options: Array.isArray(f.options) ? f.options.slice(0, 40) : [],
+    }));
+  const buttons = (Array.isArray(snap.buttons) ? snap.buttons : [])
+    .filter((b) => b && typeof b.id === 'string' && b.id && typeof b.text === 'string' && b.text)
+    .slice(0, 30)
+    .map((b) => ({ id: b.id as string, text: String(b.text).slice(0, 40) }));
+
+  if (fields.length === 0 && buttons.length === 0) return { fills: {}, click: '' };
+
+  const cleanData: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params.data || {})) {
+    if (typeof v === 'string' && v.trim()) cleanData[k] = v.trim().slice(0, 300);
+  }
+  const userGoal = String((params.data || {}).goal || '').slice(0, 300);
+
+  const ai = getGeminiClient();
+  const response = await generateContentResilient(ai, {
+    contents: {
+      parts: [
+        {
+          text: [
+            'You are an Indian online-form assistant that reads a web page and decides what to fill and which step button to press.',
+            `Page: ${snap.title || 'unknown'} (${snap.url || 'unknown url'})`,
+            `Headings: ${JSON.stringify((snap.headings || []).slice(0, 12))}`,
+            '',
+            'USER DATA (the only source of truth, JSON):',
+            JSON.stringify(cleanData),
+            `USER GOAL: ${userGoal || 'not given (assume a new application by an individual)'}`,
+            '',
+            'PAGE FIELDS (JSON; "value" is what is already in the field):',
+            JSON.stringify(fields),
+            '',
+            'PAGE BUTTONS (JSON):',
+            JSON.stringify(buttons),
+            '',
+            'TASK: 1) Understand which section/step of the application this page is. 2) For every EMPTY field that the user data can answer, return the value. 3) If all required fields are (or will be) filled, return the id of the ONE button that moves to the NEXT step (Next / Continue / Save & Next / Proceed). If unsure, return an empty click.',
+            'RULES:',
+            '- NEVER invent or guess names, dates, numbers, mobile, email, marks, addresses. If the user data does not contain the answer, OMIT the field.',
+            '- Do not overwrite a field that already has a value.',
+            '- For fields with options, return the exact option text.',
+            '- Low-risk defaults allowed: nationality=Indian, country=India, same-as-above style choices.',
+            '- Dates: return DD/MM/YYYY unless the field label says otherwise.',
+            '- NEVER fill CAPTCHA, OTP, password, bank/card/UPI, declaration fields.',
+            '- NEVER choose Submit / Pay / Confirm / Verify / Send OTP / Upload / Back / Cancel / Reset / Save Draft as the click.',
+            '- Labels may be Hindi / Hinglish / English.',
+            'Return JSON: { "fills": [ { "id", "value" } ], "click": "<button id or empty>" }.',
+          ].join('\n'),
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          fills: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: { id: { type: Type.STRING }, value: { type: Type.STRING } },
+              required: ['id', 'value'],
+            },
+          },
+          click: { type: Type.STRING },
+        },
+        required: ['fills'],
+      },
+    },
+  });
+
+  const parsed = JSON.parse((response.text ?? '{}').trim()) as {
+    fills?: Array<{ id?: string; value?: string }>;
+    click?: string;
+  };
+
+  const fieldById = new Map(fields.map((f) => [f.id, f] as const));
+  const clean = (t: string) => t.toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, ' ').trim();
+  const dataText = clean(Object.values(cleanData).join(' '));
+  const dataDigits = Object.values(cleanData).join(' ').replace(/\D/g, '');
+  const outFills: Record<string, string> = {};
+  for (const m of parsed.fills || []) {
+    const id = String(m.id || '');
+    const value = String(m.value || '').trim();
+    const f = fieldById.get(id);
+    if (!id || !value || !f) continue;
+    if (f.value && f.value.trim()) continue; // pehle se bhara hai
+    const isChoice = f.options.length > 0 || /select|combobox|listbox|radio|checkbox/.test(f.type);
+    if (!isChoice) {
+      const v = clean(value);
+      const digits = value.replace(/\D/g, '');
+      const isDate = /^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{2}\/\d{2}\/\d{4}$/.test(value);
+      const grounded =
+        (v.length > 0 && dataText.includes(v)) ||
+        (digits.length >= 4 && dataDigits.includes(digits)) ||
+        (isDate && dataDigits.includes(digits.slice(-4))) ||
+        /^(indian|india)$/i.test(value);
+      if (!grounded) continue;
+    }
+    outFills[id] = value;
+  }
+
+  let click = String(parsed.click || '').trim();
+  const btn = buttons.find((b) => b.id === click);
+  if (!btn || PLAN_BLOCKED_BUTTON.test(btn.text)) click = '';
+
+  return { fills: outFills, click };
+}
+
+const RECIPE_KEYS = [
+  'fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'alternateMobile', 'email',
+  'addressLine', 'villageOrWard', 'postOffice', 'policeStation', 'blockOrTehsil', 'district', 'state',
+  'pinCode', 'birthPlace', 'category', 'maritalStatus', 'qualification', 'bloodGroup',
+];
+
+// "Sabji banane se pehle saman": is form ko poora karne me kaun si details aur documents lagenge
+export async function formRecipeWithAI(params: {
+  url?: string;
+  title?: string;
+  goal?: string;
+}): Promise<{
+  name: string;
+  details: Array<{ key: string; label: string; options?: string[] }>;
+  documents: Array<{ label: string }>;
+}> {
+  const ai = getGeminiClient();
+  const response = await generateContentResilient(ai, {
+    contents: {
+      parts: [
+        {
+          text: [
+            'You know Indian government and service online applications (PAN, driving licence, passport, voter ID, IRCTC, scholarships, jobs, certificates).',
+            `The user just opened this page: ${params.title || 'unknown'} (${params.url || 'unknown url'}).`,
+            `USER GOAL: ${String(params.goal || '').slice(0, 300) || 'not given'}`,
+            '',
+            'TASK: Tell what the user must keep ready to complete this application end-to-end online.',
+            `1) "details": personal details that will be typed in the form. Use ONLY keys from this list: ${RECIPE_KEYS.join(', ')}. For gender/category/maritalStatus add "options". Give a short Hinglish "label".`,
+            '2) "documents": documents/photos the user may need to upload (short Hinglish labels).',
+            '3) "name": short name of the application.',
+            'RULES: Do NOT include passwords, OTP, CAPTCHA, bank/card/UPI or payment items. If the page is not an application form, return empty lists. Be accurate; do not invent unusual requirements.',
+            'Return JSON.',
+          ].join('\n'),
+        },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          details: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                key: { type: Type.STRING },
+                label: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+              required: ['key', 'label'],
+            },
+          },
+          documents: {
+            type: Type.ARRAY,
+            items: { type: Type.OBJECT, properties: { label: { type: Type.STRING } }, required: ['label'] },
+          },
+        },
+        required: ['name', 'details', 'documents'],
+      },
+    },
+  });
+
+  const parsed = JSON.parse((response.text ?? '{}').trim()) as {
+    name?: string;
+    details?: Array<{ key?: string; label?: string; options?: string[] }>;
+    documents?: Array<{ label?: string }>;
+  };
+  const allowed = new Set(RECIPE_KEYS);
+  const seen = new Set<string>();
+  const details: Array<{ key: string; label: string; options?: string[] }> = [];
+  for (const d of parsed.details || []) {
+    const key = String(d.key || '');
+    if (!allowed.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    details.push({
+      key,
+      label: String(d.label || key).slice(0, 80),
+      options: Array.isArray(d.options) ? d.options.slice(0, 12).map((o) => String(o).slice(0, 40)) : undefined,
+    });
+  }
+  const documents = (parsed.documents || [])
+    .map((d) => ({ label: String(d.label || '').slice(0, 80) }))
+    .filter((d) => d.label)
+    .slice(0, 10);
+  return { name: String(parsed.name || '').slice(0, 60), details: details.slice(0, 15), documents };
+}
