@@ -105,15 +105,16 @@ export function buildAutoFillPayload(params: {
     (a, b) => (a.id === 'user-details' ? -1 : 0) - (b.id === 'user-details' ? -1 : 0)
   );
   for (const doc of orderedDocs) {
-    const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
+    const docTypeLower = `${doc.documentType ?? ''} ${doc.fileName ?? ''}`.toLowerCase();
     const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
     const isTwelfthDoc = /12th|inter|hsc|senior\s*secondary|class\s*xii/.test(docTypeLower);
 
-    for (const f of doc.fields) {
-      const k = f.key.trim();
-      const v = f.value.trim();
+    for (const f of doc.fields || []) {
+      // OCR kabhi number/null/undefined bhej deta hai -> .trim() se app white ho jata tha
+      const k = String(f?.key ?? '').trim();
+      const v = String(f?.value ?? '').trim();
       if (!v) continue;
-      const lower = `${k} ${f.label}`.toLowerCase();
+      const lower = `${k} ${String(f?.label ?? '')}`.toLowerCase();
       if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
         map.fullName = map.fullName || v;
       } else if (lower.includes('father')) {
