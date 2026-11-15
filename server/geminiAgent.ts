@@ -1058,18 +1058,21 @@ export async function decideLiveBrowserStep(params: {
     'INTERACTIVE ELEMENTS ON THIS WEBSITE (TARGET BY `elementIndex` + `(x, y)`):',
     domSnippet || 'No interactive elements extracted.',
     '',
-    'UNIVERSAL WEBSITE RULES:',
+    'UNIVERSAL WEBSITE RULES (3-TO-10 PAGE FORMS, SSC/UPSC/JOBS, PAN/DL/PASSPORT, IRCTC TICKETS):',
     '1. Look carefully at the live screenshot, PAGE VISIBLE TEXT SUMMARY, and INTERACTIVE ELEMENTS (including inside iframes).',
-    '2. WELCOME / NOTICE POPUPS: If a portal advisory dialog ("OK", "Close", "Skip", "×") covers the page, click it first so the underlying form or Apply button is reachable.',
-    '3. AUTO-CLICK APPLY / FORM / NEXT RULE (HIGHEST PRIORITY ON LANDING PAGES): Never stay stuck on a homepage, recruitment notice, or information page! Whenever you see buttons or links like "Apply Online", "Apply Now", "Click here to Apply", "Apply", "New Registration", "One Time Registration", "Register", "Create Account", "Online Form", "Form 49A", "Proceed", or "Save & Next" (when current step fields are already filled), IMMEDIATELY return action="click" on that Apply/Form/Next element!',
-    '4. STATE & ADDRESS RULE: If the page has a State / Rajya / UT dropdown (e.g. Parivahan, Passport, RTPS, SSC) and user address/PIN code is present in USER DETAILS, ALWAYS select the matching Indian State (e.g. PIN 80-85 = Bihar/Jharkhand, 20-28 = Uttar Pradesh, 11 = Delhi, 40-44 = Maharashtra).',
-    '5. DYNAMIC DOCUMENT REQUEST RULE: Only if the page has visible form fields requiring documents that are completely missing from USER DETAILS AVAILABLE RIGHT NOW, return action="request_documents" with `neededDocuments`. Otherwise fill every available field first!',
-    '6. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` (matching `[idx]`) and `(x, y)`, plus the exact text in `value`.',
-    '7. For `<select>` dropdowns, return action="select" with `elementIndex`, `(x, y)`, and the matching option label/value in `value`.',
-    '8. For buttons, tabs, links, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
-    '9. HUMAN-IN-THE-LOOP RULE: If you see a CAPTCHA image/input, OTP verification box, Aadhaar e-Sign, file upload button `<input type="file">`, password creation, or final Payment/Final Submit button, NEVER guess CAPTCHA/OTP or auto-pay! Return action="pause_for_human" with a clear Hinglish `humanPrompt` instructing the user to enter CAPTCHA/OTP or confirm directly on the live screen.',
-    '10. If required fields or the Apply button are below the fold, return action="scroll" with value="down" or "up".',
-    '11. Return action="done" only when the visible form/task stage is completed.',
+    '2. WELCOME / NOTICE POPUPS: If a portal advisory dialog ("OK", "Close", "Skip", "I Understand", "×") covers the page, click it first so the underlying form or Apply button is reachable.',
+    '3. AUTO-CLICK APPLY / FORM / NEXT RULE: Never stay stuck on a homepage or notice page! When buttons/links like "Apply Online", "Apply Now", "New Registration", "One Time Registration", "Register", "Save & Next", "Submit & Next", "Continue", "Proceed", or "Search Trains" (when required fields on current step are filled) are ready, return action="click" on that element.',
+    '4. CUSTOM DROPDOWNS & AUTOCOMPLETE (SSC OTR, ANGULAR, IRCTC): Many portals use custom <div>/<mat-select>/<ng-select>/<p-dropdown>/<p-autocomplete> showing "Select", "Choose", or station suggestions instead of native <select>. If an element shows "Select" or has role="combobox", you can return action="select" with value="<exact option text>", OR click it first so options appear and then click the matching option on the next step. For IRCTC From/To stations, first "fill" the station name/code, then on the next step click the matching station suggestion from the popup list before clicking "Search Trains".',
+    '5. VERIFY / CONFIRM PAIRS: Forms like SSC OTR ask both "Gender" & "Verify Gender", or "10th Education Board" & "Verify Education Board", or "Aadhaar" & "Verify Aadhaar". Fill/select BOTH the primary field and the Verify field accurately.',
+    '6. LOGIN CREDENTIALS: ONLY if Login User ID / Username & Password fields are visible AND the user explicitly provided Login User ID / Password in USER DETAILS, fill them and click Login/Sign In (provided no CAPTCHA is blocking). Never invent or guess credentials.',
+    '7. STATE & ADDRESS RULE: If the page asks for State / Rajya / UT and user address/PIN code is present in USER DETAILS, always select the matching Indian State (e.g. PIN 80-85 = Bihar/Jharkhand, 20-28 = Uttar Pradesh, 11 = Delhi, 40-44 = Maharashtra).',
+    '8. DYNAMIC DOCUMENT REQUEST RULE: Only if visible form fields require documents/details missing from USER DETAILS AVAILABLE RIGHT NOW, return action="request_documents" with `neededDocuments`. Otherwise fill every available field first.',
+    '9. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` and `(x, y)`, plus exact text in `value`.',
+    '10. For dropdowns (`<select>`, `mat-select`, `ng-select`, `p-dropdown`, `[role="combobox"]`, "Select" triggers), return action="select" with `elementIndex`, `(x, y)`, and the matching option label in `value`.',
+    '11. For buttons, tabs, links, autocomplete suggestions, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
+    '12. STRICT HUMAN-IN-THE-LOOP SAFETY RULE: If you see ANY CAPTCHA image/input, "I am not a robot" / reCAPTCHA checkbox, OTP box, Aadhaar e-Sign, file upload `<input type="file">`, new password creation, or Final Payment / Pay Now / Final Submit button, NEVER attempt to read/solve CAPTCHA or click "I am not a robot" or guess OTP/payment! Immediately return action="pause_for_human" with a clear Hinglish `humanPrompt` asking the user to complete CAPTCHA / robot check / OTP / payment directly on the screen.',
+    '13. If required fields or the Next/Continue button are below the fold, return action="scroll" with value="down" or "up".',
+    '14. Return action="done" only when the visible multi-page application/booking stage reaches confirmation or all non-human fields are completed.',
   ].join('\n');
 
   const response = await generateContentResilient(ai, {
@@ -1300,7 +1303,8 @@ export interface UnmatchedFormField {
 }
 
 const NEVER_FILL_PATTERN =
-  /captcha|security code|\botp\b|one[\s-]?time|pass ?word|passwd|\bpwd\b|\bcvv\b|\bcvc\b|card ?(no|number)|\bupi\b|\bvpa\b|net ?banking|\bifsc\b|account ?(no|number)/i;
+  /captcha|security ?code|\botp\b|one[\s-]?time|\bcvv\b|\bcvc\b|card ?(no|number)|\bupi\b|\bvpa\b|net ?banking|\bifsc\b|account ?(no|number)/i;
+const PASSWORD_FIELD_PATTERN = /pass ?word|passwd|\bpwd\b/i;
 
 export async function mapFormFieldsWithAI(params: {
   fields: UnmatchedFormField[];
@@ -1308,10 +1312,22 @@ export async function mapFormFieldsWithAI(params: {
   pageTitle?: string;
   pageUrl?: string;
 }): Promise<Record<string, string>> {
+  const providedLoginPassword =
+    typeof params.data?.loginPassword === 'string' && params.data.loginPassword.trim().length > 0
+      ? params.data.loginPassword.trim().slice(0, 120)
+      : '';
+
   const safeFields = params.fields
     .filter((f) => f && typeof f.id === 'string' && f.id.length > 0)
-    .filter((f) => !NEVER_FILL_PATTERN.test(`${f.label || ''} ${f.name || ''} ${f.placeholder || ''}`))
-    .slice(0, 40)
+    .filter((f) => {
+      const hint = `${f.label || ''} ${f.name || ''} ${f.placeholder || ''}`;
+      if (NEVER_FILL_PATTERN.test(hint)) return false;
+      if ((f.type === 'password' || PASSWORD_FIELD_PATTERN.test(hint)) && !providedLoginPassword) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, 50)
     .map((f) => ({
       id: f.id,
       type: f.type || f.tag || 'text',
@@ -1339,7 +1355,7 @@ export async function mapFormFieldsWithAI(params: {
       parts: [
         {
           text: [
-            'You are a careful Indian government/recruitment form-filling assistant.',
+            'You are a careful Indian government, recruitment, and travel booking form-filling assistant.',
             `Page: ${params.pageTitle || 'unknown'} (${params.pageUrl || 'unknown url'})`,
             '',
             'USER DATA (the only source of truth, JSON):',
@@ -1353,11 +1369,13 @@ export async function mapFormFieldsWithAI(params: {
             'TASK: For each field, decide the value to enter using ONLY the user data above.',
             'RULES:',
             '- NEVER invent, guess or estimate values. If the user data does not contain the answer, OMIT that field.',
-            '- For <select> fields (options given), return the exact text of the best matching option.',
-            '- EXCEPTION to the omit rule: for <select> fields that only choose the KIND of application or applicant (e.g. "New or Change Request", "Application Type", "Applicant Category: Individual / Trust / HUF"), use USER GOAL to pick the option. If goal is not given, choose the "new application" option and "Individual". Never use a placeholder like "Please Select".',
-            '- Also fill obvious low-risk blanks yourself: nationality=Indian, country=India, citizenship=Indian, state/district from the user\'s address or PIN, "same as above" style choices, and dropdowns whose answer is clearly implied by the user data or USER GOAL. NEVER invent names, dates, ID/Aadhaar/PAN numbers, mobile, email, marks or addresses that are not in the user data.',
-            '- Dates: return YYYY-MM-DD.',
-            '- Do not answer CAPTCHA, OTP, password, bank, card, UPI, or declaration/consent fields.',
+            '- For <select> or custom dropdown fields (options given, or Gender/Education Board/Category/Class/Quota/State): return the exact option label that best matches.',
+            '- EXCEPTION to the omit rule: for dropdowns choosing Application Type / Individual vs Trust / Nationality / Country, use USER GOAL or standard individual defaults ("Indian", "India", "Individual", "New"). Never pick "Select" placeholders.',
+            '- Handle SSC OTR "Verify ..." duplicate fields (Verify Gender, Verify Board, Verify Father Name, Verify Aadhaar) with the exact same value as the main field.',
+            '- Handle IRCTC/ticket fields: From Station (`fromStation`), To Station (`toStation`), Journey Date (`journeyDate`), Class (`trainClass`), Quota (`trainQuota`), Berth (`berthPreference`).',
+            '- Password field: Fill ONLY if `loginPassword` is explicitly present in USER DATA and the field is a login/sign-in password.',
+            '- Dates: return YYYY-MM-DD for native date inputs or DD/MM/YYYY when text/label asks DD-MM-YYYY or DD/MM/YYYY.',
+            '- Do NOT answer CAPTCHA, OTP, CVV, bank, card, UPI, or final declaration/consent fields.',
             '- Labels may be Hindi / Hinglish / English.',
             'Return JSON: an array "mappings" of { id, value }.',
           ].join('\n'),
@@ -1393,25 +1411,36 @@ export async function mapFormFieldsWithAI(params: {
   const allowedIds = new Set(safeFields.map((f) => f.id));
   const fieldById = new Map(safeFields.map((f) => [f.id, f] as const));
   const clean = (t: string) => t.toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, ' ').trim();
-  const dataText = clean(Object.values(cleanData).join(' '));
-  const dataDigits = Object.values(cleanData).join(' ').replace(/\D/g, '');
+  const nonSecretValues = Object.entries(cleanData)
+    .filter(([k]) => k !== 'loginPassword')
+    .map(([, v]) => v);
+  const dataText = clean(nonSecretValues.join(' '));
+  const dataDigits = nonSecretValues.join(' ').replace(/\D/g, '');
   const out: Record<string, string> = {};
   for (const m of parsed.mappings || []) {
     const id = String(m.id || '');
     const value = String(m.value || '').trim();
     if (!id || !value || !allowedIds.has(id)) continue;
 
-    // Text fields: value user ke data me hona chahiye (jaise "ENGLISH" ka mother's surname me jaana band)
     const f = fieldById.get(id);
+    const hint = `${f?.label || ''} ${f?.name || ''} ${f?.placeholder || ''}`;
+    if (f?.type === 'password' || PASSWORD_FIELD_PATTERN.test(hint)) {
+      if (providedLoginPassword && value === providedLoginPassword) {
+        out[id] = value;
+      }
+      continue;
+    }
+
+    // Text fields: value user ke data me hona chahiye (jaise "ENGLISH" ka mother's surname me jaana band)
     const isChoice = !!(f && Array.isArray(f.options) && f.options.length > 0);
     if (!isChoice) {
       const v = clean(value);
       const digits = value.replace(/\D/g, '');
-      const isDate = /^\d{4}-\d{2}-\d{2}$/.test(value);
+      const isDate = /^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{2}[/-]\d{2}[/-]\d{4}$/.test(value);
       const grounded =
         (v.length > 0 && dataText.includes(v)) ||
         (digits.length >= 4 && dataDigits.includes(digits)) ||
-        (isDate && dataDigits.includes(value.slice(0, 4))) ||
+        (isDate && digits.length >= 4 && dataDigits.includes(digits.slice(-4))) ||
         /^(indian|india)$/i.test(value);
       if (!grounded) continue;
     }
@@ -1444,8 +1473,14 @@ export interface PageSnapshot {
   buttons?: Array<{ id?: string; text?: string }>;
 }
 
-const PLAN_BLOCKED_BUTTON =
-  /submit|pay|payment|final|confirm|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e sign|digilocker/i;
+function isBlockedPlanButton(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/submit\s*(?:&|and)?\s*(?:next|continue|proceed)/i.test(t)) return false;
+  return /submit|pay|payment|final|confirm|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e ?sign|digilocker|captcha|not a robot|recaptcha/i.test(
+    t
+  );
+}
 
 // Page ko padhkar: kaun se field me kya bharna hai + agla step kaunsa button hai
 export async function planPageWithAI(params: {
@@ -1453,10 +1488,22 @@ export async function planPageWithAI(params: {
   data: Record<string, string>;
 }): Promise<{ fills: Record<string, string>; click: string }> {
   const snap = params.snapshot || {};
+  const providedLoginPassword =
+    typeof params.data?.loginPassword === 'string' && params.data.loginPassword.trim().length > 0
+      ? params.data.loginPassword.trim().slice(0, 120)
+      : '';
+
   const fields = (Array.isArray(snap.fields) ? snap.fields : [])
     .filter((f) => f && typeof f.id === 'string' && f.id)
-    .filter((f) => !NEVER_FILL_PATTERN.test(`${f.label || ''} ${f.section || ''}`))
-    .slice(0, 80)
+    .filter((f) => {
+      const hint = `${f.label || ''} ${f.section || ''}`;
+      if (NEVER_FILL_PATTERN.test(hint)) return false;
+      if ((f.type === 'password' || PASSWORD_FIELD_PATTERN.test(hint)) && !providedLoginPassword) {
+        return false;
+      }
+      return true;
+    })
+    .slice(0, 90)
     .map((f) => ({
       id: f.id as string,
       type: f.type || f.tag || 'text',
@@ -1468,7 +1515,7 @@ export async function planPageWithAI(params: {
     }));
   const buttons = (Array.isArray(snap.buttons) ? snap.buttons : [])
     .filter((b) => b && typeof b.id === 'string' && b.id && typeof b.text === 'string' && b.text)
-    .slice(0, 30)
+    .slice(0, 35)
     .map((b) => ({ id: b.id as string, text: String(b.text).slice(0, 40) }));
 
   if (fields.length === 0 && buttons.length === 0) return { fills: {}, click: '' };
@@ -1485,7 +1532,7 @@ export async function planPageWithAI(params: {
       parts: [
         {
           text: [
-            'You are an Indian online-form assistant that reads a web page and decides what to fill and which step button to press.',
+            'You are an expert Indian 3-to-10 page form & ticket assistant that reads a web page snapshot and decides every field to fill + the next step button.',
             `Page: ${snap.title || 'unknown'} (${snap.url || 'unknown url'})`,
             `Headings: ${JSON.stringify((snap.headings || []).slice(0, 12))}`,
             '',
@@ -1493,21 +1540,22 @@ export async function planPageWithAI(params: {
             JSON.stringify(cleanData),
             `USER GOAL: ${userGoal || 'not given (assume a new application by an individual)'}`,
             '',
-            'PAGE FIELDS (JSON; "value" is what is already in the field):',
+            'PAGE FIELDS (JSON; "value" is what is already in the field; options may appear on <select> or custom dropdowns):',
             JSON.stringify(fields),
             '',
             'PAGE BUTTONS (JSON):',
             JSON.stringify(buttons),
             '',
-            'TASK: 1) Understand which section/step of the application this page is. 2) For every EMPTY field that the user data can answer, return the value. 3) If all required fields are (or will be) filled, return the id of the ONE button that moves to the NEXT step (Next / Continue / Save & Next / Proceed). If unsure, return an empty click.',
+            'TASK: 1) Identify the current stage/page of this multi-page form or booking flow. 2) For every EMPTY field (including custom dropdowns showing "Select" or empty comboboxes, Gender/Verify Gender, 10th Board/Verify Board, Category, IRCTC From/To/Date/Class/Quota) that USER DATA can answer, return the value. 3) If all required fields on this page are (or will be) filled and no CAPTCHA/OTP blocks the screen, return the id of the ONE step progression button ("Next", "Continue", "Save & Next", "Submit & Next", "Proceed", "Search Trains", "Book Now", or "Login"/"Sign In" ONLY when loginUserId+loginPassword are provided & filled). Otherwise return empty click "".',
             'RULES:',
-            '- NEVER invent or guess names, dates, numbers, mobile, email, marks, addresses. If the user data does not contain the answer, OMIT the field.',
-            '- Do not overwrite a field that already has a value.',
-            '- For fields with options, return the exact option text.',
+            '- NEVER invent or guess names, dates, numbers, mobile, email, marks, stations, credentials, or addresses. If USER DATA does not contain the answer, OMIT the field.',
+            '- Do not overwrite a field that already has a valid value (exception: placeholder text like "Select" or "Choose" counts as empty and MUST be filled).',
+            '- For fields with options (or custom dropdowns), return the exact matching option label.',
             '- Low-risk defaults allowed: nationality=Indian, country=India, same-as-above style choices.',
-            '- Dates: return DD/MM/YYYY unless the field label says otherwise.',
-            '- NEVER fill CAPTCHA, OTP, password, bank/card/UPI, declaration fields.',
-            '- NEVER choose Submit / Pay / Confirm / Verify / Send OTP / Upload / Back / Cancel / Reset / Save Draft as the click.',
+            '- Dates: return DD/MM/YYYY unless the field type is date (YYYY-MM-DD) or label says DD-MM-YYYY.',
+            '- Password field: fill ONLY if `loginPassword` exists in USER DATA.',
+            '- NEVER fill CAPTCHA, OTP, bank/card/UPI, or declaration fields.',
+            '- NEVER click Final Submit / Pay Now / Confirm Booking / Verify / Send OTP / Upload / Back / Cancel / Reset / Save Draft / "I am not a robot".',
             '- Labels may be Hindi / Hinglish / English.',
             'Return JSON: { "fills": [ { "id", "value" } ], "click": "<button id or empty>" }.',
           ].join('\n'),
@@ -1541,24 +1589,38 @@ export async function planPageWithAI(params: {
 
   const fieldById = new Map(fields.map((f) => [f.id, f] as const));
   const clean = (t: string) => t.toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, ' ').trim();
-  const dataText = clean(Object.values(cleanData).join(' '));
-  const dataDigits = Object.values(cleanData).join(' ').replace(/\D/g, '');
+  const nonSecretValues = Object.entries(cleanData)
+    .filter(([k]) => k !== 'loginPassword')
+    .map(([, v]) => v);
+  const dataText = clean(nonSecretValues.join(' '));
+  const dataDigits = nonSecretValues.join(' ').replace(/\D/g, '');
   const outFills: Record<string, string> = {};
   for (const m of parsed.fills || []) {
     const id = String(m.id || '');
     const value = String(m.value || '').trim();
     const f = fieldById.get(id);
     if (!id || !value || !f) continue;
-    if (f.value && f.value.trim()) continue; // pehle se bhara hai
+    const existing = f.value ? f.value.trim() : '';
+    const isPlaceholderSelect = /^(select|please select|choose|--\s*select\s*--)$/i.test(existing);
+    if (existing && !isPlaceholderSelect) continue; // pehle se bhara hai
+
+    const hint = `${f.label || ''} ${f.section || ''}`;
+    if (f.type === 'password' || PASSWORD_FIELD_PATTERN.test(hint)) {
+      if (providedLoginPassword && value === providedLoginPassword) {
+        outFills[id] = value;
+      }
+      continue;
+    }
+
     const isChoice = f.options.length > 0 || /select|combobox|listbox|radio|checkbox/.test(f.type);
     if (!isChoice) {
       const v = clean(value);
       const digits = value.replace(/\D/g, '');
-      const isDate = /^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{2}\/\d{2}\/\d{4}$/.test(value);
+      const isDate = /^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{2}[/-]\d{2}[/-]\d{4}$/.test(value);
       const grounded =
         (v.length > 0 && dataText.includes(v)) ||
         (digits.length >= 4 && dataDigits.includes(digits)) ||
-        (isDate && dataDigits.includes(digits.slice(-4))) ||
+        (isDate && digits.length >= 4 && dataDigits.includes(digits.slice(-4))) ||
         /^(indian|india)$/i.test(value);
       if (!grounded) continue;
     }
@@ -1567,15 +1629,20 @@ export async function planPageWithAI(params: {
 
   let click = String(parsed.click || '').trim();
   const btn = buttons.find((b) => b.id === click);
-  if (!btn || PLAN_BLOCKED_BUTTON.test(btn.text)) click = '';
+  if (!btn || isBlockedPlanButton(btn.text)) click = '';
 
   return { fills: outFills, click };
 }
 
 const RECIPE_KEYS = [
   'fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'alternateMobile', 'email',
+  'aadhaarNumber', 'panNumber',
   'addressLine', 'villageOrWard', 'postOffice', 'policeStation', 'blockOrTehsil', 'district', 'state',
   'pinCode', 'birthPlace', 'category', 'maritalStatus', 'qualification', 'bloodGroup',
+  'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent',
+  'twelfthBoard', 'twelfthRoll', 'twelfthYear', 'twelfthPercent',
+  'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'berthPreference',
+  'loginUserId', 'loginPassword', 'incomeSource',
 ];
 
 // "Sabji banane se pehle saman": is form ko poora karne me kaun si details aur documents lagenge
@@ -1594,16 +1661,19 @@ export async function formRecipeWithAI(params: {
       parts: [
         {
           text: [
-            'You know Indian government and service online applications (PAN, driving licence, passport, voter ID, IRCTC, scholarships, jobs, certificates).',
-            `The user just opened this page: ${params.title || 'unknown'} (${params.url || 'unknown url'}).`,
+            'You know Indian government, recruitment, and travel/ticket online applications (SSC OTR, UPSC, Army, Railway/RRB, PAN, driving licence, passport, voter ID, IRCTC train ticket booking, scholarships, certificates).',
+            `The user is about to open this page: ${params.title || 'unknown'} (${params.url || 'unknown url'}).`,
             `USER GOAL: ${String(params.goal || '').slice(0, 300) || 'not given'}`,
             '',
-            'TASK: Tell what the user must keep ready to complete this application end-to-end online.',
-            `1) "details": personal details that will be typed in the form. Use ONLY keys from this list: ${RECIPE_KEYS.join(', ')}. For gender/category/maritalStatus add "options". Give a short Hinglish "label".`,
-            '2) "documents": documents/photos the user may need to upload (short Hinglish labels).',
-            '3) "name": short name of the application.',
-            'IMPORTANT: the form has several pages/steps. List EVERY personal detail asked on ANY page of the form (for example father name AND mother name, date of birth, gender, mobile, email, full address, PIN, state, district, category) so the user can give all of them BEFORE the website opens and is never asked again later. Do not leave out details that appear on later pages.',
-            'RULES: Do NOT include passwords, OTP, CAPTCHA, bank/card/UPI or payment items. If the page is not an application form, return empty lists. Be accurate; do not invent unusual requirements.',
+            'TASK: Tell what the user must provide BEFORE the website opens so the AI can auto-fill ALL 3 to 10 pages without stopping or missing anything.',
+            `1) "details": fields that will be filled across all pages of the portal. Use ONLY keys from this list: ${RECIPE_KEYS.join(', ')}. For gender/category/maritalStatus/trainClass/trainQuota/berthPreference add "options". Give a short Hinglish "label".`,
+            '2) "documents": documents/photos/IDs the user may need to upload or scan (short Hinglish labels).',
+            '3) "name": short name of the application/service.',
+            'IMPORTANT MULTI-PAGE COMPLETENESS:',
+            '- For exam/job/OTR forms (SSC, UPSC, Army, RRB, Police): include Personal Details (fullName, dob, gender, fatherName, motherName, aadhaarNumber, category, mobile, email), Address (addressLine, state, district, pinCode), AND 10th/12th Education (tenthBoard, tenthRoll, tenthYear, tenthPercent).',
+            '- For IRCTC / Train Ticket booking: include fromStation, toStation, journeyDate, trainClass, trainQuota, berthPreference, passenger details (fullName, dob, gender, mobile, email), and optional loginUserId + loginPassword so AI can log in before OTP/payment.',
+            '- Include loginUserId + loginPassword ONLY when the portal/goal requires user account login (e.g. IRCTC booking, SSC Login, DigiLocker/candidate login).',
+            'RULES: NEVER include OTP, CAPTCHA, CVV, card number, UPI PIN, or payment items. If the page is just a general news/search page with no form/booking, return empty lists.',
             'Return JSON.',
           ].join('\n'),
         },
@@ -1658,6 +1728,6 @@ export async function formRecipeWithAI(params: {
   const documents = (parsed.documents || [])
     .map((d) => ({ label: String(d.label || '').slice(0, 80) }))
     .filter((d) => d.label)
-    .slice(0, 10);
-  return { name: String(parsed.name || '').slice(0, 60), details: details.slice(0, 15), documents };
+    .slice(0, 12);
+  return { name: String(parsed.name || '').slice(0, 60), details: details.slice(0, 22), documents };
 }

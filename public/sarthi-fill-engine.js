@@ -79,6 +79,18 @@
   }
 
   var RULES = [].concat(
+    // IRCTC / travel
+    [{ key: 'fromStation', pos: /\bfrom\b|origin|source station|departure station|boarding/i, neg: /date|time|dob|year|month|day|bank|income|name/ },
+     { key: 'toStation', pos: /\bto\b|destination|arrival station/i, neg: /date|time|dob|year|month|day|bank|income|name|agree|consent|terms|same|equal|verify|confirm|back|next|proceed|apply|upload/ },
+     { key: 'journeyDate', pos: /journey date|travel date|departure date|date of journey|\bdoj\b|dd\/mm\/yyyy/i, neg: /birth|dob|issue|expiry/ },
+     { key: 'trainClass', pos: /all classes|journey class|travel class|\bclass\b|coach/i, neg: /10th|12th|tenth|twelfth|matric|high ?school|inter/ },
+     { key: 'trainQuota', pos: /\bquota\b|reservation quota/i, neg: /^$/ },
+     { key: 'berthPreference', pos: /berth|seat preference/i, neg: /^$/ }],
+
+    // optional login (only filled when user supplied loginUserId / loginPassword)
+    [{ key: 'loginUserId', pos: /user ?name|user ?id|login ?id|reg(istration)? ?(no|number|id)|roll ?no.*login/i, neg: /father|mother|10th|12th|matric|inter|bank|upi/ },
+     { key: 'loginPassword', pos: /pass ?word|passwd|\bpwd\b|पासवर्ड/i, neg: /otp|pin|mpin|captcha/ }],
+
     // names
     [{ key: 'firstName',  pos: /first name|given name|fname|पहला नाम/, neg: /father|mother|spouse/ },
      { key: 'middleName', pos: /middle name|mname/, neg: /father|mother/ },
@@ -88,14 +100,14 @@
 
     // contact
     [{ key: 'alternateMobile', pos: /(alt|alternate|other|emergency|parent|guardian|whatsapp).*(mobile|phone|contact|number)|(mobile|phone|contact).*(alt|alternate|other|emergency)/, neg: /email/ },
-     { key: 'email', pos: /e ?mail|ईमेल/, neg: /alt|parent|father|otp|verify|confirm email|re ?enter/ },
+     { key: 'email', pos: /e ?mail|ईमेल/, neg: /alt|parent|father|otp/ },
      { key: 'mobile', pos: /mobile|phone|contact (no|number)|cell|tel\b|मोबाइल|फोन/, neg: /alt|emergency|parent|father|landline|std|otp|country code/ }],
 
     // personal
     [{ key: 'birthPlace', pos: /place of birth|birth ?place|janm ?sthan|जन्म स्थान/, neg: /date/ },
      { key: 'dob', pos: /\bdob\b|date of birth|birth ?date|janm ?tithi|जन्म/, neg: /place|state|district|city|village|certificate|proof/ },
      { key: 'gender', pos: /gender|\bsex\b|ling\b|लिंग/, neg: /^$/ },
-     { key: 'category', pos: /category|caste|\bvarg\b|reservation|वर्ग|श्रेणी/, neg: /sub ?category|certificate|number|issue/ },
+     { key: 'category', pos: /category|caste|\bvarg\b|reservation|वर्ग|श्रेणी/, neg: /sub ?category|certificate|number|issue|applicant/ },
      { key: 'maritalStatus', pos: /marital|married|vaivahik|वैवाहिक/, neg: /^$/ },
      { key: 'bloodGroup', pos: /blood ?group|rakht|रक्त/, neg: /^$/ }],
 
@@ -112,7 +124,7 @@
 
     // IDs
     [{ key: 'panNumber', pos: /\bpan\b|permanent account|पैन/, neg: /company|father|mother|pancha|panel|expan|company/ },
-     { key: 'aadhaarNumber', pos: /aadhaar|aadhar|adhar|\buid\b|uidai|आधार/, neg: /enrol|virtual|vid\b|consent/ },
+     { key: 'aadhaarNumber', pos: /aadhaar|aadhar|adhar|\buid\b|uidai|आधार/, neg: /enrol|virtual|consent|have a aadhaar|do you have/ },
      { key: 'passportNumber', pos: /passport|पासपोर्ट/, neg: /issue|expiry|office|place|date/ },
      { key: 'dlNumber', pos: /driving ?licen[cs]e|\bdl\b ?(no|number)|licen[cs]e ?(no|number)|लाइसेंस/, neg: /issue|expiry|authority/ },
      { key: 'voterId', pos: /voter|epic|matdata|मतदाता/, neg: /^$/ }],
@@ -124,14 +136,14 @@
      { key: 'collegeName', pos: /college|university|institute|संस्थान|महाविद्यालय/, neg: /roll|year|percent|marks/ },
      { key: 'graduationYear', g: new RegExp(GRAD), pos: /year|passing/, neg: /roll/ },
      { key: 'graduationPercent', g: new RegExp(GRAD), pos: /percent|marks|cgpa|grade/, neg: /roll|year/ },
-     { key: 'qualification', pos: /qualification|education|योग्यता|शिक्षा/, neg: /roll|year|percent/ },
+     { key: 'qualification', pos: /qualification|education|योग्यता|शिक्षा/, neg: /roll|year|percent|board/ },
      { key: 'boardOrUniversity', pos: /board|university|विश्वविद्यालय/, neg: /roll|year|percent/ },
      { key: 'passingYear', pos: /passing year|year of passing|pass out/, neg: /roll/ },
      { key: 'percentageOrGrade', pos: /percentage|percent|cgpa|grade|marks obtained|प्रतिशत/, neg: /roll|year|max/ }],
 
     // generic "name" last (so father/mother/first/last win first)
     [{ key: 'fullName', pos: /full ?name|applicant ?name|candidate ?name|student ?name|passenger ?name|your name|name (as per|of) (the )?(applicant|candidate|student|aadhaar|pan|matric)|applicant|candidate|naam|^name$|\bname\b|नाम/,
-       neg: /father|mother|spouse|husband|wife|city|school|college|board|bank|account|company|organi[sz]ation|user ?name|user ?id|login ?id|file ?name|nominee|guardian|referee|hospital|institute|district|state|post|police|village|panchayat|branch/ }]
+       neg: /father|mother|spouse|husband|wife|city|school|college|board|bank|account|company|organi[sz]ation|user ?name|user ?id|login ?id|file ?name|nominee|guardian|referee|hospital|institute|district|state|post|police|village|panchayat|branch|changed name|new name/ }]
   );
 
   // flatten + ensure group filter works
@@ -141,13 +153,12 @@
       var r = RULES[i];
       if (r.g && !r.g.test(hint)) continue;
       if (r.pos.test(hint) && !(r.neg && r.neg.test(hint))) {
-        // type shortcuts
         return r.key;
       }
     }
-    // type-based fallbacks (when label is useless)
     if (ctx.type === 'email') return 'email';
     if (ctx.type === 'tel') return 'mobile';
+    if (ctx.type === 'password') return 'loginPassword';
     if (ctx.autocomplete) {
       var ac = ctx.autocomplete;
       if (/given-name/.test(ac)) return 'firstName';
@@ -156,6 +167,7 @@
       if (/bday/.test(ac)) return 'dob';
       if (/postal/.test(ac)) return 'pinCode';
       if (/street-address|address-line1/.test(ac)) return 'addressLine';
+      if (/username/.test(ac)) return 'loginUserId';
     }
     return null;
   }
@@ -224,14 +236,30 @@
     female: ['female', 'f', 'mahila', 'महिला', 'woman', 'stri'],
     other: ['other', 'transgender', 'third gender', 'अन्य'],
     general: ['general', 'gen', 'ur', 'unreserved', 'open', 'सामान्य'],
-    obc: ['obc', 'other backward', 'bc', 'ebc', 'mbc', 'बीसी', 'पिछड़ा'],
+    obc: ['obc', 'other backward', 'obc ncl', 'bc', 'ebc', 'mbc', 'बीसी', 'पिछड़ा'],
     sc: ['sc', 'scheduled caste', 'अनुसूचित जाति'],
     st: ['st', 'scheduled tribe', 'अनुसूचित जनजाति'],
     ews: ['ews', 'economically weaker'],
     unmarried: ['unmarried', 'single', 'never married', 'अविवाहित'],
     married: ['married', 'विवाहित'],
     widowed: ['widowed', 'widow', 'widower', 'विधवा'],
-    divorced: ['divorced', 'तलाकशुदा']
+    divorced: ['divorced', 'तलाकशुदा'],
+    cbse: ['cbse', 'central board of secondary education'],
+    bseb: ['bseb', 'bihar school examination board', 'bihar board'],
+    upmsp: ['upmsp', 'up board', 'board of high school and intermediate education uttar pradesh'],
+    icse: ['icse', 'cisce', 'council for the indian school certificate examinations'],
+    jac: ['jac', 'jharkhand academic council'],
+    nios: ['nios', 'national institute of open schooling'],
+    rbse: ['rbse', 'board of secondary education rajasthan'],
+    mpbse: ['mpbse', 'board of secondary education madhya pradesh'],
+    wbbse: ['wbbse', 'west bengal board of secondary education'],
+    sl: ['sl', 'sleeper', 'sleeper sl'],
+    '3a': ['3a', 'ac 3 tier', 'ac 3 tier 3a', '3 tier ac'],
+    '3e': ['3e', 'ac 3 economy', 'ac 3 economy 3e'],
+    '2a': ['2a', 'ac 2 tier', 'ac 2 tier 2a'],
+    '1a': ['1a', 'ac first class', 'ac first class 1a'],
+    cc: ['cc', 'ac chair car', 'ac chair car cc'],
+    '2s': ['2s', 'second sitting', 'second sitting 2s']
   };
 
   var STATE_ALIASES = {
@@ -546,6 +574,132 @@
   }
 
   // ---------------------------------------------------------------
+  // 5b. Universal Custom Dropdown & Autocomplete Engine
+  //     (Angular Material, ng-select, PrimeNG, Bootstrap, React-Select, SSC/IRCTC)
+  // ---------------------------------------------------------------
+  var CUSTOM_DD_SEL = '[role="combobox"],[role="listbox"],mat-select,ng-select,p-dropdown,[aria-haspopup="listbox"],[aria-haspopup="true"],.select2-selection,[class*="select__control"],.p-dropdown,.dropdown-toggle';
+  var OPTION_SEL = '[role="option"],mat-option,.mat-option,.ng-option,.p-dropdown-item,.p-autocomplete-item,.ui-autocomplete-list-item,.select2-results__option,.dropdown-item,[role="listbox"] li,.cdk-overlay-container li,.p-dropdown-items li,.p-autocomplete-items li,ul.dropdown-menu li';
+
+  var ddQueue = [];
+  var ddBusy = false;
+
+  function isCustomPlaceholderText(txt) {
+    var t = norm(txt);
+    return !t || /^(select|choose|please select|select one|select option|चुनें|चयन|--)$/.test(t);
+  }
+
+  function findCustomDropdownTriggers() {
+    var seen = [];
+    var candidates = Array.prototype.slice.call(document.querySelectorAll(CUSTOM_DD_SEL));
+    // Also detect custom div/button dropdowns whose visible text is "Select" near a form label
+    Array.prototype.slice.call(document.querySelectorAll('div[tabindex], button[type="button"], span[role="button"]')).forEach(function (el) {
+      if (candidates.indexOf(el) >= 0) return;
+      var txt = norm(el.innerText || el.textContent || '');
+      if (txt === 'select' || txt === 'please select' || txt === 'select option') {
+        candidates.push(el);
+      }
+    });
+    return candidates.filter(function (el) {
+      if (!isVisible(el)) return false;
+      if (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return false;
+      if (el.tagName === 'INPUT' && (el.type || '').toLowerCase() === 'text') return false; // autocomplete inputs handled separately
+      for (var i = 0; i < seen.length; i++) {
+        if (seen[i].contains(el) || el.contains(seen[i])) return false;
+      }
+      seen.push(el);
+      return true;
+    });
+  }
+
+  function clickLikeUser(el) {
+    if (!el) return;
+    try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+    ['mousedown', 'mouseup', 'click'].forEach(function (evName) {
+      try { el.dispatchEvent(new MouseEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
+    });
+    try { el.click(); } catch (e) { /* ignore */ }
+  }
+
+  function processDdQueue() {
+    if (ddBusy || ddQueue.length === 0) return;
+    ddBusy = true;
+    var job = ddQueue.shift();
+    var el = job.el;
+    var wanted = job.wanted;
+    var key = job.key;
+    try {
+      // Skip if already selected to a non-placeholder value unless overwrite
+      var curTxt = (el.innerText || el.textContent || '').trim();
+      if (!job.overwrite && curTxt && !isCustomPlaceholderText(curTxt) && job.isSelectBox) {
+        ddBusy = false;
+        setTimeout(processDdQueue, 60);
+        return;
+      }
+
+      if (job.isAutocomplete && el.tagName === 'INPUT') {
+        setNativeValue(el, wanted);
+        clickLikeUser(el);
+      } else {
+        clickLikeUser(el);
+      }
+
+      setTimeout(function () {
+        try {
+          // If dropdown opened with an internal search box, type into it first
+          var filterInput = document.querySelector('.p-dropdown-filter,.select2-search__field,.ng-input input,[role="listbox"] input[type="text"],.cdk-overlay-container input[type="text"]');
+          if (filterInput && isVisible(filterInput) && filterInput !== el) {
+            setNativeValue(filterInput, wanted);
+          }
+          setTimeout(function () {
+            try {
+              var opts = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
+              var best = null, bestSc = 0;
+              opts.forEach(function (o) {
+                var tx = (o.innerText || o.textContent || '').trim();
+                if (!tx) return;
+                var sc = scoreOption(tx, tx, wanted, key);
+                if (job.isAutocomplete && norm(tx).indexOf(norm(wanted)) >= 0) {
+                  sc = Math.max(sc, 85);
+                }
+                if (sc > bestSc) { bestSc = sc; best = o; }
+              });
+              if (best && bestSc >= 40) {
+                clickLikeUser(best);
+                mark(el, GREEN);
+                fire(el, ['change', 'blur']);
+              } else if (opts.length > 0 && job.isAutocomplete) {
+                // First autocomplete suggestion when user typed partial station/city name
+                var firstTx = norm(opts[0].innerText || opts[0].textContent || '');
+                if (firstTx && firstTx.indexOf(norm(wanted).slice(0, 3)) >= 0) {
+                  clickLikeUser(opts[0]);
+                  mark(el, GREEN);
+                }
+              }
+            } catch (e) { /* ignore */ }
+            ddBusy = false;
+            setTimeout(processDdQueue, 180);
+          }, filterInput ? 320 : 60);
+        } catch (e) {
+          ddBusy = false;
+          setTimeout(processDdQueue, 120);
+        }
+      }, job.isAutocomplete ? 750 : 420);
+    } catch (e) {
+      ddBusy = false;
+      setTimeout(processDdQueue, 100);
+    }
+  }
+
+  function enqueueCustomDropdown(job) {
+    if (!job || !job.el || !job.wanted) return;
+    if (job.el.getAttribute('data-sarthi-dd-queued') === '1') return;
+    job.el.setAttribute('data-sarthi-dd-queued', '1');
+    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 4000);
+    ddQueue.push(job);
+    processDdQueue();
+  }
+
+  // ---------------------------------------------------------------
   // 6. Main run
   // ---------------------------------------------------------------
   function run(payload, opts) {
@@ -569,17 +723,26 @@
 
     controls.forEach(function (el) {
       var type = (el.type || el.tagName).toLowerCase();
-      if (/^(hidden|submit|button|reset|image|file|range|color)$/.test(type)) return;
+      if (/^(hidden|submit|button|reset|image|range|color)$/.test(type)) return;
       if (!isVisible(el)) return;
-      if (type === 'search') return;                       // search boxes kabhi nahi bharna
+      if (type === 'search') return;
       if (type === 'radio') { radios.push(el); return; }
       if (type === 'checkbox') { checks.push(el); return; }
-      if (el.readOnly && !/dob|birth/.test(hintOf(el))) return;   // readonly sirf DOB datepicker ke liye allowed
+      if (el.readOnly && !/dob|birth|journey|date/.test(hintOf(el))) return;
 
       var hint = hintOf(el);
-      if (/\b(search|query|keyword|newsletter|subscribe|unsubscribe)\b|खोज/.test(hint)) return;
+      if (/\b(search|query|keyword|newsletter|subscribe|unsubscribe)\b|खोज/.test(hint) && !/from|to|station/.test(hint)) return;
       var sec = classifySecurity(hint) || (type === 'password' ? 'password' : null);
       if (sec) {
+        // If user explicitly supplied loginPassword in pre-flight for this session, fill login password safely
+        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim()) {
+          if (!String(el.value || '').trim()) {
+            setNativeValue(el, String(data.loginPassword));
+            mark(el, GREEN);
+            summary.filled++;
+          }
+          return;
+        }
         mark(el, AMBER);
         if (sec === 'captcha') summary.hasCaptcha = true;
         else if (sec === 'otp') summary.hasOtp = true;
@@ -592,7 +755,6 @@
       var already = !isSelect && el.value && String(el.value).trim().length > 0;
       if (already && !opts.overwrite) return;
       if (isSelect && el.selectedIndex > 0 && !opts.overwrite) {
-        // dropdown already chosen by user/site
         var curTxt = norm(el.options[el.selectedIndex].text);
         if (curTxt && !/^(select|choose|please)/.test(curTxt)) return;
       }
@@ -615,16 +777,16 @@
       var val = key ? valueFor(key, data) : '';
       if ((key === 'fatherName' || key === 'motherName') && val) {
         var pp = parentPart(val, hint);
-        if (pp === null) return;                     // middle name nahi hai -> khali chhodo
+        if (pp === null) return;
         val = pp;
       }
-      if (key === 'middleName' && !val) return;      // middle name optional
+      if (key === 'middleName' && !val) return;
+      if ((key === 'loginUserId' || key === 'loginPassword') && !val) return;
 
       if (key && !val) {
         if (/^(fullName|firstName|fatherName|motherName|dob|aadhaarNumber|panNumber|addressLine|pinCode|district|state|tenthRoll|twelfthRoll)$/.test(key)) {
           summary.isPersonalForm = true;
         }
-        // we know what it is but the vault has no value -> user must provide it in AI Popup
         if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
         mark(el, BLUE);
         var mId = el.getAttribute('data-sarthi-id');
@@ -658,16 +820,28 @@
         var filledId = el.getAttribute('data-sarthi-id');
         if (!filledId) { filledId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', filledId); }
         var finalVal = val;
+        var isAcInput = !isSelect && (
+          el.getAttribute('role') === 'combobox' ||
+          el.getAttribute('aria-autocomplete') ||
+          Boolean(el.closest && el.closest('p-autocomplete,mat-autocomplete,.ui-autocomplete,[class*="autocomplete"]')) ||
+          key === 'fromStation' ||
+          key === 'toStation'
+        );
+
         if (isSelect) {
           ok = selectOption(el, val, key);
           if (ok && el.selectedIndex >= 0) {
             finalVal = (el.options[el.selectedIndex].text || val).trim();
           }
+        } else if (isAcInput) {
+          enqueueCustomDropdown({ el: el, wanted: String(val), key: key, isAutocomplete: true, overwrite: opts.overwrite });
+          ok = true;
+          summary.customQueued = (summary.customQueued || 0) + 1;
         } else {
-          if (key === 'dob') finalVal = formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
+          if (key === 'dob' || key === 'journeyDate') finalVal = formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
           if (key === 'mobile' || key === 'alternateMobile') finalVal = String(val).replace(/\D/g, '').slice(-10);
           if (key === 'panNumber') finalVal = String(val).toUpperCase();
-          if (el.maxLength > 0 && String(finalVal).length > el.maxLength && key !== 'dob') finalVal = String(finalVal).slice(0, el.maxLength);
+          if (el.maxLength > 0 && String(finalVal).length > el.maxLength && key !== 'dob' && key !== 'journeyDate') finalVal = String(finalVal).slice(0, el.maxLength);
           var wasRO = el.readOnly;
           if (wasRO) el.removeAttribute('readonly');
           setNativeValue(el, finalVal);
@@ -678,13 +852,14 @@
           mark(el, GREEN);
           summary.filled++;
           if (summary.filledKeys.indexOf(key) < 0) summary.filledKeys.push(key);
-          summary.filledItems.push({ id: filledId, tag: el.tagName.toLowerCase(), type: type, value: String(finalVal) });
+          if (!isAcInput) {
+            summary.filledItems.push({ id: filledId, tag: el.tagName.toLowerCase(), type: type, value: String(finalVal) });
+          }
           return;
         }
       }
 
-      // not matched -> candidate for AI mapping (or AI Popup if Gemini doesn't have value)
-      if (el.getAttribute('data-sarthi-asked')) return;      // is field ke liye AI ko pehle hi pooch chuke
+      if (el.getAttribute('data-sarthi-asked')) return;
       if (summary.unmatched.length < 40) {
         var id = el.getAttribute('data-sarthi-id');
         if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
@@ -702,6 +877,23 @@
           rawHint: (hint || '').slice(0, 120),
           placeholder: el.placeholder || '', options: o
         });
+      }
+    });
+
+    // Custom non-native dropdowns (SSC OTR mat-select / ng-select, IRCTC p-dropdown, Bootstrap/React dropdowns)
+    findCustomDropdownTriggers().forEach(function (dd) {
+      var curTxt = (dd.innerText || dd.textContent || '').trim();
+      if (!opts.overwrite && curTxt && !isCustomPlaceholderText(curTxt)) return;
+      var hint = hintOf(dd);
+      if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
+      var pw = portalSelectWant(hint, data);
+      var key = pw ? null : matchKey(hint, { type: 'select' });
+      var val = pw || (key ? valueFor(key, data) : '');
+      if (val) {
+        enqueueCustomDropdown({ el: dd, wanted: String(val), key: key, isSelectBox: true, overwrite: opts.overwrite });
+        summary.filled++;
+        summary.customQueued = (summary.customQueued || 0) + 1;
+        if (key && summary.filledKeys.indexOf(key) < 0) summary.filledKeys.push(key);
       }
     });
 
@@ -878,8 +1070,8 @@
   // AUTOPILOT: fill -> sab required bhare? -> Next/Continue click -> agla page
   // CAPTCHA / OTP / password / payment aur final Submit kabhi nahi dabata
   // ---------------------------------------------------------------
-  var RE_NEXT = /^(next|next step|continue|proceed|go to next|save (and )?(next|continue|proceed)|save and continue|आगे|अगला|आगे बढ़ें|आगे बढे|जारी रखें|सेव और आगे)( |$)/;
-  var RE_NO_CLICK = /submit|pay|payment|final|confirm|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|भुगतान|जमा|रद्द|पीछे|बंद/;
+  var RE_NEXT = /^(next|next step|next page|continue|proceed|go to next|save (and )?(next|continue|proceed)|save & (next|continue|proceed)|submit & (next|continue)|search trains?|search|book now|continue to book|ok & proceed|i agree & continue|आगे|अगला|आगे बढ़ें|आगे बढे|जारी रखें|सेव और आगे)( |$)/;
+  var RE_NO_CLICK = /final submit|finalise|pay now|make payment|proceed to pay|confirm booking|place order|checkout|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|भुगतान|जमा|रद्द|पीछे|बंद/;
   var lastNextSig = '', lastNextAt = 0;
 
   function pageSig() {
@@ -905,10 +1097,10 @@
     Array.prototype.slice.call(document.querySelectorAll('input,select,textarea')).forEach(function (el) {
       var type = (el.type || el.tagName).toLowerCase();
       if (/^(hidden|submit|button|reset|image|range|color|search|password)$/.test(type)) return;
-      if (el.disabled || (type !== 'file' && !isVisible(el))) return;   // file input aksar hidden hota hai
+      if (el.disabled || (type !== 'file' && !isVisible(el))) return;
       if (el.readOnly && type !== 'checkbox') return;
       var hint = hintOf(el);
-      if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;      // user ke kaam
+      if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
       if (!isRequiredEl(el)) return;
       var id = el.getAttribute('data-sarthi-id');
       if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
@@ -935,9 +1127,9 @@
         var cur = el.selectedIndex >= 0 ? norm(el.options[el.selectedIndex].text) : '';
         if (!el.value || /^(select|choose|please)/.test(cur)) {
           var opts = optionsOf(el);
-          if (opts.length === 0) { out.push({ id: id, kind: 'wait', key: '', label: readableLabelOf(el, key) }); return; }   // options abhi load ho rahe hain
+          if (opts.length === 0) { out.push({ id: id, kind: 'wait', key: '', label: readableLabelOf(el, key) }); return; }
           var pw2 = portalSelectWant(hint, {});
-          if (pw2 && selectOption(el, pw2, null)) return;                                                               // Individual / New PAN jaise default
+          if (pw2 && selectOption(el, pw2, null)) return;
           out.push({ id: id, kind: 'select', key: key || '', label: readableLabelOf(el, key), tag: 'select', type: 'select', options: opts });
         }
         return;
@@ -959,13 +1151,11 @@
     return out;
   }
 
-  // User se kya poochna hai (key wale ek hi baar: Father ka naam ek baar, First/Middle/Last engine khud todta hai)
   function buildAsks(list, s) {
     var seen = {}, asks = [];
     function add(a) {
       var k = a.key ? 'k:' + a.key : 'i:' + a.id;
       if (seen[k]) return;
-      // dropdown ke options abhi load nahi hue (dependent dropdown) -> user kya chunega, thoda ruko
       if ((a.type === 'select' || a.tag === 'select') && !(a.options && a.options.length)) return;
       seen[k] = 1;
       var lbl = a.label || 'Detail';
@@ -984,7 +1174,6 @@
     return asks.slice(0, 12);
   }
 
-  // Form complete (acknowledgement/success page) pehchano
   function looksFinished(list) {
     if (list.length > 0) return false;
     var vis = Array.prototype.slice.call(document.querySelectorAll('input:not([type="hidden"]),select,textarea')).filter(isVisible);
@@ -999,11 +1188,11 @@
       var el = els[i];
       if (!isVisible(el)) continue;
       var txt = norm(el.innerText || el.value || el.getAttribute('aria-label') || '');
-      if (!txt || txt.length > 30) continue;
+      if (!txt || txt.length > 35) continue;
       if (RE_NO_CLICK.test(txt)) continue;
       if (RE_NEXT.test(txt)) {
         try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
-        try { el.click(); } catch (e) { fire(el, ['click']); }
+        clickLikeUser(el);
         return txt;
       }
     }
@@ -1012,13 +1201,8 @@
 
   var fillingTicks = 0, askedSig = '';
 
-  // ---------------------------------------------------------------
-  // AI PAGE READER: jab rules page ko na samjhein (custom JS widgets, naye layout)
-  // snapshot() page ka naksha Gemini ko bhejta hai, applyPlan() uska jawab lagata hai.
-  // CAPTCHA/OTP/password/payment/Submit/Pay kabhi nahi chhuta.
-  // ---------------------------------------------------------------
-  var CUSTOM_SEL = '[role="combobox"],[role="listbox"],[role="radio"],[role="checkbox"],[role="switch"],[contenteditable="true"],mat-select,.select2-selection,[class*="select__control"]';
-  var PLAN_NO_CLICK = /submit|pay|payment|final|confirm|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e sign|digilocker|भुगतान|जमा|रद्द|पीछे|बंद/;
+  var CUSTOM_SEL = '[role="combobox"],[role="listbox"],[role="radio"],[role="checkbox"],[role="switch"],[contenteditable="true"],mat-select,ng-select,p-dropdown,[aria-haspopup="listbox"],.select2-selection,[class*="select__control"],.dropdown-toggle';
+  var PLAN_NO_CLICK = /final submit|finalise|pay now|make payment|proceed to pay|confirm booking|place order|checkout|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e sign|digilocker|भुगतान|जमा|रद्द|पीछे|बंद/;
 
   function sectionOf(el) {
     try {
@@ -1042,14 +1226,15 @@
   function snapshot() {
     var fields = [], buttons = [], headings = [];
     var all = document.querySelectorAll('input,select,textarea,' + CUSTOM_SEL);
-    for (var i = 0; i < all.length && fields.length < 80; i++) {
+    for (var i = 0; i < all.length && fields.length < 90; i++) {
       var el = all[i];
       var type = (el.type || el.getAttribute('role') || el.tagName).toLowerCase();
-      if (/^(hidden|submit|button|reset|image|range|color|search|password)$/.test(type)) continue;
+      if (/^(hidden|submit|button|reset|image|range|color|search)$/.test(type)) continue;
       if (!isVisible(el) || el.disabled) continue;
       var hint = '';
       try { hint = hintOf(el); } catch (e) { hint = norm(el.getAttribute('aria-label') || el.textContent || ''); }
-      if (classifySecurity(hint) || RE_ROBOT.test(hint)) continue;
+      if (classifySecurity(hint) && type !== 'password') continue;
+      if (RE_ROBOT.test(hint)) continue;
       var id = el.getAttribute('data-sarthi-id');
       if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
       var label = '';
@@ -1059,7 +1244,10 @@
       if (el.tagName === 'SELECT') value = el.selectedIndex >= 0 ? (el.options[el.selectedIndex].text || '').trim() : '';
       else if (type === 'checkbox' || type === 'radio') value = el.checked ? 'checked' : '';
       else if ('value' in el) value = String(el.value || '');
-      else value = (el.textContent || '').trim().slice(0, 60);
+      else {
+        var rawTxt = (el.textContent || '').trim().slice(0, 60);
+        value = isCustomPlaceholderText(rawTxt) ? '' : rawTxt;
+      }
       fields.push({
         id: id, tag: el.tagName.toLowerCase(), type: type, label: label, value: value.slice(0, 60),
         required: isRequiredEl(el), section: sectionOf(el),
@@ -1067,11 +1255,11 @@
       });
     }
     var bs = document.querySelectorAll('button,a[href],input[type="button"],input[type="submit"],[role="button"]');
-    for (var j = 0; j < bs.length && buttons.length < 30; j++) {
+    for (var j = 0; j < bs.length && buttons.length < 35; j++) {
       var b = bs[j];
       if (!isVisible(b)) continue;
       var tx = (b.innerText || b.value || b.getAttribute('aria-label') || '').trim();
-      if (!tx || tx.length > 40) continue;
+      if (!tx || tx.length > 45) continue;
       var bid = b.getAttribute('data-sarthi-id');
       if (!bid) { bid = 'sfb' + (++uid); b.setAttribute('data-sarthi-id', bid); }
       buttons.push({ id: bid, text: tx });
@@ -1088,23 +1276,17 @@
       el.textContent = value; fire(el, ['input', 'change']); return;
     }
     if (role === 'radio' || role === 'checkbox' || role === 'switch') {
-      if (el.getAttribute('aria-checked') !== 'true') el.click();
+      if (el.getAttribute('aria-checked') !== 'true') clickLikeUser(el);
       return;
     }
-    // dropdown / autocomplete: kholo, option dhoondo, click karo
-    if (el.tagName === 'INPUT') { setNativeValue(el, value); fire(el, ['input']); }
-    try { el.click(); } catch (e) { /* ignore */ }
-    setTimeout(function () {
-      var want = norm(value), best = null, bestScore = 0;
-      Array.prototype.slice.call(document.querySelectorAll('[role="option"],mat-option,.mat-option,.select2-results__option,[class*="option"],ul li')).forEach(function (o) {
-        if (!isVisible(o)) return;
-        var t = norm(o.innerText || o.textContent || '');
-        if (!t) return;
-        var sc = t === want ? 100 : (t.indexOf(want) >= 0 || want.indexOf(t) >= 0 ? 60 : 0);
-        if (sc > bestScore) { bestScore = sc; best = o; }
-      });
-      if (best) { try { best.click(); } catch (e) { fire(best, ['click']); } }
-    }, 450);
+    enqueueCustomDropdown({
+      el: el,
+      wanted: String(value),
+      key: null,
+      isAutocomplete: el.tagName === 'INPUT',
+      isSelectBox: el.tagName !== 'INPUT',
+      overwrite: true
+    });
   }
 
   function applyPlan(plan) {
@@ -1114,13 +1296,13 @@
     Object.keys(fills).forEach(function (id) {
       var el = document.querySelector('[data-sarthi-id="' + id + '"]');
       var role = el ? (el.getAttribute('role') || '') : '';
-      if (!el || (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && !/^(combobox|listbox|radio|checkbox|switch)$/.test(role) && !el.isContentEditable)) std[id] = fills[id];
+      var isAc = el && el.tagName === 'INPUT' && (role === 'combobox' || el.getAttribute('aria-autocomplete') || (el.closest && el.closest('p-autocomplete,mat-autocomplete,.ui-autocomplete')));
+      if (!el || (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && !/^(combobox|listbox|radio|checkbox|switch)$/.test(role) && !el.isContentEditable && !isAc)) std[id] = fills[id];
       else custom.push({ el: el, value: fills[id] });
     });
     if (Object.keys(std).length) res.filled += (applyMap(std).filled || 0);
-    custom.forEach(function (c, i) {
-      setTimeout(function () { try { fillCustom(c.el, c.value); } catch (e) { /* ignore */ } }, 600 * i);
-      res.filled++;
+    custom.forEach(function (c) {
+      try { fillCustom(c.el, c.value); res.filled++; } catch (e) { /* ignore */ }
     });
     if (plan.click) {
       var btn = document.querySelector('[data-sarthi-id="' + plan.click + '"]');
@@ -1128,8 +1310,8 @@
       if (btn && bt && !PLAN_NO_CLICK.test(bt)) {
         res.clickQueued = bt;
         setTimeout(function () {
-          try { btn.scrollIntoView({ block: 'center' }); btn.click(); } catch (e) { fire(btn, ['click']); }
-        }, 600 * (custom.length + 1) + 900);
+          try { btn.scrollIntoView({ block: 'center' }); clickLikeUser(btn); } catch (e) { fire(btn, ['click']); }
+        }, 900 * (custom.length + 1) + 900);
       }
     }
     return res;
@@ -1545,12 +1727,12 @@
           if (/^(INPUT|SELECT|TEXTAREA|OPTION)$/.test(n.tagName) || (n.querySelector && n.querySelector('input,select,textarea'))) { relevant = true; break; }
         }
       }
-      if (!relevant || watchRuns >= 20) return;
+      if (!relevant || watchRuns >= 80) return;
       clearTimeout(watchTimer);
       watchTimer = setTimeout(function () {
         watchRuns++;
         try { run(payload, {}); } catch (e) { /* ignore */ }
-      }, 1200);
+      }, 1000);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }

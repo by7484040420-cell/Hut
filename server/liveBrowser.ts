@@ -103,6 +103,7 @@ function buildServerFillPayload(params: {
       ['dlNumber', p.dlNumber],
       ['voterId', p.voterId],
       ['preferredDepartureCity', p.preferredDepartureCity],
+      ['preferredTrainClass', p.preferredTrainClass],
       ['bloodGroup', p.bloodGroup],
       ['birthPlace', p.birthPlace],
       ['tenthBoard', p.tenthBoard],
@@ -122,7 +123,20 @@ function buildServerFillPayload(params: {
     for (const [k, v] of entries) {
       if (v && v.trim()) map[k] = v.trim();
     }
+    if (p.preferredDepartureCity?.trim() && !map.fromStation) {
+      map.fromStation = p.preferredDepartureCity.trim();
+    }
+    if (p.preferredTrainClass?.trim() && !map.trainClass) {
+      map.trainClass = p.preferredTrainClass.trim();
+    }
   }
+  const EXPLICIT_DIRECT_KEYS = new Set([
+    'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'berthPreference',
+    'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation',
+    'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent',
+    'twelfthBoard', 'twelfthRoll', 'twelfthYear', 'twelfthPercent',
+    'aadhaarNumber', 'panNumber', 'passportNumber', 'dlNumber', 'voterId',
+  ]);
   for (const doc of params.ephemeralDocs) {
     const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
     const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
@@ -131,8 +145,27 @@ function buildServerFillPayload(params: {
       const k = f.key.trim();
       const v = f.value.trim();
       if (!v) continue;
+      if (EXPLICIT_DIRECT_KEYS.has(k)) {
+        map[k] = map[k] || v;
+      }
       const lower = `${k} ${f.label}`.toLowerCase();
-      if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
+      if (k === 'fromStation' || lower.includes('from station') || lower.includes('boarding station')) map.fromStation = map.fromStation || v;
+      else if (k === 'toStation' || lower.includes('to station') || lower.includes('destination station')) map.toStation = map.toStation || v;
+      else if (k === 'journeyDate' || lower.includes('journey date') || lower.includes('travel date')) map.journeyDate = map.journeyDate || v;
+      else if (k === 'trainClass' || lower.includes('train class')) map.trainClass = map.trainClass || v;
+      else if (k === 'trainQuota' || lower.includes('quota')) map.trainQuota = map.trainQuota || v;
+      else if (k === 'berthPreference' || lower.includes('berth')) map.berthPreference = map.berthPreference || v;
+      else if (k === 'loginUserId' || lower.includes('login user') || lower.includes('irctc user')) map.loginUserId = map.loginUserId || v;
+      else if (k === 'loginPassword') map.loginPassword = map.loginPassword || v;
+      else if (k === 'tenthBoard') map.tenthBoard = map.tenthBoard || v;
+      else if (k === 'tenthRoll') map.tenthRoll = map.tenthRoll || v;
+      else if (k === 'tenthYear') map.tenthYear = map.tenthYear || v;
+      else if (k === 'tenthPercent') map.tenthPercent = map.tenthPercent || v;
+      else if (k === 'twelfthBoard') map.twelfthBoard = map.twelfthBoard || v;
+      else if (k === 'twelfthRoll') map.twelfthRoll = map.twelfthRoll || v;
+      else if (k === 'twelfthYear') map.twelfthYear = map.twelfthYear || v;
+      else if (k === 'twelfthPercent') map.twelfthPercent = map.twelfthPercent || v;
+      else if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
         map.fullName = map.fullName || v;
       } else if (lower.includes('father')) map.fatherName = map.fatherName || v;
       else if (lower.includes('mother')) map.motherName = map.motherName || v;
@@ -141,6 +174,7 @@ function buildServerFillPayload(params: {
       else if (lower.includes('blood')) map.bloodGroup = map.bloodGroup || v;
       else if (lower.includes('gender') || lower.includes('sex')) map.gender = map.gender || v;
       else if (lower.includes('category') || lower.includes('caste')) map.category = map.category || v;
+      else if (lower.includes('marital')) map.maritalStatus = map.maritalStatus || v;
       else if (lower.includes('mobile') || lower.includes('phone')) map.mobile = map.mobile || v;
       else if (lower.includes('email')) map.email = map.email || v;
       else if (lower.includes('pin')) map.pinCode = map.pinCode || v;
@@ -807,7 +841,7 @@ export class LiveBrowserController {
             maxTotal: number;
           }) => {
             const selectors =
-              'input, textarea, select, button, a[href], [role="button"], [role="combobox"]';
+              'input, textarea, select, button, a[href], [role="button"], [role="combobox"], mat-select, ng-select, p-dropdown, [aria-haspopup="listbox"], [role="listbox"], .dropdown-toggle';
             const nodes = Array.from(document.querySelectorAll(selectors));
             const results: InteractiveDomElement[] = [];
             let idx = startIdx;
@@ -865,17 +899,25 @@ export class LiveBrowserController {
                   ? Boolean(inputEl.checked)
                   : undefined;
 
+              const isCustomSelect =
+                el.tagName.toLowerCase() !== 'input' &&
+                el.tagName.toLowerCase() !== 'textarea' &&
+                el.tagName.toLowerCase() !== 'select' &&
+                el.matches('mat-select, ng-select, p-dropdown, [role="combobox"], [aria-haspopup="listbox"], .dropdown-toggle');
+              const displayValue =
+                inputEl.value || (isCustomSelect ? (el.textContent || '').trim().replace(/\s+/g, ' ') : '');
+
               el.setAttribute('data-sarthi-idx', String(idx));
 
               results.push({
                 index: idx++,
                 frameIndex,
                 tag: el.tagName.toLowerCase(),
-                type: inputEl.type || '',
+                type: inputEl.type || (isCustomSelect ? 'custom-select' : ''),
                 label: labelText,
                 nearbyText,
                 placeholder: (inputEl.placeholder || '').slice(0, 60),
-                value: (inputEl.value || '').slice(0, 50),
+                value: displayValue.slice(0, 50),
                 checked,
                 options,
                 x: Math.round(ox + rect.left + rect.width / 2),
@@ -983,7 +1025,7 @@ export class LiveBrowserController {
 
       await this.dismissAdvisoryPopup(page);
 
-      const maxSteps = 12;
+      const maxSteps = 35;
       for (let step = 1; step <= maxSteps; step++) {
         if (this.agentAbort) break;
 
@@ -1082,6 +1124,40 @@ export class LiveBrowserController {
           await this.captureAndBroadcastFrame();
         } else if (decision.action === 'select' && decision.value) {
           let selected = false;
+          const wanted = decision.value.trim();
+          const selectCustomOption = async (): Promise<boolean> => {
+            await page.waitForTimeout(450);
+            const optSel =
+              '[role="option"], mat-option, .ng-option, .p-dropdown-item, .p-autocomplete-item, .dropdown-item, .cdk-overlay-container li, .select2-results__option, ul[role="listbox"] li';
+            const optMatch = await page.evaluate(
+              ({ sel, want }: { sel: string; want: string }) => {
+                const w = want.toLowerCase().trim();
+                const items = Array.from(document.querySelectorAll(sel)) as HTMLElement[];
+                const visible = items.filter((el) => {
+                  const st = window.getComputedStyle(el);
+                  const r = el.getBoundingClientRect();
+                  return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 4 && r.height > 4;
+                });
+                const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+                let best = visible.find((el) => norm(el.innerText || el.textContent || '') === w);
+                if (!best) {
+                  best = visible.find((el) => {
+                    const t = norm(el.innerText || el.textContent || '');
+                    return t && (t.includes(w) || (t.length >= 3 && w.includes(t)));
+                  });
+                }
+                if (!best) return null;
+                best.scrollIntoView({ block: 'nearest' });
+                const r = best.getBoundingClientRect();
+                best.click();
+                return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+              },
+              { sel: optSel, want: wanted }
+            );
+            if (optMatch) return true;
+            return false;
+          };
+
           if (typeof decision.elementIndex === 'number') {
             const matchedEl = elements.find((e) => e.index === decision.elementIndex);
             const target = await this.locateTaggedElementAcrossFrames(
@@ -1090,23 +1166,38 @@ export class LiveBrowserController {
               matchedEl?.frameIndex
             );
             if (target) {
-              try {
-                await target.loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
-                await target.loc
-                  .selectOption({ label: decision.value }, { timeout: 2500 })
-                  .catch(() => target.loc.selectOption(decision.value!, { timeout: 2500 }));
-                selected = true;
-              } catch {
-                selected = false;
+              const isNativeSelect = matchedEl?.tag === 'select';
+              if (isNativeSelect) {
+                try {
+                  await target.loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+                  await target.loc
+                    .selectOption({ label: wanted }, { timeout: 2500 })
+                    .catch(() => target.loc.selectOption(wanted, { timeout: 2500 }));
+                  selected = true;
+                } catch {
+                  selected = false;
+                }
+              } else {
+                // Custom dropdown (mat-select, ng-select, p-dropdown, div "Select", etc.)
+                try {
+                  await target.loc.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(() => {});
+                  await target.loc.click({ timeout: 2500 });
+                  selected = await selectCustomOption();
+                } catch {
+                  selected = false;
+                }
               }
             }
           }
           if (!selected && typeof decision.x === 'number' && typeof decision.y === 'number') {
             await page.mouse.click(Math.round(decision.x), Math.round(decision.y));
-            await page.keyboard.type(decision.value, { delay: 20 });
-            await page.keyboard.press('Enter').catch(() => {});
+            selected = await selectCustomOption();
+            if (!selected) {
+              await page.keyboard.type(wanted, { delay: 20 });
+              await page.keyboard.press('Enter').catch(() => {});
+            }
           }
-          await page.waitForTimeout(300);
+          await page.waitForTimeout(350);
           await this.captureAndBroadcastFrame();
         } else if (decision.action === 'press_key' && decision.value) {
           await this.pressKey(decision.value);
@@ -1517,6 +1608,7 @@ export class LiveBrowserController {
                   o?: Record<string, unknown>
                 ) => {
                   filled: number;
+                  customQueued?: number;
                   hasCaptcha: boolean;
                   hasOtp: boolean;
                   declarations: number;
@@ -1539,6 +1631,9 @@ export class LiveBrowserController {
 
           if (summary.filledItems && summary.filledItems.length > 0) {
             await this.replayTrustedPlaywrightFills(frame, summary.filledItems);
+          }
+          if (summary.customQueued && summary.customQueued > 0) {
+            await page.waitForTimeout(Math.min(3500, summary.customQueued * 750 + 500));
           }
 
           const mappedIds = new Set<string>();

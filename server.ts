@@ -28,7 +28,26 @@ import {
 } from './server/geminiAgent.ts';
 import { LiveBrowserController } from './server/liveBrowser.ts';
 
-const PORT = Number(process.env.PORT) || 3000;
+function resolveServerPort(): number {
+  const portArgIdx = process.argv.findIndex((arg) => arg === '--port' || arg === '-p');
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    const parsed = Number(process.argv[portArgIdx + 1]);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const eqArg = process.argv.find((arg) => arg.startsWith('--port='));
+  if (eqArg) {
+    const parsed = Number(eqArg.split('=')[1]);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const envPort = Number(process.env.PORT);
+  const nginxPort = Number(process.env.NGINX_PORT);
+  if (Number.isFinite(envPort) && envPort > 0 && envPort !== nginxPort) {
+    return envPort;
+  }
+  return Number(process.env.DEFAULT_APP_PORT) || 3000;
+}
+
+const PORT = resolveServerPort();
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 const DATA_DIR = path.resolve('data');
@@ -255,6 +274,9 @@ const uploadMemory = multer({
 const httpServer = http.createServer(app);
 const liveBrowser = new LiveBrowserController();
 const wss = new WebSocketServer({ server: httpServer, path: '/ws/browser' });
+wss.on('error', (err) => {
+  console.error('LiveBrowser WebSocketServer error:', err);
+});
 liveBrowser.attachWebSocketServer(wss);
 
 // ---- Workspace Bootstrap & Profile Vault ----
@@ -772,7 +794,7 @@ async function start() {
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -783,6 +805,11 @@ async function start() {
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }
+
+  httpServer.on('error', (err) => {
+    console.error('HTTP server error:', err);
+    process.exit(1);
+  });
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`SarthiAI Server running on http://0.0.0.0:${PORT}`);

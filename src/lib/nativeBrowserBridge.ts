@@ -117,11 +117,27 @@ export function buildAutoFillPayload(params: {
       const lower = `${k} ${String(f?.label ?? '')}`.toLowerCase();
       if (lower.includes('income_source') || lower.includes('income source')) {
         map.incomeSource = map.incomeSource || v;
+      } else if (lower.includes('from_station') || lower.includes('from station') || k === 'fromStation') {
+        map.fromStation = map.fromStation || v;
+      } else if (lower.includes('to_station') || lower.includes('to station') || k === 'toStation') {
+        map.toStation = map.toStation || v;
+      } else if (lower.includes('journey_date') || lower.includes('journey date') || lower.includes('travel date') || k === 'journeyDate') {
+        map.journeyDate = map.journeyDate || v;
+      } else if (lower.includes('train_class') || lower.includes('train class') || k === 'trainClass') {
+        map.trainClass = map.trainClass || v;
+      } else if (lower.includes('train_quota') || lower.includes('train quota') || lower.includes('quota') || k === 'trainQuota') {
+        map.trainQuota = map.trainQuota || v;
+      } else if (lower.includes('berth') || k === 'berthPreference') {
+        map.berthPreference = map.berthPreference || v;
+      } else if (lower.includes('login_user') || lower.includes('login user') || lower === 'username' || lower === 'userid' || k === 'loginUserId') {
+        map.loginUserId = map.loginUserId || v;
+      } else if (lower.includes('login_password') || lower.includes('login password') || k === 'loginPassword') {
+        map.loginPassword = map.loginPassword || v;
       } else if (lower.includes('marital')) {
         map.maritalStatus = map.maritalStatus || v;
       } else if (lower.includes('designation')) {
         map.designation = map.designation || v;
-      } else if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
+      } else if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board') && !lower.includes('user'))) {
         map.fullName = map.fullName || v;
       } else if (lower.includes('father')) {
         map.fatherName = map.fatherName || v;
@@ -168,20 +184,20 @@ export function buildAutoFillPayload(params: {
       } else if (lower.includes('state') || lower.includes('rajya') || lower.includes('राज्य') || lower.includes('pradesh') || lower.includes('province')) {
         map.state = map.state || v;
       } else if (lower.includes('roll')) {
-        if (isTenthDoc) map.tenthRoll = map.tenthRoll || v;
-        else if (isTwelfthDoc) map.twelfthRoll = map.twelfthRoll || v;
+        if (isTenthDoc || lower.includes('tenth') || lower.includes('10th') || lower.includes('matric')) map.tenthRoll = map.tenthRoll || v;
+        else if (isTwelfthDoc || lower.includes('twelfth') || lower.includes('12th') || lower.includes('inter')) map.twelfthRoll = map.twelfthRoll || v;
       } else if (lower.includes('passingyear') || lower.includes('passing_year') || lower.includes('year')) {
         map.passingYear = map.passingYear || v;
-        if (isTenthDoc) map.tenthYear = map.tenthYear || v;
-        else if (isTwelfthDoc) map.twelfthYear = map.twelfthYear || v;
+        if (isTenthDoc || lower.includes('tenth') || lower.includes('10th') || lower.includes('matric')) map.tenthYear = map.tenthYear || v;
+        else if (isTwelfthDoc || lower.includes('twelfth') || lower.includes('12th') || lower.includes('inter')) map.twelfthYear = map.twelfthYear || v;
       } else if (lower.includes('percent') || lower.includes('cgpa') || lower.includes('grade') || lower.includes('marks')) {
         map.percentageOrGrade = map.percentageOrGrade || v;
-        if (isTenthDoc) map.tenthPercent = map.tenthPercent || v;
-        else if (isTwelfthDoc) map.twelfthPercent = map.twelfthPercent || v;
+        if (isTenthDoc || lower.includes('tenth') || lower.includes('10th') || lower.includes('matric')) map.tenthPercent = map.tenthPercent || v;
+        else if (isTwelfthDoc || lower.includes('twelfth') || lower.includes('12th') || lower.includes('inter')) map.twelfthPercent = map.twelfthPercent || v;
       } else if (lower.includes('board') || lower.includes('university')) {
         map.boardOrUniversity = map.boardOrUniversity || v;
-        if (isTenthDoc) map.tenthBoard = map.tenthBoard || v;
-        else if (isTwelfthDoc) map.twelfthBoard = map.twelfthBoard || v;
+        if (isTenthDoc || lower.includes('tenth') || lower.includes('10th') || lower.includes('matric')) map.tenthBoard = map.tenthBoard || v;
+        else if (isTwelfthDoc || lower.includes('twelfth') || lower.includes('12th') || lower.includes('inter')) map.twelfthBoard = map.twelfthBoard || v;
       } else if (lower.includes('qualification')) {
         map.qualification = map.qualification || v;
       }

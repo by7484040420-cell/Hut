@@ -52,53 +52,103 @@ const DETAIL_FIELDS: Array<{
   label: string;
   placeholder: string;
   inputMode?: 'text' | 'tel' | 'email' | 'numeric';
+  inputType?: 'text' | 'password';
   options?: string[];
 }> = [
+  { payloadKey: 'fromStation', fkey: 'from_station', label: 'From Station (Kahan se)', placeholder: 'jaise Siwan, Patna, New Delhi' },
+  { payloadKey: 'toStation', fkey: 'to_station', label: 'To Station (Kahan tak)', placeholder: 'jaise New Delhi, Mumbai, Surat' },
+  { payloadKey: 'journeyDate', fkey: 'journey_date', label: 'Journey Date (Yatra Tarikh)', placeholder: 'DD/MM/YYYY' },
+  {
+    payloadKey: 'trainClass',
+    fkey: 'train_class',
+    label: 'Train Class',
+    placeholder: 'Class chuno',
+    options: ['All Classes', 'Sleeper (SL)', 'AC 3 Tier (3A)', 'AC 3 Economy (3E)', 'AC 2 Tier (2A)', 'AC First Class (1A)', 'AC Chair Car (CC)', 'Second Sitting (2S)'],
+  },
+  {
+    payloadKey: 'trainQuota',
+    fkey: 'train_quota',
+    label: 'Quota',
+    placeholder: 'Quota chuno',
+    options: ['GENERAL', 'TATKAL', 'PREMIUM TATKAL', 'LADIES', 'LOWER BERTH/SR.CITIZEN'],
+  },
+  {
+    payloadKey: 'berthPreference',
+    fkey: 'berth_preference',
+    label: 'Seat / Berth Preference',
+    placeholder: 'Berth chuno',
+    options: ['No Preference', 'Lower', 'Middle', 'Upper', 'Side Lower', 'Side Upper'],
+  },
   { payloadKey: 'fullName', fkey: 'full_name', label: 'Full Name', placeholder: 'Aadhaar jaisa poora naam' },
   { payloadKey: 'dob', fkey: 'dob', label: 'Date of Birth', placeholder: 'DD/MM/YYYY' },
   { payloadKey: 'fatherName', fkey: 'father_name', label: 'Father Name', placeholder: 'Pita ka poora naam' },
   { payloadKey: 'motherName', fkey: 'mother_name', label: 'Mother Name', placeholder: 'Mata ka poora naam' },
+  { payloadKey: 'gender', fkey: 'gender', label: 'Gender', placeholder: 'Male / Female / Other', options: ['Male', 'Female', 'Other'] },
+  { payloadKey: 'category', fkey: 'category', label: 'Category', placeholder: 'General / OBC / SC / ST', options: ['General', 'OBC', 'SC', 'ST', 'EWS'] },
+  { payloadKey: 'maritalStatus', fkey: 'marital_status', label: 'Marital Status', placeholder: 'Single / Married', options: ['Single', 'Married', 'Divorced', 'Widowed'] },
   { payloadKey: 'mobile', fkey: 'mobile', label: 'Mobile Number', placeholder: '10 digit mobile', inputMode: 'tel' },
   { payloadKey: 'email', fkey: 'email', label: 'Email ID', placeholder: 'name@gmail.com', inputMode: 'email' },
+  { payloadKey: 'aadhaarNumber', fkey: 'aadhaar_number', label: 'Aadhaar Number (12 digit)', placeholder: '12 digit Aadhaar (optional)', inputMode: 'numeric' },
+  { payloadKey: 'panNumber', fkey: 'pan_number', label: 'PAN Number', placeholder: 'ABCDE1234F' },
+  {
+    payloadKey: 'tenthBoard',
+    fkey: 'tenth_board',
+    label: '10th Board Name',
+    placeholder: 'jaise CBSE / Bihar Board (BSEB) / UP Board',
+    options: ['CBSE', 'Bihar School Examination Board (BSEB)', 'UP Board (UPMSP)', 'ICSE / CISCE', 'Jharkhand Academic Council (JAC)', 'MPBSE', 'RBSE', 'NIOS', 'West Bengal Board (WBBSE)', 'Maharashtra State Board'],
+  },
+  { payloadKey: 'tenthRoll', fkey: 'tenth_roll', label: '10th Roll Number', placeholder: 'Matric roll number' },
+  { payloadKey: 'tenthYear', fkey: 'tenth_year', label: '10th Passing Year', placeholder: 'jaise 2020', inputMode: 'numeric' },
+  { payloadKey: 'tenthPercent', fkey: 'tenth_percent', label: '10th Percentage / CGPA', placeholder: 'jaise 78.5' },
   { payloadKey: 'addressLine', fkey: 'address', label: 'Address', placeholder: 'Ghar / mohalla / gali' },
   { payloadKey: 'villageOrWard', fkey: 'village_ward', label: 'Village / Ward', placeholder: 'Gaon ya ward' },
   { payloadKey: 'postOffice', fkey: 'post_office', label: 'Post Office', placeholder: 'Daakghar' },
   { payloadKey: 'policeStation', fkey: 'police_station', label: 'Police Station', placeholder: 'Thana' },
   { payloadKey: 'blockOrTehsil', fkey: 'block_tehsil', label: 'Block / Tehsil', placeholder: 'Block ya tehsil' },
   { payloadKey: 'district', fkey: 'district', label: 'District', placeholder: 'Zila' },
+  { payloadKey: 'state', fkey: 'state', label: 'State / Rajya', placeholder: 'Rajya chuno' },
   { payloadKey: 'pinCode', fkey: 'pin_code', label: 'PIN Code', placeholder: '6 digit PIN', inputMode: 'numeric' },
   { payloadKey: 'birthPlace', fkey: 'birth_place', label: 'Birth Place', placeholder: 'Janm sthan' },
   { payloadKey: 'bloodGroup', fkey: 'blood_group', label: 'Blood Group', placeholder: 'jaise B+' },
-  { payloadKey: 'gender', fkey: 'gender', label: 'Gender', placeholder: 'Male / Female / Other', options: ['Male', 'Female', 'Other'] },
-  { payloadKey: 'category', fkey: 'category', label: 'Category', placeholder: 'General / OBC / SC / ST', options: ['General', 'OBC', 'SC', 'ST', 'EWS'] },
-  { payloadKey: 'maritalStatus', fkey: 'marital_status', label: 'Marital Status', placeholder: 'Single / Married', options: ['Single', 'Married', 'Divorced', 'Widowed'] },
-  { payloadKey: 'state', fkey: 'state', label: 'State / Rajya', placeholder: 'Rajya chuno' },
   { payloadKey: 'incomeSource', fkey: 'income_source', label: 'Income Source (kamai ka zariya)', placeholder: 'Salary / Business / House property / Other sources / No income', options: ['Salary', 'Income from Business / Profession', 'Income from House property', 'Income from Other sources', 'Capital Gains', 'No income'] },
   { payloadKey: 'alternateMobile', fkey: 'alternate_mobile', label: 'Alternate Mobile', placeholder: '10 digit mobile', inputMode: 'tel' },
   { payloadKey: 'qualification', fkey: 'qualification', label: 'Qualification', placeholder: 'jaise 12th, Graduate' },
+  { payloadKey: 'loginUserId', fkey: 'login_user_id', label: 'Portal User ID / Login ID (agar account hai)', placeholder: 'Optional — login ke liye User ID' },
+  { payloadKey: 'loginPassword', fkey: 'login_password', label: 'Portal Password (RAM-only, optional)', placeholder: 'Optional — sirf is session ke liye', inputType: 'password' },
 ];
 
 // Har form ke liye pehle se pata hai kaun si details lagti hain (AI recipe iske upar aur jodta hai)
 const BASELINE_KEYS: Array<{ test: RegExp; keys: string[] }> = [
   {
+    test: /irctc|train|ticket|rail/i,
+    keys: ['fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'fullName', 'dob', 'gender', 'berthPreference', 'mobile', 'email', 'loginUserId', 'loginPassword'],
+  },
+  {
+    test: /ssc|army|rrb|police|constable|otr|bharti|recruitment|job/i,
+    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'category', 'fatherName', 'motherName', 'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent', 'mobile', 'email', 'addressLine', 'district', 'state', 'pinCode', 'loginUserId', 'loginPassword'],
+  },
+  {
     test: /\bpan\b|protean|tin-nsdl|nsdl|utiitsl|49a|panonline/i,
-    keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'villageOrWard', 'postOffice', 'district', 'state', 'pinCode', 'incomeSource'],
+    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'villageOrWard', 'postOffice', 'district', 'state', 'pinCode', 'incomeSource'],
   },
   {
     test: /parivahan|sarathi|driving|licen[cs]e/i,
-    keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'addressLine', 'pinCode', 'bloodGroup'],
+    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'addressLine', 'district', 'state', 'pinCode', 'bloodGroup'],
   },
   {
     test: /passport/i,
-    keys: ['fullName', 'dob', 'gender', 'birthPlace', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'pinCode'],
+    keys: ['fullName', 'dob', 'gender', 'maritalStatus', 'birthPlace', 'fatherName', 'motherName', 'qualification', 'mobile', 'email', 'addressLine', 'district', 'state', 'pinCode', 'loginUserId', 'loginPassword'],
   },
-  { test: /irctc/i, keys: ['fullName', 'dob', 'gender', 'mobile', 'email'] },
   {
     test: /voter|nvsp|eci\.gov/i,
-    keys: ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'addressLine', 'pinCode'],
+    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'fatherName', 'mobile', 'addressLine', 'district', 'state', 'pinCode'],
+  },
+  {
+    test: /serviceonline|rtps|edistrict|block|certificate|scholarship/i,
+    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'category', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'villageOrWard', 'postOffice', 'policeStation', 'blockOrTehsil', 'district', 'state', 'pinCode'],
   },
 ];
-const GENERIC_KEYS = ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email'];
+const GENERIC_KEYS = ['fullName', 'dob', 'gender', 'category', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'district', 'state', 'pinCode'];
 
 function baselineKeysFor(url: string, title: string): string[] {
   const t = `${url} ${title}`;
@@ -797,7 +847,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
                             </select>
                           ) : (
                             <input
-                              type="text"
+                              type={f.inputType || 'text'}
                               inputMode={f.inputMode || 'text'}
                               value={inlineValues[f.payloadKey] || ''}
                               onChange={(e) => setInlineValues((prev) => ({ ...prev, [f.payloadKey]: e.target.value }))}
