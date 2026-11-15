@@ -100,7 +100,8 @@
      { key: 'bloodGroup', pos: /blood ?group|rakht|रक्त/, neg: /^$/ }],
 
     // address
-    [{ key: 'pinCode', pos: /pin ?code|\bpin\b|zip|postal|पिन/, neg: /security|otp|mpin|pan/ },
+    [{ key: 'addressLine', pos: /flat|door|building|road|street|sector|house no|plot/, neg: /e ?mail|proof|type|same|police|station|pin ?code|post office/ },
+     { key: 'pinCode', pos: /pin ?code|\bpin\b|postal|पिन/, neg: /security|otp|mpin|pan/ },
      { key: 'district', pos: /district|\bjila\b|जिला/, neg: /court|pin ?code|std/ },
      { key: 'state', pos: /\bstate\b|rajya|राज्य|pradesh|province|domicile state/, neg: /domicile board|\bstatus\b|statement|pin ?code|std/ },
      { key: 'blockOrTehsil', pos: /block|tehsil|tahsil|taluka|taluk|anchal|अंचल|तहसील|प्रखंड/, neg: /^$/ },
@@ -186,6 +187,10 @@
       case 'firstName': return data.firstName || n.first;
       case 'middleName': return data.middleName || n.middle;
       case 'lastName': return data.lastName || n.last;
+      case 'villageOrWard': return data.villageOrWard || data.addressLine || '';
+      case 'postOffice': return data.postOffice || data.villageOrWard || data.district || '';
+      case 'blockOrTehsil': return data.blockOrTehsil || data.district || '';
+      case 'policeStation': return data.policeStation || data.district || '';
       default: return data[key] || '';
     }
   }
@@ -1274,12 +1279,131 @@
     return '';
   }
 
-  var profAskedSig = '', profNoteFor = '';
+
+  // ---------------------------------------------------------------
+  // SMART DEFAULTS: har form ka style alag hota hai. Jo sawal user ke data me nahi hote
+  // (Residential status, DOB proof, Designation, Income source...) unka samajhdaar jawab khud chuno.
+  // AI ke chune hue fields BLUE dikhte hain, ek baar dekh lena.
+  // ---------------------------------------------------------------
+  var DEF_RADIOS = [
+    { q: /address for communication|communication address|correspondence address/, pick: /^(residence|residential)$/ },
+    { q: /residential status|resident status/, pick: /^resident$/ },
+    { q: /upload.*proof|proof of date of birth other than|supporting documents/, pick: /manual/ },
+    { q: /appointing (a )?representative|representative assessee/, pick: /^no$/ }
+  ];
+  var DEF_SELECTS = [
+    { q: /proof of date of birth|proof of dob|date of birth proof/, pick: /aadhaa?r/ },
+    { q: /proof of identity|identity proof/, pick: /aadhaa?r/ },
+    { q: /proof of address|address proof/, pick: /aadhaa?r/ },
+    { q: /\bcountry\b(?!.*(code|isd|std))/, pick: /^india$/ }
+  ];
+
+  function ancestorMatches(el, re, maxLen) {
+    var n = el, hops = 0;
+    while (n && hops < 6) {
+      var t = norm(String(n.innerText || '').slice(0, 900));
+      if (t.length > 0 && t.length <= maxLen && re.test(t)) return true;
+      n = n.parentElement; hops++;
+    }
+    return false;
+  }
+
+  function pickByRegex(sel, re) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (re.test(norm(sel.options[i].text || ''))) {
+        sel.selectedIndex = i;
+        fire(sel, ['input', 'change']);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function smartDefaults(data) {
+    var out = { filled: 0, missing: [] };
+    try {
+      // radios
+      var radios = Array.prototype.slice.call(document.querySelectorAll('input[type="radio"]')).filter(function (r) { return !r.disabled && isVisible(r); });
+      var gs = groupRadios(radios);
+      Object.keys(gs).forEach(function (gk) {
+        var grp = gs[gk];
+        if (grp.some(function (r) { return r.checked; })) return;
+        DEF_RADIOS.forEach(function (d) {
+          if (!d.q.test(norm(grp.map(function (r) { return ancestorText(r); }).join(' ')))) return;
+          if (grp.some(function (r) { return r.checked; })) return;
+          for (var i = 0; i < grp.length; i++) {
+            if (d.pick.test(norm(labelTextOf(grp[i]) || grp[i].value || ''))) {
+              try { grp[i].click(); } catch (e) { grp[i].checked = true; fire(grp[i], ['input', 'change']); }
+              mark(grp[i].parentElement || grp[i], BLUE);
+              out.filled++;
+              return;
+            }
+          }
+        });
+      });
+      // dropdowns
+      Array.prototype.slice.call(document.querySelectorAll('select')).forEach(function (sel) {
+        if (sel.disabled || !isVisible(sel)) return;
+        if (sel.selectedIndex > 0 && sel.value) return;
+        var h = hintOf(sel);
+        if (classifySecurity(h)) return;
+        for (var i = 0; i < DEF_SELECTS.length; i++) {
+          if (DEF_SELECTS[i].q.test(h) && pickByRegex(sel, DEF_SELECTS[i].pick)) { mark(sel, BLUE); out.filled++; return; }
+        }
+      });
+      // designation (declaration)
+      Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type])')).forEach(function (el) {
+        if (el.disabled || el.readOnly || !isVisible(el) || String(el.value || '').trim()) return;
+        if (/designation/.test(hintOf(el))) {
+          setNativeValue(el, data.designation || 'Self');
+          mark(el, BLUE); out.filled++;
+        }
+      });
+      // source of income (checkbox group)
+      var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"]')).filter(function (c) { return !c.disabled && isVisible(c); });
+      var inc = boxes.filter(function (c) { return ancestorMatches(c, /source of income/, 900) && /salary|business|profession|house property|other sources|capital gains|no income/.test(norm(labelTextOf(c))); });
+      if (inc.length && !inc.some(function (c) { return c.checked; })) {
+        var want = norm(data.incomeSource || '');
+        if (!want) { out.missing.push('Source of Income'); }
+        else {
+          var toks = want.split(/[,;|\/]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+          inc.forEach(function (c) {
+            var lb = norm(labelTextOf(c));
+            if (toks.some(function (t) { return t && (lb.indexOf(t) >= 0 || t.indexOf(lb.split(' ')[0]) === 0); })) {
+              try { c.click(); } catch (e) { c.checked = true; fire(c, ['input', 'change']); }
+              mark(c.parentElement || c, BLUE); out.filled++;
+            }
+          });
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  // Radio group ka sawal: apna dabba + uske upar ke heading (aksar alag element me hota hai)
+  function ancestorText(el) {
+    var n = el, hops = 0, t = '';
+    while (n && hops < 5) {
+      t = norm(String(n.innerText || '').slice(0, 400));
+      if (t.length >= 25) break;
+      n = n.parentElement; hops++;
+    }
+    var h = 0, sib = n ? n.previousElementSibling : null;
+    while (sib && h < 2) { t += ' ' + norm(String(sib.innerText || '').slice(0, 100)); sib = sib.previousElementSibling; h++; }
+    return t;
+  }
+
+  var profAskedSig = '', profNoteFor = '', forcedNext = {}, tickSig = '', lastPendSig = '';
 
   function autopilotCore(payload, opts) {
     opts = opts || {};
-    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; }
+    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; }
     var s = run(payload, {});
+    var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
+    s.filled += sd.filled;
+    s.smartMissing = sd.missing;
+    var curSig = pageSig();
+    if (curSig !== tickSig) { tickSig = curSig; fillingTicks = 0; }
     s.state = 'working';
     s.clicked = '';
     s.asks = [];
@@ -1332,6 +1456,17 @@
         var sg = asks.map(function (a) { return a.key || a.id; }).join(',');
         if (asks.length > 0 && sg !== askedSig) { askedSig = sg; s.asks = asks; }
       }
+      // Kuch field bhar nahi paye to bhi ruko mat: Next dabao (Submit/Pay kabhi nahi), baaki fields user ko dikhenge
+      if (fillingTicks >= 6 && !s.hasCaptcha && !s.hasOtp && !s.hasPassword && !s.hasPayment && !forcedNext[curSig]) {
+        forcedNext[curSig] = 1;
+        var ft = clickNext();
+        if (ft) {
+          s.clicked = ft; s.state = 'next'; fillingTicks = 0;
+          s.pending = (s.smartMissing || []).concat(list.map(function (a) { return a.label; }).slice(0, 8));
+          s.note = 'Kuch fields bhar nahi paye, AI aage badh gaya (' + ft + '). Wapas aakar dekh lena';
+          return s;
+        }
+      }
       s.state = s.uploads.length > 0 ? 'upload' : 'filling';
       return s;
     }
@@ -1354,7 +1489,7 @@
   function silenceAsks(s) {
     if (root.SARTHI_ASK_POPUP === true) return s;
     if (s && s.asks && s.asks.length) {
-      s.pending = s.asks.map(function (a) { return a.label || a.key || 'Detail'; });
+      s.pending = (s.pending || []).concat(s.asks.map(function (a) { return a.label || a.key || 'Detail'; }));
       s.asks = [];
     }
     return s;
@@ -1373,6 +1508,10 @@
     userHold = null;
     var s = autopilotCore(payload, opts);
     silenceAsks(s);
+    var pendAll = (s.pending || []).concat(s.smartMissing || []);
+    var pendSig = pendAll.join('|');
+    s.pending = (pendSig && pendSig !== lastPendSig) ? pendAll : undefined;   // status line me baar-baar wahi na dikhe
+    lastPendSig = pendSig;
     s.needRecipe = false;
     s.stuck = null;
     var host = root.location ? root.location.hostname : '';
@@ -1382,7 +1521,7 @@
       stuckTicks = (sig === stuckSig) ? stuckTicks + 1 : 1;
       stuckSig = sig;
       var key = pageSig();
-      if (stuckTicks >= 3 && (scanCount[key] || 0) < 2) { scanCount[key] = (scanCount[key] || 0) + 1; s.stuck = snapshot(); }
+      if (stuckTicks >= 2 && (scanCount[key] || 0) < 4) { scanCount[key] = (scanCount[key] || 0) + 1; s.stuck = snapshot(); }
     } else { stuckTicks = 0; stuckSig = ''; }
     return s;
   }
