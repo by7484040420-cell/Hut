@@ -1602,6 +1602,7 @@ export async function formRecipeWithAI(params: {
             `1) "details": personal details that will be typed in the form. Use ONLY keys from this list: ${RECIPE_KEYS.join(', ')}. For gender/category/maritalStatus add "options". Give a short Hinglish "label".`,
             '2) "documents": documents/photos the user may need to upload (short Hinglish labels).',
             '3) "name": short name of the application.',
+            'IMPORTANT: the form has several pages/steps. List EVERY personal detail asked on ANY page of the form (for example father name AND mother name, date of birth, gender, mobile, email, full address, PIN, state, district, category) so the user can give all of them BEFORE the website opens and is never asked again later. Do not leave out details that appear on later pages.',
             'RULES: Do NOT include passwords, OTP, CAPTCHA, bank/card/UPI or payment items. If the page is not an application form, return empty lists. Be accurate; do not invent unusual requirements.',
             'Return JSON.',
           ].join('\n'),
