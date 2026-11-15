@@ -152,6 +152,18 @@ jobs:
               private boolean askOpen = false;
               private boolean resetAsk = false;
               private boolean formDone = false;
+              private final java.util.ArrayList<String[]> ramDocs = new java.util.ArrayList<>();   // {name, mime, base64} sirf RAM me
+              private final java.util.HashSet<String> uploadHandled = new java.util.HashSet<>();
+              private final java.util.HashSet<String> reqShown = new java.util.HashSet<>();
+              private boolean uploadDialogOpen = false;
+              private String pendingAttachId = null;
+              private final androidx.activity.result.ActivityResultLauncher<String[]> attachPicker =
+                  registerForActivityResult(new androidx.activity.result.contract.ActivityResultContracts.OpenDocument(), uri -> {
+                      final String id = pendingAttachId;
+                      pendingAttachId = null;
+                      uploadDialogOpen = false;
+                      if (uri != null) readAndAttach(uri, id);
+                  });
               private android.webkit.ValueCallback<android.net.Uri[]> fileCallback;
               private final androidx.activity.result.ActivityResultLauncher<String[]> filePicker =
                   registerForActivityResult(new androidx.activity.result.contract.ActivityResultContracts.OpenDocument(), uri -> {
@@ -272,6 +284,8 @@ jobs:
                   closeBtn.setOnClickListener(v -> {
                       if (formDone) {
                           formDone = false;
+                          reqShown.clear();
+                          uploadHandled.clear();
                           if (portalWebView != null) {
                               portalWebView.clearCache(true);
                               portalWebView.clearHistory();
@@ -335,6 +349,7 @@ jobs:
                       public void onPageStarted(WebView view, String url, Bitmap favicon) {
                           super.onPageStarted(view, url, favicon);
                           tickCount = 0;
+                          uploadHandled.clear();
                           tickHandler.removeCallbacks(tickRunnable);
                           forceDesktopView(view);
                       }
@@ -343,6 +358,7 @@ jobs:
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
                           forceDesktopView(view);
+                          maybeShowRequirements(url);
                           emitPortalEvent("Loaded: " + url, url);
                           scheduleTick(900);
                       }
@@ -403,6 +419,7 @@ jobs:
 
               private void handleFormDone() {
                   activePayloadJson = "{}";
+                  ramDocs.clear();
                   formDone = true;
                   tickHandler.removeCallbacks(tickRunnable);
                   runOnUiThread(() -> {
@@ -414,7 +431,7 @@ jobs:
               }
 
               // AI ko jo details chahiye (mata-pita, mobile, email, username...) user se poochne ka popup
-              private void showAskDialog(final JSONArray asks) {
+              private void showAskDialog(final JSONArray asks, final String note) {
                   if (askOpen) return;
                   askOpen = true;
                   runOnUiThread(() -> {
@@ -424,6 +441,12 @@ jobs:
                       box.setOrientation(LinearLayout.VERTICAL);
                       box.setPadding(pad, pad, pad, pad);
                       sv.addView(box);
+                      if (note != null && !note.isEmpty()) {
+                          TextView nt = new TextView(this);
+                          nt.setText(note);
+                          nt.setTextSize(12f);
+                          box.addView(nt);
+                      }
                       final java.util.ArrayList<JSONObject> items = new java.util.ArrayList<>();
                       final java.util.ArrayList<View> inputs = new java.util.ArrayList<>();
                       for (int i = 0; i < asks.length(); i++) {
@@ -494,6 +517,151 @@ jobs:
                   scheduleTick(600);
               }
 
+              // ---- Document upload: AI user ka document khud form me lagata hai ----
+              private String[] pickDocFor(String kind) {
+                  synchronized (ramDocs) {
+                      for (String[] d : ramDocs) {
+                          String n = d[0].toLowerCase();
+                          boolean isPhoto = n.contains("photo") || n.contains("passport") || n.contains("selfie");
+                          boolean isSign = n.contains("sign");
+                          if ("photo".equals(kind) && isPhoto) return d;
+                          if ("signature".equals(kind) && isSign) return d;
+                          if ("doc".equals(kind) && !isPhoto && !isSign) return d;
+                      }
+                  }
+                  return null;
+              }
+
+              private void attachDoc(final String id, final String[] doc) {
+                  final String js = "(function(){try{var el=document.querySelector('[data-sarthi-id=\"" + id + "\"]');if(!el)return 'noel';"
+                      + "var bin=atob('" + doc[2] + "');var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);"
+                      + "var f=new File([u]," + JSONObject.quote(doc[0]) + ",{type:" + JSONObject.quote(doc[1]) + "});"
+                      + "var dt=new DataTransfer();dt.items.add(f);el.files=dt.files;"
+                      + "el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));"
+                      + "return 'ok';}catch(e){return 'err:'+e;}})();";
+                  runOnUiThread(() -> {
+                      if (portalWebView == null) return;
+                      portalWebView.evaluateJavascript(js, raw -> emitPortalEvent("Document upload: " + (raw == null ? "" : raw.replace("\"", "")) + " (" + doc[0] + ")", null));
+                      scheduleTick(1500);
+                  });
+              }
+
+              private void handleUploadFields(JSONArray fields) {
+                  for (int i = 0; i < fields.length(); i++) {
+                      JSONObject f = fields.optJSONObject(i);
+                      if (f == null) continue;
+                      String id = f.optString("id");
+                      if (id.isEmpty() || uploadHandled.contains(id)) continue;
+                      String kind = f.optString("docKind", "doc");
+                      String[] doc = pickDocFor(kind);
+                      if (doc != null) {
+                          uploadHandled.add(id);
+                          attachDoc(id, doc);
+                      } else {
+                          askPickDoc(id, f.optString("label", "Document"), kind);
+                          return;
+                      }
+                  }
+              }
+
+              private void askPickDoc(final String id, final String label, final String kind) {
+                  if (uploadDialogOpen) return;
+                  uploadDialogOpen = true;
+                  final String what = "photo".equals(kind) ? "Photo" : ("signature".equals(kind) ? "Signature" : "Document");
+                  runOnUiThread(() -> new AlertDialog.Builder(this)
+                      .setTitle(what + " chahiye")
+                      .setMessage("Form me \"" + label + "\" upload karna hai. Apne phone se file chuno, baaki AI laga dega.")
+                      .setCancelable(false)
+                      .setPositiveButton("File chuno", (d, w) -> {
+                          uploadHandled.add(id);
+                          pendingAttachId = id;
+                          try { attachPicker.launch(new String[]{"*/*"}); } catch (Exception e) { uploadDialogOpen = false; }
+                      })
+                      .setNegativeButton("Baad me", (d, w) -> { uploadHandled.add(id); uploadDialogOpen = false; })
+                      .show());
+              }
+
+              private void readAndAttach(final android.net.Uri uri, final String id) {
+                  new Thread(() -> {
+                      try {
+                          java.io.InputStream is = getContentResolver().openInputStream(uri);
+                          java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                          byte[] buf = new byte[8192];
+                          int n;
+                          while (is != null && (n = is.read(buf)) > 0) bos.write(buf, 0, n);
+                          if (is != null) is.close();
+                          String mime = getContentResolver().getType(uri);
+                          String name = uri.getLastPathSegment();
+                          final String[] doc = new String[]{
+                              name == null ? "document" : name,
+                              mime == null ? "application/octet-stream" : mime,
+                              Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+                          };
+                          synchronized (ramDocs) {
+                              if (ramDocs.size() >= 6) ramDocs.remove(0);
+                              ramDocs.add(doc);
+                          }
+                          if (id != null) attachDoc(id, doc);
+                          else emitPortalEvent("Document AI ke paas aa gaya (RAM me): " + doc[0], null);
+                      } catch (Exception e) {
+                          emitPortalEvent("File padh nahi paya", null);
+                      }
+                  }).start();
+              }
+
+              // ---- AI ko pata hai kaunsi service me kya lagta hai ----
+              private String requirementsFor(String url) {
+                  String u = url == null ? "" : url.toLowerCase();
+                  if (u.contains("proteantech") || u.contains("tin-nsdl") || u.contains("onlineservices.nsdl")) {
+                      return "PAN card (Form 49A) ke liye:\n"
+                          + "• Aadhaar number (jis mobile se linked ho wo mobile OTP ke liye)\n"
+                          + "• Mobile aur Email\n"
+                          + "• Date of birth\n"
+                          + "• Father aur Mother ka naam\n"
+                          + "• Scan-upload mode chunne par: Photo, Signature, ID proof, Address proof, DOB proof\n\n"
+                          + "Aadhaar eKYC mode me zyada documents nahi lagte.";
+                  }
+                  if (u.contains("parivahan") || u.contains("sarathi")) {
+                      return "Driving Licence ke liye:\n"
+                          + "• Aadhaar / ID proof\n"
+                          + "• Address proof\n"
+                          + "• Age proof (10th marksheet ya birth certificate)\n"
+                          + "• Passport photo aur Signature\n"
+                          + "• Mobile (OTP ke liye)\n"
+                          + "• Learner licence number (permanent DL ke liye)\n"
+                          + "• Medical certificate (Form 1A) jahan zaruri ho";
+                  }
+                  if (u.contains("irctc")) {
+                      return "IRCTC account / ticket ke liye:\n"
+                          + "• Mobile aur Email (OTP ke liye)\n"
+                          + "• Naam (Aadhaar jaisa)\n"
+                          + "• Passenger ka naam, umar, gender\n"
+                          + "• Payment, OTP aur CAPTCHA aap khud karoge";
+                  }
+                  return null;
+              }
+
+              private void maybeShowRequirements(String url) {
+                  if (formDone) return;
+                  final String req = requirementsFor(url);
+                  if (req == null) return;
+                  String host = "";
+                  try { host = android.net.Uri.parse(url).getHost(); } catch (Exception ignored) {}
+                  if (host == null || reqShown.contains(host)) return;
+                  reqShown.add(host);
+                  final int have;
+                  synchronized (ramDocs) { have = ramDocs.size(); }
+                  runOnUiThread(() -> new AlertDialog.Builder(this)
+                      .setTitle("Is form ke liye ye chahiye")
+                      .setMessage(req + "\n\nAI ke paas abhi " + have + " document hai.")
+                      .setPositiveButton("Theek hai", null)
+                      .setNeutralButton("Document chuno", (d, w) -> {
+                          pendingAttachId = null;
+                          try { attachPicker.launch(new String[]{"*/*"}); } catch (Exception ignored) {}
+                      })
+                      .show());
+              }
+
               private void runAutoFillOnPortal() {
                   if (portalWebView == null) return;
                   final String engine = loadFillEngine();
@@ -538,6 +706,8 @@ jobs:
                           String st = res.optString("state", "");
                           if ("next".equals(st)) msg.append(" | Aage badh gaya: " + res.optString("clicked"));
                           else if ("final".equals(st)) msg.append(" | Next button nahi mila - aap check karke Submit karein");
+                          JSONArray upf = res.optJSONArray("uploadFields");
+                          if (upf != null && upf.length() > 0) handleUploadFields(upf);
                           JSONArray ups = res.optJSONArray("uploads");
                           if (ups != null && ups.length() > 0) msg.append(" | Document upload karo (field pe tap karke file chuno): " + ups.join(", ").replace("\"", ""));
                           if (res.optBoolean("done", false)) {
@@ -547,12 +717,74 @@ jobs:
                           }
                           emitPortalEvent(msg.toString(), url);
                           JSONArray asks = res.optJSONArray("asks");
-                          if (asks != null && asks.length() > 0) showAskDialog(asks);
+                          String note = res.optString("note", "");
+                          if (asks != null && asks.length() > 0) showAskDialog(asks, note);
+                          else if (!note.isEmpty()) emitPortalEvent(note, url);
+                          JSONObject stuckObj = res.optJSONObject("stuck");
+                          if (stuckObj != null) { emitPortalEvent("AI page padh raha hai...", url); emitToReact("onSarthiNativeStuck", stuckObj); }
+                          if (res.optBoolean("needRecipe", false)) {
+                              try {
+                                  JSONObject rc = new JSONObject();
+                                  rc.put("url", url);
+                                  rc.put("title", res.optString("title", ""));
+                                  emitToReact("onSarthiNativeRecipe", rc);
+                              } catch (Exception ignored2) {}
+                          }
                           if (tickCount++ < 40) scheduleTick(3000);
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
                       }
                   }));
+              }
+
+              // React ko event bhejo (payload saath me, taaki AI ko user ke diye jawab bhi dikhein)
+              private void emitToReact(String fn, JSONObject obj) {
+                  try {
+                      obj.put("payload", new JSONObject(activePayloadJson == null ? "{}" : activePayloadJson));
+                      final String script = "window." + fn + " && window." + fn + "(" + JSONObject.quote(obj.toString()) + ");";
+                      runOnUiThread(() -> {
+                          if (bridge != null && bridge.getWebView() != null) {
+                              bridge.getWebView().evaluateJavascript(script, null);
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
+              // AI ne page padhke jo plan banaya (fills + next click) wo portal pe lagao
+              private void applyAiPlanOnPortal(String planJson) {
+                  if (portalWebView == null) return;
+                  final String js = "(function(){try{"
+                      + "var p=JSON.parse(" + JSONObject.quote(planJson == null ? "{}" : planJson) + ");"
+                      + "return JSON.stringify(window.SarthiFill?window.SarthiFill.applyPlan(p):{filled:0});"
+                      + "}catch(e){return JSON.stringify({error:String(e)});}})();";
+                  runOnUiThread(() -> portalWebView.evaluateJavascript(js, raw -> {
+                      try {
+                          JSONObject r = new JSONObject(decodeJsResult(raw));
+                          String cq = r.optString("clickQueued", "");
+                          emitPortalEvent("AI ne page padha: " + r.optInt("filled", 0) + " fields bhare" + (cq.isEmpty() ? "" : " | aage: " + cq), null);
+                      } catch (Exception ignored) {
+                          emitPortalEvent("AI ne page padha", null);
+                      }
+                      scheduleTick(3000);
+                  }));
+              }
+
+              // Recipe ke asks: jo key payload me pehle se hai usse dobara mat poochho
+              private void showAsksFiltered(String asksJson, String note) {
+                  try {
+                      JSONArray in = new JSONArray(asksJson);
+                      JSONObject payload = new JSONObject(activePayloadJson == null ? "{}" : activePayloadJson);
+                      JSONArray out = new JSONArray();
+                      for (int i = 0; i < in.length(); i++) {
+                          JSONObject a = in.optJSONObject(i);
+                          if (a == null) continue;
+                          String key = a.optString("key", "");
+                          if (!key.isEmpty() && payload.optString(key, "").trim().length() > 0) continue;
+                          out.put(a);
+                      }
+                      if (out.length() > 0) showAskDialog(out, note);
+                      else if (note != null && !note.isEmpty()) emitPortalEvent(note, null);
+                  } catch (Exception ignored) {}
               }
 
               private void applyAiFieldMapOnPortal(String mapJson) {
@@ -685,6 +917,25 @@ jobs:
                   }
 
                   @JavascriptInterface
+                  public void stashDocument(String name, String mime, String base64) {
+                      if (base64 == null || base64.isEmpty()) return;
+                      synchronized (ramDocs) {
+                          if (ramDocs.size() >= 6) ramDocs.remove(0);
+                          ramDocs.add(new String[]{name == null ? "document" : name, mime == null ? "application/octet-stream" : mime, base64});
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void applyAiPlan(String planJson) {
+                      applyAiPlanOnPortal(planJson);
+                  }
+
+                  @JavascriptInterface
+                  public void showAsks(String asksJson, String note) {
+                      runOnUiThread(() -> showAsksFiltered(asksJson, note));
+                  }
+
+                  @JavascriptInterface
                   public void closePortal() {
                       runOnUiThread(() -> {
                           if (portalOverlay != null) portalOverlay.setVisibility(View.GONE);
@@ -694,6 +945,8 @@ jobs:
                   @JavascriptInterface
                   public void wipePortalSession() {
                       activePayloadJson = "{}";
+                      ramDocs.clear();
+                      reqShown.clear();
                       runOnUiThread(() -> {
                           if (portalWebView != null) {
                               portalWebView.clearCache(true);
