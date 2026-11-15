@@ -289,6 +289,108 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       })();
     };
 
+    // AI page padhta hai: rules jo page nahi samjhe (custom JS widgets, naya layout) unke liye Gemini plan banata hai
+    window.onSarthiNativeStuck = (eventJson: string) => {
+      void (async () => {
+        try {
+          const ev = JSON.parse(eventJson) as {
+            url?: string;
+            title?: string;
+            headings?: unknown[];
+            fields?: unknown[];
+            buttons?: unknown[];
+            payload?: Record<string, string>;
+          };
+          const latest = latestRef.current;
+          const base = buildAutoFillPayload({
+            profile: latest.profile,
+            ephemeralDocs: latest.ephemeralDocs,
+            zeroSave: latest.zeroSave,
+            goal: latest.goal,
+          });
+          const data = { ...base, ...(ev.payload || {}) };
+          const res = await apiFetchJson<{ plan?: { fills?: Record<string, string>; click?: string } }>(
+            '/api/ai/plan-page',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                snapshot: {
+                  url: ev.url,
+                  title: ev.title,
+                  headings: ev.headings,
+                  fields: ev.fields,
+                  buttons: ev.buttons,
+                },
+                data,
+              }),
+            }
+          );
+          const plan = res.plan;
+          if (plan && (Object.keys(plan.fills || {}).length > 0 || plan.click)) {
+            window.SarthiNative?.applyAiPlan?.(JSON.stringify(plan));
+          } else {
+            setNativePortalLogs((prev) => ['AI ne page padha, par bharne layak data nahi mila - aap dekh lo', ...prev].slice(0, 30));
+          }
+        } catch {
+          setNativePortalLogs((prev) => ['AI page padh nahi paya (server connect karein)', ...prev].slice(0, 30));
+        }
+      })();
+    };
+
+    // Sabji banane se pehle saman: form ke liye poori details/documents ki list, user se pehle hi maango
+    window.onSarthiNativeRecipe = (eventJson: string) => {
+      void (async () => {
+        try {
+          const ev = JSON.parse(eventJson) as { url?: string; title?: string; payload?: Record<string, string> };
+          const latest = latestRef.current;
+          const base = buildAutoFillPayload({
+            profile: latest.profile,
+            ephemeralDocs: latest.ephemeralDocs,
+            zeroSave: latest.zeroSave,
+            goal: latest.goal,
+          });
+          const data: Record<string, string> = { ...base, ...(ev.payload || {}) };
+          const res = await apiFetchJson<{
+            recipe?: {
+              name?: string;
+              details?: Array<{ key: string; label: string; options?: string[] }>;
+              documents?: Array<{ label: string }>;
+            };
+          }>('/api/ai/form-recipe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: ev.url, title: ev.title, goal: latest.goal }),
+          });
+          const recipe = res.recipe;
+          if (!recipe) return;
+          const missing = (recipe.details || []).filter((d) => !(data[d.key] || '').trim());
+          const docs = (recipe.documents || []).map((d) => d.label).filter(Boolean);
+          const note = docs.length
+            ? `${recipe.name || 'Is form'} ke liye documents: ${docs.join(' | ')}`
+            : '';
+          if (missing.length > 0) {
+            window.SarthiNative?.showAsks?.(
+              JSON.stringify(
+                missing.map((d) => ({
+                  id: '',
+                  key: d.key,
+                  label: d.label,
+                  type: d.options && d.options.length > 0 ? 'select' : 'text',
+                  options: d.options || [],
+                }))
+              ),
+              note
+            );
+          } else if (note) {
+            setNativePortalLogs((prev) => [note, ...prev].slice(0, 30));
+          }
+        } catch {
+          // recipe optional hai - engine ki apni list kaam karti rahegi
+        }
+      })();
+    };
+
     // Form complete ho gaya -> chat + documents + RAM details sab saaf
     window.onSarthiNativeFormDone = () => {
       wipeRef.current();
@@ -312,6 +414,8 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       wsRef.current?.close();
       delete window.onSarthiNativeUnmatched;
       delete window.onSarthiNativeFormDone;
+      delete window.onSarthiNativeStuck;
+      delete window.onSarthiNativeRecipe;
     };
   }, []);
 
