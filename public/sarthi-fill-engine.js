@@ -115,7 +115,7 @@
     // address (skip office address boxes so residence details don't leak into office address)
     [{ key: 'addressLine', pos: /flat|door|building|road|street|sector|house no|plot/, neg: /office address|e ?mail|proof|type|same|police|station|pin ?code|post office/ },
      { key: 'pinCode', pos: /pin ?code|\bpin\b|postal|पिन/, neg: /office address|security|otp|mpin|pan/ },
-     { key: 'district', pos: /district|\bjila\b|जिला/, neg: /office address|court|pin ?code|std/ },
+     { key: 'district', pos: /district|\bjila\b|\bcity\b|जिला/, neg: /office address|court|pin ?code|std|birth|area|locality|town|country/ },
      { key: 'state', pos: /\bstate\b|rajya|राज्य|pradesh|province|domicile state/, neg: /office address|domicile board|\bstatus\b|statement|pin ?code|std/ },
      { key: 'blockOrTehsil', pos: /block|tehsil|tahsil|taluka|taluk|anchal|अंचल|तहसील|प्रखंड/, neg: /office address/ },
      { key: 'policeStation', pos: /police station|\bthana\b|थाना/, neg: /office address/ },
@@ -462,38 +462,22 @@
           if (n) txt += ' ' + (n.innerText || n.textContent || '');
         });
       }
-      // table layouts / bootstrap / div-wrapped labels: previous sibling, parent container text before control
+      // First check direct sibling / strictly local field wrapper BEFORE touching multi-column row parents
       if (!txt.trim()) {
         var prev = el.previousElementSibling;
-        if (prev && prev.innerText && prev.innerText.length < 260) txt += ' ' + prev.innerText;
-      }
-      if (!txt.trim()) {
-        var cell = el.closest ? el.closest('td,th,.form-group,.form-field,.mat-form-field,.p-field,.input-group,.col,.row,div') : null;
-        if (cell) {
-          var before = cell.previousElementSibling;
-          if (before && before.innerText && before.innerText.length < 260 && !(before.querySelector && before.querySelector('input,select,textarea'))) {
-            txt += ' ' + before.innerText;
-          } else if (cell.querySelector) {
-            var l = cell.querySelector('label,.label,.form-label,.col-form-label,mat-label,strong,b,span,p');
-            if (l && l !== el && !l.contains(el) && l.innerText && l.innerText.length < 260 && !(l.querySelector && l.querySelector('input,select,textarea'))) {
-              txt += ' ' + l.innerText;
-            }
-          }
-          if (!txt.trim() && cell.parentElement) {
-            var pLabel = cell.parentElement.querySelector('label,.form-label,.col-form-label,th');
-            if (pLabel && pLabel !== el && !pLabel.contains(el) && pLabel.innerText && pLabel.innerText.length < 260) {
-              txt += ' ' + pLabel.innerText;
-            }
-          }
+        if (prev && !(prev.querySelector && prev.querySelector('input,select,textarea')) && prev.innerText && prev.innerText.length < 260) {
+          txt += ' ' + prev.innerText;
         }
       }
-      // Walk up to 3 parent levels collecting clean label text strictly preceding el (handles bare div/text labels like Protean PAN "Name as per Aadhaar")
+      // Walk up 1..2 immediate single-field wrappers checking preceding sibling nodes/text (handles Protean PAN bare divs like "Name as per Aadhaar", "City", "Passport Number")
       if (!txt.trim()) {
         var curNode = el;
         for (var up = 0; up < 3 && !txt.trim() && curNode && curNode.parentElement; up++) {
           var par = curNode.parentElement;
           if (par.tagName === 'FORM' || par.tagName === 'BODY') break;
-          var kids = par.childNodes;
+          // Stop before crossing into a shared row/table holding OTHER form controls
+          if (up > 0 && par.querySelectorAll && par.querySelectorAll('input:not([type="hidden"]),select,textarea').length > 1) break;
+          var kids = par.childNodes || par.children || [];
           var collected = '';
           for (var ki = 0; ki < kids.length; ki++) {
             var ch = kids[ki];
@@ -503,13 +487,40 @@
               if (nt) collected += ' ' + nt;
             } else if (ch.nodeType === 1) {
               if (/^(SCRIPT|STYLE|SELECT|INPUT|TEXTAREA|OPTION|BUTTON)$/.test(ch.tagName)) continue;
-              if (ch.querySelector && ch.querySelector('input,select,textarea')) continue;
+              if (ch.querySelector && ch.querySelector('input:not([type="hidden"]),select,textarea')) continue;
               var ct = (ch.innerText || ch.textContent || '').trim();
-              if (ct && ct.length < 240 && !/please select|^\s*select\s*$/i.test(ct)) collected = ct;
+              if (ct && ct.length < 240 && !/please select|^\s*select\s*$|^[-]+select[-]+$/i.test(ct)) collected = ct;
             }
           }
           if (collected.trim()) txt = collected.trim();
           curNode = par;
+        }
+      }
+      // Fallback to single-field container or two-column th/label table row (never steal labels from a sibling column in a multi-input row!)
+      if (!txt.trim()) {
+        var cell = el.closest ? el.closest('td,th,.form-group,.form-field,.mat-form-field,.p-field,.input-group,.col,.row,div') : null;
+        if (cell) {
+          var before = cell.previousElementSibling;
+          if (before && before.innerText && before.innerText.length < 260 && !(before.querySelector && before.querySelector('input:not([type="hidden"]),select,textarea'))) {
+            txt += ' ' + before.innerText;
+          } else if (cell.querySelector) {
+            var cellInputs = cell.querySelectorAll ? cell.querySelectorAll('input:not([type="hidden"]),select,textarea').length : 1;
+            if (cellInputs <= 1) {
+              var l = cell.querySelector('label,.label,.form-label,.col-form-label,mat-label,strong,b,span,p');
+              if (l && l !== el && !l.contains(el) && l.innerText && l.innerText.length < 260 && !(l.querySelector && l.querySelector('input,select,textarea'))) {
+                txt += ' ' + l.innerText;
+              }
+            }
+          }
+          if (!txt.trim() && cell.parentElement) {
+            var rowInputs = cell.parentElement.querySelectorAll ? cell.parentElement.querySelectorAll('input:not([type="hidden"]),select,textarea').length : 2;
+            if (rowInputs <= 1) {
+              var pLabel = cell.parentElement.querySelector('label,.form-label,.col-form-label,th');
+              if (pLabel && pLabel !== el && !pLabel.contains(el) && pLabel.innerText && pLabel.innerText.length < 260) {
+                txt += ' ' + pLabel.innerText;
+              }
+            }
+          }
         }
       }
     } catch (e) { /* ignore */ }
@@ -609,6 +620,45 @@
       }
     }
     fire(el, ['change', 'blur']);
+  }
+
+  // Natural character-by-character typing for Angular/PrimeNG autocomplete (IRCTC From/To station, etc.)
+  function typeTextIncrementally(el, text, done) {
+    var s = String(text || '');
+    el.focus && el.focus();
+    var desc = Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, 'value');
+    if (desc && desc.set) desc.set.call(el, ''); else el.value = '';
+    try { el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '', inputType: 'deleteContentBackward' })); } catch (e) { fire(el, ['input']); }
+    var idx = 0;
+    function step() {
+      if (idx >= s.length) {
+        if (typeof done === 'function') done();
+        return;
+      }
+      var ch = s.charAt(idx++);
+      var code = ch.toUpperCase().charCodeAt(0);
+      try {
+        if (root.KeyboardEvent) {
+          el.dispatchEvent(new root.KeyboardEvent('keydown', { key: ch, keyCode: code, which: code, bubbles: true }));
+          el.dispatchEvent(new root.KeyboardEvent('keypress', { key: ch, charCode: code, keyCode: code, which: code, bubbles: true }));
+        }
+      } catch (e) { /* ignore */ }
+      try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' })); } catch (e) { /* ignore */ }
+      var nextVal = String(el.value || '') + ch;
+      if (desc && desc.set) desc.set.call(el, nextVal); else el.value = nextVal;
+      try {
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
+      } catch (e) {
+        fire(el, ['input']);
+      }
+      try {
+        if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: ch, keyCode: code, which: code, bubbles: true }));
+      } catch (e) {
+        fire(el, ['keyup']);
+      }
+      setTimeout(step, 38);
+    }
+    setTimeout(step, 40);
   }
 
   function fire(el, names) {
@@ -909,6 +959,8 @@
     return best;
   }
 
+  var lastAcAttemptAt = 0;
+
   function processDdQueue() {
     if (ddBusy || ddQueue.length === 0) return;
     ddBusy = true;
@@ -929,21 +981,8 @@
         return;
       }
 
-      if (job.isAutocomplete && el.tagName === 'INPUT') {
-        clickLikeUser(el);
-        var hadVal = String(el.value || '').trim().length > 0;
-        if (hadVal) {
-          setNativeValue(el, '', { noBlur: true });
-        }
-        setTimeout(function () {
-          setNativeValue(el, wanted, { noBlur: true });
-        }, hadVal ? 120 : 60);
-      } else {
-        clickLikeUser(el);
-      }
-
       var pollAttempts = 0;
-      var maxPollAttempts = job.isAutocomplete ? 14 : 8;
+      var maxPollAttempts = job.isAutocomplete ? 18 : 8;
       function pollOptions() {
         pollAttempts++;
         try {
@@ -954,11 +993,26 @@
             setTimeout(pollOptions, 280);
             return;
           }
-          var opts = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
+          var opts = [];
+          if (job.isAutocomplete) {
+            var acScope = el.closest ? el.closest('p-autocomplete, .ui-autocomplete, [class*="autocomplete"]') : null;
+            if (acScope) {
+              opts = Array.prototype.slice.call(acScope.querySelectorAll(OPTION_SEL + ', li')).filter(isVisible);
+            }
+          }
+          if (opts.length === 0) {
+            opts = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
+          }
           if (opts.length === 0 && !job.isAutocomplete) {
             opts = findFallbackDropdownOptions(el);
           }
           if (opts.length === 0 && pollAttempts < maxPollAttempts) {
+            if (job.isAutocomplete && pollAttempts === 9) {
+              try {
+                el.dispatchEvent(new InputEvent('input', { bubbles: true, data: wanted, inputType: 'insertText' }));
+                if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: 'a', keyCode: 65, which: 65, bubbles: true }));
+              } catch (e) { /* ignore */ }
+            }
             setTimeout(pollOptions, 240);
             return;
           }
@@ -981,7 +1035,23 @@
         } catch (e) { /* ignore */ }
         finishJob();
       }
-      setTimeout(pollOptions, job.isAutocomplete ? 560 : 320);
+
+      if (job.isAutocomplete && el.tagName === 'INPUT') {
+        lastAcAttemptAt = Date.now();
+        clickLikeUser(el);
+        var hadVal = String(el.value || '').trim().length > 0;
+        if (hadVal) {
+          setNativeValue(el, '', { noBlur: true });
+        }
+        setTimeout(function () {
+          typeTextIncrementally(el, wanted, function () {
+            setTimeout(pollOptions, 420);
+          });
+        }, hadVal ? 260 : 80);
+      } else {
+        clickLikeUser(el);
+        setTimeout(pollOptions, 320);
+      }
     } catch (e) {
       finishJob();
     }
@@ -1536,7 +1606,7 @@
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
       if (!isVisible(el)) continue;
-      var txt = norm(el.innerText || el.value || el.getAttribute('aria-label') || '');
+      var txt = norm(el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || '');
       if (!txt || txt.length > 35) continue;
       if (RE_NO_CLICK.test(txt)) continue;
       if (RE_NEXT.test(txt)) {
@@ -1891,21 +1961,25 @@
     { q: /address for communication|communication address|correspondence address/, pick: /^(residence|residential)(\s|$)/ },
     { q: /residential status|resident status/, pick: /^resident(\s|$)/ },
     { q: /upload.*proof|proof of date of birth other than|supporting documents/, pick: /manual/ },
+    { q: /single parent/, pick: /^no(\s|$)/ },
+    { q: /parent.*printed on.*pan|printed on the pan card/, pick: /father/ },
+    { q: /physical copy|soft copy/, pick: /physical/ },
     { q: /appointing (a )?representative|representative assessee/, pick: /^no(\s|$)/ }
   ];
   var DEF_SELECTS = [
     { q: /proof of date of birth|proof of dob|date of birth proof/, pick: /aadhaa?r/ },
     { q: /proof of identity|identity proof/, pick: /aadhaa?r/ },
     { q: /proof of address|address proof/, pick: /aadhaa?r/ },
+    { q: /\btitle\b|salutation/, pick: /^shri$|^mr$/ },
     { q: /\bcapacity\b|in the capacity of/, pick: /himself|herself|individual|self/ },
     { q: /\bcountry\b(?!.*(code|isd|std))/, pick: /^india$/ }
   ];
 
   function ancestorMatches(el, re, maxLen) {
     var n = el, hops = 0;
-    while (n && hops < 6) {
-      var t = norm(String(n.innerText || '').slice(0, 900));
-      if (t.length > 0 && t.length <= maxLen && re.test(t)) return true;
+    while (n && hops < 8) {
+      var t = norm(String(n.innerText || '').slice(0, maxLen || 2400));
+      if (t.length > 0 && t.length <= (maxLen || 2400) && re.test(t)) return true;
       n = n.parentElement; hops++;
     }
     return false;
@@ -1925,6 +1999,7 @@
   function smartDefaults(data) {
     var out = { filled: 0, missing: [], unlockedSection: false };
     try {
+      var isFemale = /female|mahila|woman|stri|\bf\b/i.test(String((data && data.gender) || ''));
       // radios (match both ancestor context AND the radio group's option labels directly)
       var radios = Array.prototype.slice.call(document.querySelectorAll('input[type="radio"]')).filter(function (r) { return !r.disabled && isVisible(r); });
       var gs = groupRadios(radios);
@@ -1942,6 +2017,12 @@
           pickedRadio = grp.find(function (r) { var lb = norm(labelTextOf(r)) || radioLabel(r); return /^resident(\s|$)/.test(lb) && !/non ?resident/.test(lb); });
         } else if (hasOpt(/indian citizen/) && hasOpt(/nri|foreign/)) {
           pickedRadio = grp.find(function (r) { return /indian citizen/.test(radioLabel(r)); });
+        } else if (hasOpt(/father.?s name/) && hasOpt(/mother.?s name/)) {
+          var wantMother = data && data.motherName && !data.fatherName;
+          pickedRadio = grp.find(function (r) { return (wantMother ? /mother/ : /father/).test(radioLabel(r)); });
+        } else if (/single parent/.test(ctx) && hasOpt(/^yes$/) && hasOpt(/^no$/)) {
+          var isSingle = data && data.motherName && !data.fatherName;
+          pickedRadio = grp.find(function (r) { return (isSingle ? /^yes/ : /^no/).test(radioLabel(r)); });
         } else {
           DEF_RADIOS.forEach(function (d) {
             if (pickedRadio || !d.q.test(ctx)) return;
@@ -1949,18 +2030,23 @@
           });
         }
         if (pickedRadio) {
-          try { pickedRadio.click(); } catch (e) { pickedRadio.checked = true; fire(pickedRadio, ['input', 'change']); }
+          try { pickedRadio.click(); } catch (e) { /* ignore */ }
+          if (!pickedRadio.checked) { pickedRadio.checked = true; fire(pickedRadio, ['input', 'change']); }
           mark(pickedRadio.parentElement || pickedRadio, GREEN);
           out.filled++;
           if (/residence|residential/.test(radioLabel(pickedRadio))) out.unlockedSection = true;
         }
       });
-      // dropdowns (Proof of ID/Address/DOB, Country, Declaration Capacity)
+      // dropdowns (Proof of ID/Address/DOB, Title, Country, Declaration Capacity)
       Array.prototype.slice.call(document.querySelectorAll('select')).forEach(function (sel) {
         if (sel.disabled || !isVisible(sel)) return;
         if (sel.selectedIndex > 0 && sel.value) return;
         var h = hintOf(sel);
         if (classifySecurity(h)) return;
+        if (/\btitle\b|salutation/.test(h)) {
+          var titleRe = isFemale ? /^(smt|kumari|ms|mrs)$/ : /^(shri|mr)$/;
+          if (pickByRegex(sel, titleRe)) { mark(sel, GREEN); out.filled++; return; }
+        }
         for (var i = 0; i < DEF_SELECTS.length; i++) {
           if (DEF_SELECTS[i].q.test(h)) {
             if (pickByRegex(sel, DEF_SELECTS[i].pick)) { mark(sel, BLUE); out.filled++; return; }
@@ -1979,14 +2065,14 @@
         if (el.disabled || el.readOnly || !isVisible(el) || String(el.value || '').trim()) return;
         var h = hintOf(el);
         if (/designation/.test(h)) {
-          setNativeValue(el, data.designation || 'Self');
+          setNativeValue(el, (data && data.designation) || 'Self');
           mark(el, BLUE); out.filled++;
         } else if (/\b(verifying place|place)\b/.test(h) && !/birth|office|work|station|from|to/.test(h)) {
           var pv = (data && (data.district || data.villageOrWard || data.state)) || '';
           if (pv) { setNativeValue(el, pv); mark(el, BLUE); out.filled++; }
         }
       });
-      // PAN Step 4 AO Code auto-Fetch: if area code/range code empty & Fetch button is visible with State/City set
+      // PAN Step 4 AO Code auto-Fetch: ONLY when Area code/Range code/AO No are STILL empty! (If Pin Code already filled PTN/W/27/92, don't touch!)
       var aoEmpty = Array.prototype.slice.call(document.querySelectorAll('input')).some(function (el) {
         return isVisible(el) && !el.disabled && !String(el.value || '').trim() && /area ?code|range ?code|ao ?no|ao ?type/.test(hintOf(el));
       });
@@ -2005,16 +2091,21 @@
           }
         }
       }
-      // source of income (checkbox group) -> user na de to "No income" smart-default chuno (kabhi blank mat chhodo)
+      // source of income (checkbox group on PAN Step 3) -> match direct checkbox labels directly so container length never hides it!
       var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"]')).filter(function (c) { return !c.disabled && isVisible(c); });
-      var inc = boxes.filter(function (c) { return ancestorMatches(c, /source of income/, 900) && /salary|business|profession|house property|other sources|capital gains|no income/.test(norm(labelTextOf(c))); });
+      var inc = boxes.filter(function (c) {
+        var lb = norm(labelTextOf(c) + ' ' + (c.value || '') + ' ' + (c.id || '') + ' ' + (c.name || ''));
+        if (/^(no income|income from other sources|income from house property|income from business|capital gains|salary)$/.test(lb)) return true;
+        return ancestorMatches(c, /source of income/, 2600) && /salary|business|profession|house property|other sources|capital gains|no income/.test(lb);
+      });
       if (inc.length && !inc.some(function (c) { return c.checked; })) {
-        var want = norm(data.incomeSource || '');
+        var want = norm((data && data.incomeSource) || '');
         if (!want) {
           var noInc = inc.find(function (c) { return /no income/.test(norm(labelTextOf(c))); }) ||
                       inc.find(function (c) { return /other sources/.test(norm(labelTextOf(c))); });
           if (noInc) {
-            try { noInc.click(); } catch (e) { noInc.checked = true; fire(noInc, ['input', 'change']); }
+            try { noInc.click(); } catch (e) { /* ignore */ }
+            if (!noInc.checked) { noInc.checked = true; fire(noInc, ['input', 'change']); }
             mark(noInc.parentElement || noInc, BLUE); out.filled++;
           } else {
             out.missing.push('Source of Income');
@@ -2024,7 +2115,8 @@
           inc.forEach(function (c) {
             var lb = norm(labelTextOf(c));
             if (toks.some(function (t) { return t && (lb.indexOf(t) >= 0 || t.indexOf(lb.split(' ')[0]) === 0); })) {
-              try { c.click(); } catch (e) { c.checked = true; fire(c, ['input', 'change']); }
+              try { c.click(); } catch (e) { /* ignore */ }
+              if (!c.checked) { c.checked = true; fire(c, ['input', 'change']); }
               mark(c.parentElement || c, BLUE); out.filled++;
             }
           });
@@ -2433,14 +2525,14 @@
     s.stuck = null;
     var host = root.location ? root.location.hostname : '';
     if (host && recipeHost !== host) { recipeHost = host; s.needRecipe = true; }   // form ki poori list (sabji ka saman) ek baar
-    if (ddBusy || ddQueue.length > 0 || s.irctcHandled) {
+    if (ddBusy || ddQueue.length > 0 || s.irctcHandled || (Date.now() - lastAcAttemptAt < 5000)) {
       stuckTicks = 0; stuckSig = '';
     } else if (!s.done && s.asks.length === 0 && /^(filling|final|waiting|working)$/.test(s.state)) {
       var sig = pageSig() + '|' + s.emptyRequired + '|' + s.state;
       stuckTicks = (sig === stuckSig) ? stuckTicks + 1 : 1;
       stuckSig = sig;
       var key = pageSig();
-      if (stuckTicks >= 2 && (scanCount[key] || 0) < 4) { scanCount[key] = (scanCount[key] || 0) + 1; s.stuck = snapshot(); }
+      if (stuckTicks >= 3 && (scanCount[key] || 0) < 4) { scanCount[key] = (scanCount[key] || 0) + 1; s.stuck = snapshot(); }
     } else { stuckTicks = 0; stuckSig = ''; }
     return s;
   }
