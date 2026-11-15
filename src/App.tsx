@@ -197,7 +197,32 @@ export function App() {
   };
 
   const handleAddEphemeralDoc = (doc: EphemeralDocumentExtract) => {
-    setEphemeralDocs((prev) => [doc, ...prev]);
+    // OCR/server kabhi number, null ya object bhej deta hai -> sabko text bana do, warna screen white ho jati hai
+    const toText = (v: unknown): string => {
+      if (v == null) return '';
+      if (typeof v === 'object') {
+        try {
+          return JSON.stringify(v);
+        } catch {
+          return '';
+        }
+      }
+      return String(v);
+    };
+    const safe: EphemeralDocumentExtract = {
+      ...doc,
+      id: toText(doc?.id) || `doc-${Date.now()}`,
+      fileName: toText(doc?.fileName),
+      documentType: toText(doc?.documentType) || 'Document',
+      summary: toText(doc?.summary),
+      fields: (Array.isArray(doc?.fields) ? doc.fields : []).map((f) => ({
+        ...f,
+        key: toText(f?.key),
+        label: toText(f?.label) || toText(f?.key),
+        value: toText(f?.value),
+      })),
+    };
+    setEphemeralDocs((prev) => [safe, ...prev]);
   };
 
   const handleUpdateEphemeralDocField = (docId: string, key: string, label: string, value: string) => {
