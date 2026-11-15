@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Bot,
@@ -52,6 +52,7 @@ const DETAIL_FIELDS: Array<{
   label: string;
   placeholder: string;
   inputMode?: 'text' | 'tel' | 'email' | 'numeric';
+  options?: string[];
 }> = [
   { payloadKey: 'fullName', fkey: 'full_name', label: 'Full Name', placeholder: 'Aadhaar jaisa poora naam' },
   { payloadKey: 'dob', fkey: 'dob', label: 'Date of Birth', placeholder: 'DD/MM/YYYY' },
@@ -68,10 +69,41 @@ const DETAIL_FIELDS: Array<{
   { payloadKey: 'pinCode', fkey: 'pin_code', label: 'PIN Code', placeholder: '6 digit PIN', inputMode: 'numeric' },
   { payloadKey: 'birthPlace', fkey: 'birth_place', label: 'Birth Place', placeholder: 'Janm sthan' },
   { payloadKey: 'bloodGroup', fkey: 'blood_group', label: 'Blood Group', placeholder: 'jaise B+' },
-  { payloadKey: 'gender', fkey: 'gender', label: 'Gender', placeholder: 'Male / Female / Other' },
-  { payloadKey: 'category', fkey: 'category', label: 'Category', placeholder: 'General / OBC / SC / ST' },
+  { payloadKey: 'gender', fkey: 'gender', label: 'Gender', placeholder: 'Male / Female / Other', options: ['Male', 'Female', 'Other'] },
+  { payloadKey: 'category', fkey: 'category', label: 'Category', placeholder: 'General / OBC / SC / ST', options: ['General', 'OBC', 'SC', 'ST', 'EWS'] },
+  { payloadKey: 'maritalStatus', fkey: 'marital_status', label: 'Marital Status', placeholder: 'Single / Married', options: ['Single', 'Married', 'Divorced', 'Widowed'] },
+  { payloadKey: 'state', fkey: 'state', label: 'State / Rajya', placeholder: 'Rajya chuno' },
+  { payloadKey: 'alternateMobile', fkey: 'alternate_mobile', label: 'Alternate Mobile', placeholder: '10 digit mobile', inputMode: 'tel' },
   { payloadKey: 'qualification', fkey: 'qualification', label: 'Qualification', placeholder: 'jaise 12th, Graduate' },
 ];
+
+// Har form ke liye pehle se pata hai kaun si details lagti hain (AI recipe iske upar aur jodta hai)
+const BASELINE_KEYS: Array<{ test: RegExp; keys: string[] }> = [
+  {
+    test: /\bpan\b|protean|tin-nsdl|nsdl|utiitsl|49a|panonline/i,
+    keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email'],
+  },
+  {
+    test: /parivahan|sarathi|driving|licen[cs]e/i,
+    keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'addressLine', 'pinCode', 'bloodGroup'],
+  },
+  {
+    test: /passport/i,
+    keys: ['fullName', 'dob', 'gender', 'birthPlace', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'pinCode'],
+  },
+  { test: /irctc/i, keys: ['fullName', 'dob', 'gender', 'mobile', 'email'] },
+  {
+    test: /voter|nvsp|eci\.gov/i,
+    keys: ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'addressLine', 'pinCode'],
+  },
+];
+const GENERIC_KEYS = ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email'];
+
+function baselineKeysFor(url: string, title: string): string[] {
+  const t = `${url} ${title}`;
+  const hit = BASELINE_KEYS.find((b) => b.test.test(t));
+  return hit ? hit.keys : GENERIC_KEYS;
+}
 
 const TINT_CLASSES: Record<ServiceCatalogItem['tint'], string> = {
   blue: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -100,13 +132,11 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
   const [uploadedDocsMap, setUploadedDocsMap] = useState<Record<string, string>>({});
   const [sheetError, setSheetError] = useState<string | null>(null);
-  const [preflightBusy, setPreflightBusy] = useState(false);
-  const [preflight, setPreflight] = useState<{
-    name: string;
-    fields: typeof DETAIL_FIELDS;
-    docs: string[];
-  } | null>(null);
-  const [preflightValues, setPreflightValues] = useState<Record<string, string>>({});
+  // Website kholne se pehle: is form ko jo details chahiye (OCR ke neeche hi dikhti hain)
+  const [needKeys, setNeedKeys] = useState<string[]>([]);
+  const [needDocs, setNeedDocs] = useState<string[]>([]);
+  const [needBusy, setNeedBusy] = useState(false);
+  const [inlineValues, setInlineValues] = useState<Record<string, string>>({});
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const pendingDocIdRef = React.useRef<string | null>(null);
@@ -129,6 +159,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     setSheetOpen(true);
     setSheetError(null);
     setExtraNote('');
+    setInlineValues({});
     setActiveBrief(buildFallbackServiceBrief(query, item || null));
     setLoadingBrief(true);
 
@@ -199,76 +230,10 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
       goalParts.push(`User Extra Details: ${extraNote.trim()}`);
     }
     goalParts.push(
-      `Direct URL open karein: ${activeBrief.directFormUrl}. Homepage par mat ruko, seedha form fields fill karo aur CAPTCHA/OTP/Payment par ruko.`
+      `Direct URL open karein: ${activeBrief.directFormUrl}. Homepage par mat ruko, seedha form fields fill karo. Website khulne ke baad user se koi sawal ya popup mat poochho: jo details pehle li ja chuki hain wahi use karo, dropdown/radio/tick khud chuno. Mobile number daal kar Send OTP khud dabao, OTP user dalega. CAPTCHA aur Payment user karega.`
     );
     setSheetOpen(false);
     onOpenDirectFormBrowser(activeBrief.directFormUrl, goalParts.join(' '));
-  };
-
-  // Website kholne se pehle: AI dekhta hai is form ko kya-kya chahiye, jo nahi hai sirf wahi poochta hai
-  const launchDirectFormPage = async () => {
-    if (!activeBrief) return;
-    setPreflightBusy(true);
-    let wanted: string[] = [];
-    let docs: string[] = [];
-    let name = activeBrief.title;
-    try {
-      const res = await apiFetchJson<{
-        recipe?: { name?: string; details?: Array<{ key: string }>; documents?: Array<{ label: string }> };
-      }>('/api/ai/form-recipe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: activeBrief.directFormUrl,
-          title: activeBrief.title,
-          goal: activeBrief.directFormGoal,
-        }),
-      });
-      wanted = (res.recipe?.details || []).map((d) => d.key);
-      docs = (res.recipe?.documents || []).map((d) => d.label).filter(Boolean);
-      if (res.recipe?.name) name = res.recipe.name;
-    } catch {
-      // server nahi mila: neeche core list se poochenge
-    }
-    if (wanted.length === 0) wanted = ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'email'];
-    const fields = DETAIL_FIELDS.filter(
-      (f) => wanted.includes(f.payloadKey) && !(knownDetails[f.payloadKey] || '').trim()
-    );
-    setPreflightBusy(false);
-    if (fields.length === 0) {
-      doLaunch();
-      return;
-    }
-    setPreflightValues({});
-    setPreflight({ name, fields, docs });
-  };
-
-  const submitPreflight = () => {
-    if (!preflight) return;
-    const entries = preflight.fields.filter((f) => (preflightValues[f.payloadKey] || '').trim());
-    if (entries.length > 0) {
-      const exists = ephemeralDocs.some((d) => d.id === MANUAL_DOC_ID);
-      if (!exists) {
-        onAddEphemeralDoc({
-          id: MANUAL_DOC_ID,
-          fileName: 'Manual details',
-          documentType: 'User Details',
-          summary: 'User ne AI ke sawalon ke jawab diye',
-          fields: entries.map((f) => ({
-            key: f.fkey,
-            label: f.label,
-            value: (preflightValues[f.payloadKey] || '').trim(),
-          })),
-          extractedAt: new Date().toISOString(),
-        });
-      } else {
-        entries.forEach((f) =>
-          onUpdateEphemeralDocField?.(MANUAL_DOC_ID, f.fkey, f.label, (preflightValues[f.payloadKey] || '').trim())
-        );
-      }
-    }
-    setPreflight(null);
-    window.setTimeout(doLaunch, 300); // state commit hone do, phir website kholo
   };
 
   // OCR panel ke liye sirf scanned document (user ki khud bhari details wala doc nahi)
@@ -285,6 +250,82 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     },
     [ephemeralDocs]
   );
+
+  // Form ki poori list: pehle se pata wali + AI recipe (sheet khulte hi, ek baar)
+  const briefUrl = activeBrief?.directFormUrl || '';
+  const briefTitle = activeBrief?.title || '';
+  const briefGoal = activeBrief?.directFormGoal || '';
+  useEffect(() => {
+    if (!sheetOpen || !briefUrl || loadingBrief) return;
+    let cancelled = false;
+    const base = baselineKeysFor(briefUrl, briefTitle);
+    setNeedKeys(base);
+    setNeedDocs([]);
+    setNeedBusy(true);
+    (async () => {
+      try {
+        const res = await apiFetchJson<{
+          recipe?: { details?: Array<{ key: string }>; documents?: Array<{ label: string }> };
+        }>('/api/ai/form-recipe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: briefUrl, title: briefTitle, goal: briefGoal }),
+        });
+        if (cancelled) return;
+        const extra = (res.recipe?.details || []).map((d) => d.key);
+        setNeedKeys(Array.from(new Set([...base, ...extra])));
+        setNeedDocs((res.recipe?.documents || []).map((d) => d.label).filter(Boolean));
+      } catch {
+        // server na mile to pehle se pata wali list kaafi hai
+      } finally {
+        if (!cancelled) setNeedBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sheetOpen, briefUrl, briefTitle, briefGoal, loadingBrief]);
+
+  // Jo details abhi AI ke paas nahi hain (OCR + user ki bhari hui ke baad)
+  const inlineFields = useMemo(
+    () =>
+      DETAIL_FIELDS.filter(
+        (f) =>
+          needKeys.includes(f.payloadKey) &&
+          !(knownDetails[f.payloadKey] || '').trim() &&
+          !(f.payloadKey === 'state' && latestDoc) // OCR panel me State picker pehle se hai
+      ),
+    [needKeys, knownDetails, latestDoc]
+  );
+
+  // Bhari hui details save karo aur seedha website kholo (koi popup nahi)
+  const launchDirectFormPage = () => {
+    if (!activeBrief) return;
+    const entries = inlineFields.filter((f) => (inlineValues[f.payloadKey] || '').trim());
+    if (entries.length > 0) {
+      const exists = ephemeralDocs.some((d) => d.id === MANUAL_DOC_ID);
+      if (!exists) {
+        onAddEphemeralDoc({
+          id: MANUAL_DOC_ID,
+          fileName: 'Manual details',
+          documentType: 'User Details',
+          summary: 'User ne AI ke sawalon ke jawab diye',
+          fields: entries.map((f) => ({
+            key: f.fkey,
+            label: f.label,
+            value: (inlineValues[f.payloadKey] || '').trim(),
+          })),
+          extractedAt: new Date().toISOString(),
+        });
+      } else {
+        entries.forEach((f) =>
+          onUpdateEphemeralDocField?.(MANUAL_DOC_ID, f.fkey, f.label, (inlineValues[f.payloadKey] || '').trim())
+        );
+      }
+    }
+    setInlineValues({});
+    window.setTimeout(doLaunch, 300); // state commit hone do, phir website kholo
+  };
 
   const latestStateVal =
     String(
@@ -717,6 +758,65 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               </div>
             )}
 
+            {/* Website kholne se pehle: baaki details yahin (OCR ke neeche), phir koi popup nahi */}
+            {(inlineFields.length > 0 || needBusy || needDocs.length > 0) && (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-2.5">
+                <div className="text-xs font-bold text-amber-900">
+                  Is form ke liye baaki details (website kholne se pehle)
+                </div>
+                <p className="text-[11px] text-amber-900/80">
+                  Sirf wahi jo OCR se nahi mili. Yahin bhar do. Website khulne ke baad AI koi popup nahi dikhayega,
+                  dropdown/tick/next sab khud karega.
+                </p>
+                {needBusy && inlineFields.length === 0 && (
+                  <div className="flex items-center gap-2 text-[11px] text-amber-900">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    AI check kar raha hai is form ko kya chahiye...
+                  </div>
+                )}
+                {inlineFields.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {inlineFields.map((f) => {
+                      const opts = f.payloadKey === 'state' ? INDIAN_STATES_AND_UTS : f.options;
+                      return (
+                        <label key={f.payloadKey} className="block">
+                          <span className="block text-[11px] font-semibold text-slate-700 mb-0.5">{f.label}</span>
+                          {opts && opts.length > 0 ? (
+                            <select
+                              value={inlineValues[f.payloadKey] || ''}
+                              onChange={(e) => setInlineValues((prev) => ({ ...prev, [f.payloadKey]: e.target.value }))}
+                              className="w-full min-h-[40px] px-3 rounded-lg bg-white border border-amber-300 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                            >
+                              <option value="">-- chuno --</option>
+                              {opts.map((o) => (
+                                <option key={o} value={o}>
+                                  {o}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              inputMode={f.inputMode || 'text'}
+                              value={inlineValues[f.payloadKey] || ''}
+                              onChange={(e) => setInlineValues((prev) => ({ ...prev, [f.payloadKey]: e.target.value }))}
+                              placeholder={f.placeholder}
+                              className="w-full min-h-[40px] px-3 rounded-lg bg-white border border-amber-300 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+                            />
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {needDocs.length > 0 && (
+                  <p className="text-[11px] text-amber-900 bg-white/70 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                    Documents jo lag sakte hain (upar Upload &amp; OCR se de do): {needDocs.join(' | ')}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-bold text-slate-800 mb-1">
                 Extra Detail (Agar Zarurat Ho — Jaise Gaon Station, Date, ya Post Name)
@@ -751,12 +851,11 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
             <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
               <button
                 type="button"
-                onClick={() => void launchDirectFormPage()}
-                disabled={preflightBusy}
+                onClick={() => launchDirectFormPage()}
                 className="flex-1 min-h-[46px] disabled:opacity-60 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
               >
-                {preflightBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Compass className="w-4 h-4" />}
-                {preflightBusy ? 'AI check kar raha hai...' : 'Desktop Browser Me Form Kholo'}
+                <Compass className="w-4 h-4" />
+                Desktop Browser Me Form Kholo
               </button>
               <button
                 type="button"
@@ -776,56 +875,6 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         </div>
       )}
 
-      {/* AI popup: website kholne se pehle sirf wahi poochta hai jo uske paas nahi hai */}
-      {preflight && (
-        <div className="fixed inset-0 z-[80] bg-black/50 flex items-end sm:items-center justify-center p-3">
-          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-4 space-y-3 shadow-xl">
-            <div className="text-sm font-bold text-slate-900">AI ko ye details chahiye</div>
-            <p className="text-[11px] text-slate-600">
-              {preflight.name} ke liye ye abhi AI ke paas nahi hain. Bhar do, phir AI website khud bharega. Baaki sab (dropdown, tick, next) AI khud karega.
-            </p>
-            {preflight.docs.length > 0 && (
-              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                Documents jo lag sakte hain: {preflight.docs.join(' | ')}
-              </p>
-            )}
-            <div className="space-y-2">
-              {preflight.fields.map((f) => (
-                <label key={f.payloadKey} className="block">
-                  <span className="block text-[11px] font-semibold text-slate-700 mb-0.5">{f.label}</span>
-                  <input
-                    type="text"
-                    inputMode={f.inputMode || 'text'}
-                    value={preflightValues[f.payloadKey] || ''}
-                    onChange={(e) => setPreflightValues((prev) => ({ ...prev, [f.payloadKey]: e.target.value }))}
-                    placeholder={f.placeholder}
-                    className="w-full min-h-[40px] px-3 rounded-lg bg-slate-50 border border-slate-300 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setPreflight(null);
-                  doLaunch();
-                }}
-                className="min-h-[42px] px-4 rounded-xl bg-slate-100 text-slate-800 text-xs font-semibold"
-              >
-                Baad me
-              </button>
-              <button
-                type="button"
-                onClick={submitPreflight}
-                className="flex-1 min-h-[42px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold"
-              >
-                Bhar do, website kholo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
