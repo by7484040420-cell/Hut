@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type {
   EphemeralDocumentExtract,
+  ProfileVault,
   ServiceBrief,
   ServiceCatalogItem,
 } from '../types';
@@ -27,7 +28,7 @@ import {
   buildFallbackServiceBrief,
 } from '../lib/serviceCatalog';
 import { apiFetchJson } from '../lib/api';
-import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
+import { buildAutoFillPayload, runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
 import { INDIAN_STATES_AND_UTS } from '../lib/indianStates';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -41,6 +42,36 @@ interface HomePortalSectionProps {
   onOpenFormStudio: () => void;
   onOpenDirectory?: () => void;
 }
+
+const MANUAL_DOC_ID = 'user-details';
+
+// Form shuru karne se pehle jo saman (details) AI ko chahiye. key = payload key, fkey/label = doc field
+const DETAIL_FIELDS: Array<{
+  payloadKey: string;
+  fkey: string;
+  label: string;
+  placeholder: string;
+  inputMode?: 'text' | 'tel' | 'email' | 'numeric';
+}> = [
+  { payloadKey: 'fullName', fkey: 'full_name', label: 'Full Name', placeholder: 'Aadhaar jaisa poora naam' },
+  { payloadKey: 'dob', fkey: 'dob', label: 'Date of Birth', placeholder: 'DD/MM/YYYY' },
+  { payloadKey: 'fatherName', fkey: 'father_name', label: 'Father Name', placeholder: 'Pita ka poora naam' },
+  { payloadKey: 'motherName', fkey: 'mother_name', label: 'Mother Name', placeholder: 'Mata ka poora naam' },
+  { payloadKey: 'mobile', fkey: 'mobile', label: 'Mobile Number', placeholder: '10 digit mobile', inputMode: 'tel' },
+  { payloadKey: 'email', fkey: 'email', label: 'Email ID', placeholder: 'name@gmail.com', inputMode: 'email' },
+  { payloadKey: 'addressLine', fkey: 'address', label: 'Address', placeholder: 'Ghar / mohalla / gali' },
+  { payloadKey: 'villageOrWard', fkey: 'village_ward', label: 'Village / Ward', placeholder: 'Gaon ya ward' },
+  { payloadKey: 'postOffice', fkey: 'post_office', label: 'Post Office', placeholder: 'Daakghar' },
+  { payloadKey: 'policeStation', fkey: 'police_station', label: 'Police Station', placeholder: 'Thana' },
+  { payloadKey: 'blockOrTehsil', fkey: 'block_tehsil', label: 'Block / Tehsil', placeholder: 'Block ya tehsil' },
+  { payloadKey: 'district', fkey: 'district', label: 'District', placeholder: 'Zila' },
+  { payloadKey: 'pinCode', fkey: 'pin_code', label: 'PIN Code', placeholder: '6 digit PIN', inputMode: 'numeric' },
+  { payloadKey: 'birthPlace', fkey: 'birth_place', label: 'Birth Place', placeholder: 'Janm sthan' },
+  { payloadKey: 'bloodGroup', fkey: 'blood_group', label: 'Blood Group', placeholder: 'jaise B+' },
+  { payloadKey: 'gender', fkey: 'gender', label: 'Gender', placeholder: 'Male / Female / Other' },
+  { payloadKey: 'category', fkey: 'category', label: 'Category', placeholder: 'General / OBC / SC / ST' },
+  { payloadKey: 'qualification', fkey: 'qualification', label: 'Qualification', placeholder: 'jaise 12th, Graduate' },
+];
 
 const TINT_CLASSES: Record<ServiceCatalogItem['tint'], string> = {
   blue: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -69,6 +100,13 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
   const [uploadedDocsMap, setUploadedDocsMap] = useState<Record<string, string>>({});
   const [sheetError, setSheetError] = useState<string | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [preflight, setPreflight] = useState<{
+    name: string;
+    fields: typeof DETAIL_FIELDS;
+    docs: string[];
+  } | null>(null);
+  const [preflightValues, setPreflightValues] = useState<Record<string, string>>({});
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const pendingDocIdRef = React.useRef<string | null>(null);
@@ -154,7 +192,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     }
   };
 
-  const launchDirectFormPage = () => {
+  const doLaunch = () => {
     if (!activeBrief) return;
     const goalParts = [activeBrief.directFormGoal];
     if (extraNote.trim()) {
@@ -167,12 +205,80 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     onOpenDirectFormBrowser(activeBrief.directFormUrl, goalParts.join(' '));
   };
 
-  const latestDoc = ephemeralDocs[0] || null;
-  const latestStateVal =
-    latestDoc?.fields.find(
-      (f) => f.key.toLowerCase() === 'state' || f.label.toLowerCase() === 'state'
-    )?.value || '';
+  // Website kholne se pehle: AI dekhta hai is form ko kya-kya chahiye, jo nahi hai sirf wahi poochta hai
+  const launchDirectFormPage = async () => {
+    if (!activeBrief) return;
+    setPreflightBusy(true);
+    let wanted: string[] = [];
+    let docs: string[] = [];
+    let name = activeBrief.title;
+    try {
+      const res = await apiFetchJson<{
+        recipe?: { name?: string; details?: Array<{ key: string }>; documents?: Array<{ label: string }> };
+      }>('/api/ai/form-recipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: activeBrief.directFormUrl,
+          title: activeBrief.title,
+          goal: activeBrief.directFormGoal,
+        }),
+      });
+      wanted = (res.recipe?.details || []).map((d) => d.key);
+      docs = (res.recipe?.documents || []).map((d) => d.label).filter(Boolean);
+      if (res.recipe?.name) name = res.recipe.name;
+    } catch {
+      // server nahi mila: neeche core list se poochenge
+    }
+    if (wanted.length === 0) wanted = ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'email'];
+    const fields = DETAIL_FIELDS.filter(
+      (f) => wanted.includes(f.payloadKey) && !(knownDetails[f.payloadKey] || '').trim()
+    );
+    setPreflightBusy(false);
+    if (fields.length === 0) {
+      doLaunch();
+      return;
+    }
+    setPreflightValues({});
+    setPreflight({ name, fields, docs });
+  };
 
+  const submitPreflight = () => {
+    if (!preflight) return;
+    const entries = preflight.fields.filter((f) => (preflightValues[f.payloadKey] || '').trim());
+    if (entries.length > 0) {
+      const exists = ephemeralDocs.some((d) => d.id === MANUAL_DOC_ID);
+      if (!exists) {
+        onAddEphemeralDoc({
+          id: MANUAL_DOC_ID,
+          fileName: 'Manual details',
+          documentType: 'User Details',
+          summary: 'User ne AI ke sawalon ke jawab diye',
+          fields: entries.map((f) => ({
+            key: f.fkey,
+            label: f.label,
+            value: (preflightValues[f.payloadKey] || '').trim(),
+          })),
+          extractedAt: new Date().toISOString(),
+        });
+      } else {
+        entries.forEach((f) =>
+          onUpdateEphemeralDocField?.(MANUAL_DOC_ID, f.fkey, f.label, (preflightValues[f.payloadKey] || '').trim())
+        );
+      }
+    }
+    setPreflight(null);
+    window.setTimeout(doLaunch, 300); // state commit hone do, phir website kholo
+  };
+
+  // OCR panel ke liye sirf scanned document (user ki khud bhari details wala doc nahi)
+  const latestDoc = ephemeralDocs.find((d) => d.id !== MANUAL_DOC_ID) || null;
+
+  // Abhi AI ke paas jo details hain (OCR + user ki bhari hui)
+  const knownDetails = useMemo(
+    () => buildAutoFillPayload({ profile: {} as ProfileVault, ephemeralDocs, zeroSave: true }),
+    [ephemeralDocs]
+  );
   return (
     <div className="space-y-6">
       <input
@@ -487,9 +593,9 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
                 <h4 className="text-sm font-bold text-slate-900">
                   Documents Upload Karein (OCR Details Nikalega)
                 </h4>
-                {ephemeralDocs.length > 0 && (
+                {ephemeralDocs.filter((d) => d.id !== MANUAL_DOC_ID).length > 0 && (
                   <span className="text-xs font-semibold text-emerald-700">
-                    {ephemeralDocs.length} RAM me scanned
+                    {ephemeralDocs.filter((d) => d.id !== MANUAL_DOC_ID).length} RAM me scanned
                   </span>
                 )}
               </div>
@@ -631,11 +737,12 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
             <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
               <button
                 type="button"
-                onClick={launchDirectFormPage}
-                className="flex-1 min-h-[46px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+                onClick={() => void launchDirectFormPage()}
+                disabled={preflightBusy}
+                className="flex-1 min-h-[46px] disabled:opacity-60 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
               >
-                <Compass className="w-4 h-4" />
-                Desktop Browser Me Form Kholo
+                {preflightBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Compass className="w-4 h-4" />}
+                {preflightBusy ? 'AI check kar raha hai...' : 'Desktop Browser Me Form Kholo'}
               </button>
               <button
                 type="button"
@@ -649,6 +756,57 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               >
                 <Bot className="w-4 h-4" />
                 AI Chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI popup: website kholne se pehle sirf wahi poochta hai jo uske paas nahi hai */}
+      {preflight && (
+        <div className="fixed inset-0 z-[80] bg-black/50 flex items-end sm:items-center justify-center p-3">
+          <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-4 space-y-3 shadow-xl">
+            <div className="text-sm font-bold text-slate-900">AI ko ye details chahiye</div>
+            <p className="text-[11px] text-slate-600">
+              {preflight.name} ke liye ye abhi AI ke paas nahi hain. Bhar do, phir AI website khud bharega. Baaki sab (dropdown, tick, next) AI khud karega.
+            </p>
+            {preflight.docs.length > 0 && (
+              <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                Documents jo lag sakte hain: {preflight.docs.join(' | ')}
+              </p>
+            )}
+            <div className="space-y-2">
+              {preflight.fields.map((f) => (
+                <label key={f.payloadKey} className="block">
+                  <span className="block text-[11px] font-semibold text-slate-700 mb-0.5">{f.label}</span>
+                  <input
+                    type="text"
+                    inputMode={f.inputMode || 'text'}
+                    value={preflightValues[f.payloadKey] || ''}
+                    onChange={(e) => setPreflightValues((prev) => ({ ...prev, [f.payloadKey]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    className="w-full min-h-[40px] px-3 rounded-lg bg-slate-50 border border-slate-300 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPreflight(null);
+                  doLaunch();
+                }}
+                className="min-h-[42px] px-4 rounded-xl bg-slate-100 text-slate-800 text-xs font-semibold"
+              >
+                Baad me
+              </button>
+              <button
+                type="button"
+                onClick={submitPreflight}
+                className="flex-1 min-h-[42px] px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold"
+              >
+                Bhar do, website kholo
               </button>
             </div>
           </div>
