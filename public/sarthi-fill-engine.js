@@ -124,7 +124,7 @@
      { key: 'addressLine', pos: /address|\bpata\b|house|street|residen|पता/, neg: /office address|e ?mail|\bip\b|web|proof|type|same/ }],
 
     // Name as per Aadhaar BEFORE aadhaarNumber so it maps to fullName
-    [{ key: 'fullName', pos: /name as per aadhaa?r|aadhaa?r name|name on aadhaa?r/, neg: /father|mother|spouse|number/ },
+    [{ key: 'fullName', pos: /name as per aadhaa?r|aadhaa?r name|name on aadhaa?r/, neg: /father|mother|spouse|enrol|ack|uidai/ },
      { key: 'aadhaarLast4', pos: /last (four|4) digits? of aadhaa?r|aadhaa?r last 4/, neg: /^$/ },
      { key: 'panNumber', pos: /\bpan\b|permanent account|पैन/, neg: /company|father|mother|pancha|panel|expan|printed on|card|application/ },
      { key: 'aadhaarNumber', pos: /aadhaar|aadhar|adhar|\buid\b|uidai|आधार/, neg: /enrol|virtual|consent|have a aadhaar|do you have|name as per|photo|last four|last 4/ },
@@ -142,7 +142,8 @@
      { key: 'qualification', pos: /qualification|education|योग्यता|शिक्षा/, neg: /roll|year|percent|board/ },
      { key: 'boardOrUniversity', pos: /board|university|विश्वविद्यालय/, neg: /roll|year|percent/ },
      { key: 'passingYear', pos: /passing year|year of passing|pass out/, neg: /roll/ },
-     { key: 'percentageOrGrade', pos: /percentage|percent|cgpa|grade|marks obtained|प्रतिशत/, neg: /roll|year|max/ }],
+     { key: 'percentageOrGrade', pos: /percentage|percent|cgpa|grade|marks obtained|प्रतिशत/, neg: /roll|year|max/ },
+     { key: 'rollNumber', pos: /roll ?(no|number|num)|रोल/, neg: /father|mother|year/ }],
 
     // generic "name" last (must NEVER match Area Name, City Name, Office Name, Bank Name, etc.)
     [{ key: 'fullName', pos: /full ?name|applicant ?name|candidate ?name|student ?name|passenger ?name|your name|name (as per|of) (the )?(applicant|candidate|student|aadhaa?r|pan|matric)|naam|^name$|\bname\b|नाम/,
@@ -218,10 +219,23 @@
       case 'middleName': return data.middleName || n.middle;
       case 'lastName': return data.lastName || n.last;
       case 'age': return data.age || computeAge(data.dob);
+      case 'aadhaarNumber': {
+        var ad = String(data.aadhaarNumber || '').replace(/\D/g, '');
+        return ad.length >= 12 ? ad.slice(0, 12) : '';
+      }
       case 'aadhaarLast4': {
         var digits = String(data.aadhaarLast4 || data.aadhaarNumber || '').replace(/\D/g, '');
         return digits.length >= 4 ? digits.slice(-4) : '';
       }
+      case 'tenthBoard': return data.tenthBoard || data.boardOrUniversity || '';
+      case 'tenthRoll': return data.tenthRoll || data.rollNumber || '';
+      case 'tenthYear': return data.tenthYear || data.passingYear || '';
+      case 'tenthPercent': return data.tenthPercent || data.percentageOrGrade || '';
+      case 'rollNumber': return data.rollNumber || data.tenthRoll || data.twelfthRoll || '';
+      case 'boardOrUniversity': return data.boardOrUniversity || data.tenthBoard || data.twelfthBoard || '';
+      case 'passingYear': return data.passingYear || data.tenthYear || data.twelfthYear || data.graduationYear || '';
+      case 'percentageOrGrade': return data.percentageOrGrade || data.tenthPercent || data.twelfthPercent || data.graduationPercent || '';
+      case 'qualification': return data.qualification || data.graduationDegree || (data.twelfthBoard || data.twelfthYear ? '12th' : (data.tenthBoard || data.tenthYear || data.tenthRoll ? '10th' : ''));
       case 'villageOrWard': return data.villageOrWard || data.addressLine || '';
       case 'postOffice': return data.postOffice || data.villageOrWard || data.district || '';
       case 'blockOrTehsil': return data.blockOrTehsil || data.district || '';
@@ -276,8 +290,12 @@
     rbse: ['rbse', 'board of secondary education rajasthan'],
     mpbse: ['mpbse', 'board of secondary education madhya pradesh'],
     wbbse: ['wbbse', 'west bengal board of secondary education'],
+    '10th': ['10th', 'matric', 'matriculation', 'matriculation 10th', 'high school', 'secondary', 'ssc'],
+    '12th': ['12th', 'higher secondary', 'higher secondary 10 2', '10 2', 'senior secondary', 'intermediate', 'hsc'],
+    graduate: ['graduate', 'graduation', 'bachelor', 'b tech', 'btech', 'b sc', 'bsc', 'b a', 'ba', 'b com', 'bcom', 'ug'],
+    'post graduate': ['post graduate', 'post graduation', 'master', 'm tech', 'm sc', 'ma', 'mcom', 'pg'],
     sl: ['sl', 'sleeper', 'sleeper sl'],
-    '3a': ['3a', 'ac 3 tier', 'ac 3 tier 3a', '3 tier ac', '3ac', 'ac', 'ac 3'],
+    '3a': ['3a', 'ac 3 tier', 'ac 3 tier 3a', '3 tier ac', '3ac', 'ac 3'],
     '3e': ['3e', 'ac 3 economy', 'ac 3 economy 3e', '3ac economy'],
     '2a': ['2a', 'ac 2 tier', 'ac 2 tier 2a', '2ac'],
     '1a': ['1a', 'ac first class', 'ac first class 1a', '1ac', 'first ac'],
@@ -341,7 +359,9 @@
     var n = norm(v);
     var out = [n];
     Object.keys(SYN).forEach(function (k) {
-      if (n === k || SYN[k].indexOf(n) >= 0 || n.indexOf(k) === 0) {
+      var hit = n === k || SYN[k].indexOf(n) >= 0 || n.indexOf(k) === 0 ||
+        SYN[k].some(function (s) { var ns = norm(s); return ns.length >= 6 && n.indexOf(ns) >= 0; });
+      if (hit) {
         SYN[k].forEach(function (s) { out.push(norm(s)); });
         out.push(k);
       }
@@ -362,11 +382,22 @@
     var t = norm(optText), v = norm(optValue);
     if (!t && !v) return 0;
     if (/^(select|choose|--|please select|चुनें|चयन)/.test(t) && !v) return 0;
+    if (key === 'trainClass' && norm(wanted) === 'ac') {
+      if (/\b3a\b|ac 3 tier/.test(t)) return 95;
+      if (/\b3e\b|ac 3 economy/.test(t)) return 85;
+      if (/\b2a\b|ac 2 tier/.test(t)) return 80;
+      if (/\b(cc|ec)\b|chair car/.test(t)) return 70;
+      if (/\b1a\b|first class/.test(t)) return 45;
+    }
     var wants = key === 'state' ? expandState(wanted) : expandSyn(wanted);
     var best = 0, i;
     for (i = 0; i < wants.length; i++) {
       var w = wants[i];
       if (!w) continue;
+      if (key === 'gender') {
+        if (/^(male|m)$/.test(w) && /\bfemale\b/.test(t)) continue;
+        if (/^(female|f)$/.test(w) && !/\bfemale\b/.test(t) && /\bmale\b/.test(t)) continue;
+      }
       if (t === w || v === w) best = Math.max(best, 100);
       else if (t.split(' ')[0] === w || v === w) best = Math.max(best, 80);
       else if (w.length > 2 && (t.indexOf(w) >= 0 || v.indexOf(w) >= 0)) best = Math.max(best, 60);
@@ -430,26 +461,54 @@
           if (n) txt += ' ' + (n.innerText || n.textContent || '');
         });
       }
-      // table layouts / bootstrap: previous sibling text, or first <th>/<td> in row
+      // table layouts / bootstrap / div-wrapped labels: previous sibling, parent container text before control
       if (!txt.trim()) {
         var prev = el.previousElementSibling;
-        if (prev && prev.innerText && prev.innerText.length < 80) txt += ' ' + prev.innerText;
+        if (prev && prev.innerText && prev.innerText.length < 260) txt += ' ' + prev.innerText;
       }
       if (!txt.trim()) {
         var cell = el.closest ? el.closest('td,th,.form-group,.form-field,.mat-form-field,.p-field,.input-group,.col,.row,div') : null;
         if (cell) {
           var before = cell.previousElementSibling;
-          if (before && before.innerText && before.innerText.length < 80) txt += ' ' + before.innerText;
-          else if (cell.querySelector) {
+          if (before && before.innerText && before.innerText.length < 260 && !(before.querySelector && before.querySelector('input,select,textarea'))) {
+            txt += ' ' + before.innerText;
+          } else if (cell.querySelector) {
             var l = cell.querySelector('label,.label,.form-label,.col-form-label,mat-label,strong,b,span,p');
-            if (l && l !== el && !l.contains(el) && l.innerText && l.innerText.length < 80) txt += ' ' + l.innerText;
+            if (l && l !== el && !l.contains(el) && l.innerText && l.innerText.length < 260 && !(l.querySelector && l.querySelector('input,select,textarea'))) {
+              txt += ' ' + l.innerText;
+            }
           }
           if (!txt.trim() && cell.parentElement) {
             var pLabel = cell.parentElement.querySelector('label,.form-label,.col-form-label,th');
-            if (pLabel && pLabel !== el && !pLabel.contains(el) && pLabel.innerText && pLabel.innerText.length < 80) {
+            if (pLabel && pLabel !== el && !pLabel.contains(el) && pLabel.innerText && pLabel.innerText.length < 260) {
               txt += ' ' + pLabel.innerText;
             }
           }
+        }
+      }
+      // Walk up to 3 parent levels collecting clean label text strictly preceding el (handles bare div/text labels like Protean PAN "Name as per Aadhaar")
+      if (!txt.trim()) {
+        var curNode = el;
+        for (var up = 0; up < 3 && !txt.trim() && curNode && curNode.parentElement; up++) {
+          var par = curNode.parentElement;
+          if (par.tagName === 'FORM' || par.tagName === 'BODY') break;
+          var kids = par.childNodes;
+          var collected = '';
+          for (var ki = 0; ki < kids.length; ki++) {
+            var ch = kids[ki];
+            if (ch === curNode || (ch.contains && ch.contains(el))) break;
+            if (ch.nodeType === 3) {
+              var nt = (ch.nodeValue || '').trim();
+              if (nt) collected += ' ' + nt;
+            } else if (ch.nodeType === 1) {
+              if (/^(SCRIPT|STYLE|SELECT|INPUT|TEXTAREA|OPTION|BUTTON)$/.test(ch.tagName)) continue;
+              if (ch.querySelector && ch.querySelector('input,select,textarea')) continue;
+              var ct = (ch.innerText || ch.textContent || '').trim();
+              if (ct && ct.length < 240 && !/please select|^\s*select\s*$/i.test(ct)) collected = ct;
+            }
+          }
+          if (collected.trim()) txt = collected.trim();
+          curNode = par;
         }
       }
     } catch (e) { /* ignore */ }
@@ -515,6 +574,40 @@
       fire(el, ['keyup']);
     }
     if (!opts.noBlur) fire(el, ['change', 'blur']);
+  }
+
+  // Character-by-character typing for masked Aadhaar / custom Angular directives (e.g. SSC OTR)
+  function typeDigitsIncrementally(el, digits) {
+    var s = String(digits || '').replace(/\D/g, '');
+    if (!s) return;
+    el.focus && el.focus();
+    var desc = Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, 'value');
+    if (desc && desc.set) desc.set.call(el, ''); else el.value = '';
+    try { el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '', inputType: 'deleteContentBackward' })); } catch (e) { fire(el, ['input']); }
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      var code = ch.charCodeAt(0);
+      try {
+        if (root.KeyboardEvent) {
+          el.dispatchEvent(new root.KeyboardEvent('keydown', { key: ch, code: 'Digit' + ch, keyCode: code, which: code, bubbles: true }));
+          el.dispatchEvent(new root.KeyboardEvent('keypress', { key: ch, code: 'Digit' + ch, charCode: code, keyCode: code, which: code, bubbles: true }));
+        }
+      } catch (e) { /* ignore */ }
+      try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' })); } catch (e) { /* ignore */ }
+      var nextVal = String(el.value || '') + ch;
+      if (desc && desc.set) desc.set.call(el, nextVal); else el.value = nextVal;
+      try {
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
+      } catch (e) {
+        fire(el, ['input']);
+      }
+      try {
+        if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: ch, code: 'Digit' + ch, keyCode: code, which: code, bubbles: true }));
+      } catch (e) {
+        fire(el, ['keyup']);
+      }
+    }
+    fire(el, ['change', 'blur']);
   }
 
   function fire(el, names) {
@@ -693,11 +786,17 @@
   function findCustomDropdownTriggers() {
     var seen = [];
     var candidates = Array.prototype.slice.call(document.querySelectorAll(CUSTOM_DD_SEL));
-    // Also detect custom div/button dropdowns whose visible text is "Select" near a form label
-    Array.prototype.slice.call(document.querySelectorAll('div[tabindex], button[type="button"], span[role="button"]')).forEach(function (el) {
+    // Also detect custom div/button/span dropdowns whose visible text is "Select" near a form label (e.g. SSC OTR)
+    Array.prototype.slice.call(document.querySelectorAll('div, button, span, a')).forEach(function (el) {
       if (candidates.indexOf(el) >= 0) return;
+      if (el.closest && el.closest('header, nav, footer')) return;
+      if (el.querySelector && el.querySelector('input, select, textarea, ' + CUSTOM_DD_SEL)) return;
       var txt = norm(el.innerText || el.textContent || '');
-      if (txt === 'select' || txt === 'please select' || txt === 'select option') {
+      if (txt === 'select' || txt === 'please select' || txt === 'choose' || txt === 'select option' || txt === 'select one') {
+        if (el.getBoundingClientRect) {
+          var rc = el.getBoundingClientRect();
+          if (rc.height < 20 || rc.height > 76 || rc.width < 60) return;
+        }
         candidates.push(el);
       }
     });
@@ -705,8 +804,10 @@
       if (!isVisible(el)) return false;
       if (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return false;
       if (el.tagName === 'INPUT' && /^(text|search|)$/i.test(el.type || '')) return false; // autocomplete inputs handled separately
+      // Keep the outer custom dropdown trigger if an inner child also matched
       for (var i = 0; i < seen.length; i++) {
-        if (seen[i].contains(el) || el.contains(seen[i])) return false;
+        if (seen[i].contains(el)) return false;
+        if (el.contains(seen[i])) { seen[i] = el; return false; }
       }
       seen.push(el);
       return true;
@@ -729,6 +830,47 @@
     } else {
       try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
     }
+  }
+
+  function findFallbackDropdownOptions(triggerEl) {
+    var out = [];
+    var seenNodes = [];
+    var trigTxt = norm(customDropdownLabelText(triggerEl));
+    function addScope(scope) {
+      if (!scope || !scope.querySelectorAll) return;
+      var items = scope.querySelectorAll('li, a, button, span, p, div');
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (seenNodes.indexOf(item) >= 0) continue;
+        if (!isVisible(item)) continue;
+        if (item === triggerEl || item.contains(triggerEl) || triggerEl.contains(item)) continue;
+        if (item.closest && item.closest('label')) continue;
+        if (item.querySelector && item.querySelector('input, select, textarea')) continue;
+        var raw = (item.innerText || item.textContent || '').trim();
+        if (!raw || raw.length > 72 || raw.indexOf('\n') >= 0) continue;
+        var t = norm(raw);
+        if (!t || t === trigTxt) continue;
+        if (/^(select|choose|please select|select option|--+)$/.test(t)) continue;
+        if (/is mandatory|is required|is not valid|should be same/.test(t)) continue;
+        // Skip wrapper nodes whose direct child element holds the exact same text
+        var hasSameChild = false;
+        if (item.children) {
+          for (var c = 0; c < item.children.length; c++) {
+            if (norm(item.children[c].innerText || '') === t) { hasSameChild = true; break; }
+          }
+        }
+        if (hasSameChild) continue;
+        seenNodes.push(item);
+        out.push(item);
+      }
+    }
+    var localScope = triggerEl.closest ? triggerEl.closest('.form-group, .form-field, [class*="select"], [class*="dropdown"], td, div') : triggerEl.parentElement;
+    if (localScope && localScope.parentElement && localScope.parentElement.tagName !== 'FORM') addScope(localScope.parentElement);
+    if (out.length === 0 && localScope) addScope(localScope);
+    if (out.length === 0) {
+      Array.prototype.slice.call(document.querySelectorAll('.cdk-overlay-container, [role="menu"], ul[class*="dropdown"], ul[class*="option"], div[class*="dropdown-menu"], div[class*="select-options"], div[class*="options"]')).forEach(addScope);
+    }
+    return out;
   }
 
   function pickBestOverlayOption(opts, wanted, key, isAutocomplete) {
@@ -807,6 +949,9 @@
             return;
           }
           var opts = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
+          if (opts.length === 0 && !job.isAutocomplete) {
+            opts = findFallbackDropdownOptions(el);
+          }
           if (opts.length === 0 && pollAttempts < maxPollAttempts) {
             setTimeout(pollOptions, 240);
             return;
@@ -815,10 +960,17 @@
           if (best) {
             clickLikeUser(best);
             if (job.isAutocomplete) el.setAttribute('data-sarthi-ac-done', '1');
+            else el.setAttribute('data-sarthi-dd-done', norm(wanted));
+            el.removeAttribute && el.removeAttribute('data-sarthi-dd-fail');
             mark(el, GREEN);
             fire(el, ['change', 'blur']);
-          } else if (job.isAutocomplete) {
-            el.blur && el.blur();
+          } else {
+            if (job.isAutocomplete) {
+              el.blur && el.blur();
+            } else {
+              var fails = parseInt((el.getAttribute && el.getAttribute('data-sarthi-dd-fail')) || '0', 10) + 1;
+              el.setAttribute && el.setAttribute('data-sarthi-dd-fail', String(fails));
+            }
           }
         } catch (e) { /* ignore */ }
         finishJob();
@@ -873,6 +1025,10 @@
       var hint = hintOf(el);
       if (/\b(search|query|keyword|newsletter|subscribe|unsubscribe)\b|खोज/.test(hint) && !/from|to|station/.test(hint)) return;
       var sec = classifySecurity(hint) || (type === 'password' ? 'password' : null);
+      // Masked Aadhaar inputs sometimes set type="password" — allow filling 12-digit Aadhaar if NOT a password prompt
+      if (sec === 'password' && /aadhaar|aadhar|adhar|\buid\b|uidai/.test(hint) && !RE_PASSWORD.test(hint) && !RE_CAPTCHA.test(hint) && !RE_OTP.test(hint)) {
+        sec = null;
+      }
       if (sec) {
         // If user explicitly supplied loginPassword in pre-flight for this session, fill login password safely
         if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim()) {
@@ -896,7 +1052,9 @@
       var val = key ? valueFor(key, data) : '';
       var acPending = (key === 'fromStation' || key === 'toStation' || isAutocompleteEl(el)) && !isAutocompleteCommitted(el);
       var dateNeedsUpdate = key === 'journeyDate' && val && String(el.value || '').trim() !== formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
-      var already = !isSelect && el.value && String(el.value).trim().length > 0 && !acPending && !dateNeedsUpdate;
+      var rawCurVal = String(el.value || '').trim();
+      var aadhaarNeedsFix = key === 'aadhaarNumber' && val && rawCurVal.replace(/\s+/g, '').length < 12;
+      var already = !isSelect && rawCurVal.length > 0 && !acPending && !dateNeedsUpdate && !aadhaarNeedsFix;
       if (already && !opts.overwrite) return;
       if (isSelect && el.selectedIndex > 0 && !opts.overwrite) {
         var curTxt = norm(el.options[el.selectedIndex].text);
@@ -905,7 +1063,7 @@
 
       // PAN-type dropdown (Application Type / Applicant Category / Aadhaar Photo Agree): matchKey se pehle
       if (isSelect) {
-        var pw = portalSelectWant(hint, data);
+        var pw = portalSelectWant(hint, data) || portalSelectWant(hint + ' ' + ancestorText(el).slice(0, 260), data);
         if (pw && selectOption(el, pw, null)) {
           var pId = el.getAttribute('data-sarthi-id');
           if (!pId) { pId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', pId); }
@@ -976,11 +1134,14 @@
         } else {
           if (key === 'dob' || key === 'journeyDate') finalVal = formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
           if (key === 'mobile' || key === 'alternateMobile') finalVal = String(val).replace(/\D/g, '').slice(-10);
+          if (key === 'pinCode') finalVal = String(val).replace(/\D/g, '').slice(0, 6);
           if (key === 'panNumber') finalVal = String(val).toUpperCase();
+          if (key === 'aadhaarNumber') finalVal = String(val).replace(/\D/g, '').slice(0, 12);
           if (el.maxLength > 0 && String(finalVal).length > el.maxLength && key !== 'dob' && key !== 'journeyDate') finalVal = String(finalVal).slice(0, el.maxLength);
           var wasRO = el.readOnly;
           if (wasRO) el.removeAttribute('readonly');
-          setNativeValue(el, finalVal);
+          if (key === 'aadhaarNumber') typeDigitsIncrementally(el, finalVal);
+          else setNativeValue(el, finalVal);
           if (wasRO) el.setAttribute('readonly', 'readonly');
           if (key === 'journeyDate') {
             try {
@@ -1037,6 +1198,9 @@
       var key = pw ? null : matchKey(hint, { type: 'select', isCustomDd: true });
       var val = pw || (key ? valueFor(key, data) : '');
       if (!val) return;
+      var doneWanted = dd.getAttribute && dd.getAttribute('data-sarthi-dd-done');
+      if (!opts.overwrite && doneWanted && doneWanted === norm(String(val))) return;
+      if (parseInt((dd.getAttribute && dd.getAttribute('data-sarthi-dd-fail')) || '0', 10) >= 2 && !opts.overwrite) return;
       var isPrePopulated = curTxt && !isCustomPlaceholderText(curTxt);
       if (!opts.overwrite && isPrePopulated) {
         // Already matches user's wanted value -> skip! If default ("All Classes" / "GENERAL"), update to user's choice!
@@ -1655,10 +1819,10 @@
   // AI ke chune hue fields BLUE dikhte hain, ek baar dekh lena.
   // ---------------------------------------------------------------
   var DEF_RADIOS = [
-    { q: /address for communication|communication address|correspondence address/, pick: /^(residence|residential)$/ },
-    { q: /residential status|resident status/, pick: /^resident$/ },
+    { q: /address for communication|communication address|correspondence address/, pick: /^(residence|residential)(\s|$)/ },
+    { q: /residential status|resident status/, pick: /^resident(\s|$)/ },
     { q: /upload.*proof|proof of date of birth other than|supporting documents/, pick: /manual/ },
-    { q: /appointing (a )?representative|representative assessee/, pick: /^no$/ }
+    { q: /appointing (a )?representative|representative assessee/, pick: /^no(\s|$)/ }
   ];
   var DEF_SELECTS = [
     { q: /proof of date of birth|proof of dob|date of birth proof/, pick: /aadhaa?r/ },
@@ -1698,14 +1862,14 @@
         var grp = gs[gk];
         if (grp.some(function (r) { return r.checked; })) return;
         var ctx = norm(grp.map(function (r) { return ancestorText(r); }).join(' ') + ' ' + sectionOf(grp[0]));
-        var optLabs = grp.map(function (r) { return radioLabel(r); });
+        var optLabs = grp.map(function (r) { return norm(labelTextOf(r)) || radioLabel(r); });
         var hasOpt = function (re) { return optLabs.some(function (l) { return re.test(l); }); };
 
         var pickedRadio = null;
-        if (hasOpt(/^(residence|residential)$/) && hasOpt(/^office$/)) {
-          pickedRadio = grp.find(function (r) { return /^(residence|residential)$/.test(radioLabel(r)); });
-        } else if (hasOpt(/^resident$/) && hasOpt(/non ?resident/)) {
-          pickedRadio = grp.find(function (r) { return /^resident$/.test(radioLabel(r)); });
+        if (hasOpt(/^(residence|residential)(\s|$)/) && hasOpt(/^office(\s|$)/)) {
+          pickedRadio = grp.find(function (r) { return /^(residence|residential)(\s|$)/.test(norm(labelTextOf(r)) || radioLabel(r)); });
+        } else if (hasOpt(/^resident(\s|$)/) && hasOpt(/non ?resident/)) {
+          pickedRadio = grp.find(function (r) { var lb = norm(labelTextOf(r)) || radioLabel(r); return /^resident(\s|$)/.test(lb) && !/non ?resident/.test(lb); });
         } else if (hasOpt(/indian citizen/) && hasOpt(/nri|foreign/)) {
           pickedRadio = grp.find(function (r) { return /indian citizen/.test(radioLabel(r)); });
         } else {
@@ -1890,13 +2054,13 @@
       var slotCandidates = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, td, div[class*="avl"], div[tabindex], a')).filter(function (el) {
         if (!isVisible(el)) return false;
         var t = (el.innerText || '').trim();
-        if (!t || t.length > 65) return false;
-        return /\b(AVAILABLE|CURR_AVBL|RAC|WL|RLWL|PQWL|GNWL|REGRET|NOT AVAILABLE)\b/i.test(t) &&
+        if (!t || t.length > 72) return false;
+        return /\b(AVAILABLE|CURR[_\s-]?AVBL|AVBL|RAC\s*\d*|WL\s*\d*|RLWL\s*\d*|PQWL\s*\d*|GNWL\s*\d*|TQWL\s*\d*|REGRET|NOT AVAILABLE)\b/i.test(t) &&
                !/(SLEEPER|AC 3|AC 2|AC FIRST|CHAIR CAR|SECOND SITTING)/i.test(t);
       });
       var bookableSlots = slotCandidates.filter(function (el) {
         var u = (el.innerText || '').toUpperCase();
-        return /\b(AVAILABLE|CURR_AVBL|RAC|WL|RLWL|PQWL|GNWL)\b/.test(u) && !/\b(REGRET|NOT AVAILABLE|CANCELLED)\b/.test(u);
+        return /\b(AVAILABLE|CURR[_\s-]?AVBL|AVBL|RAC\s*\d*|WL\s*\d*|RLWL\s*\d*|PQWL\s*\d*|GNWL\s*\d*|TQWL\s*\d*)\b/.test(u) && !/\b(REGRET|NOT AVAILABLE|CANCELLED)\b/.test(u);
       });
 
       // If all loaded slots in this non-preferred train are REGRET/NOT AVAILABLE, skip this card on next tick
@@ -1907,7 +2071,11 @@
 
       // Check enabled Book Now button
       var chosenBookBtn = Array.prototype.slice.call(chosen.querySelectorAll('button, input[type="button"]')).find(function (b) {
-        return isVisible(b) && !b.disabled && !/disable-btn|disabled/.test(b.className || '') && /^book now$/.test(norm(b.innerText || b.value || ''));
+        if (!isVisible(b) || b.disabled) return false;
+        if (b.getAttribute && b.getAttribute('aria-disabled') === 'true') return false;
+        if (/disable-btn|disabled/.test(b.className || '')) return false;
+        if (b.parentElement && /disable-btn/.test(b.parentElement.className || '')) return false;
+        return /^book now$/.test(norm(b.innerText || b.value || ''));
       });
 
       if (bookableSlots.length > 0) {
@@ -1915,19 +2083,19 @@
         var bestSlot = bookableSlots[0], bestSlotScore = -1;
         bookableSlots.forEach(function (sl) {
           var u = (sl.innerText || '').toUpperCase();
-          var sc = /\b(AVAILABLE|CURR_AVBL)\b/.test(u) ? 300 : (/\bRAC\b/.test(u) ? 200 : 100);
+          var sc = /\b(AVAILABLE|CURR[_\s-]?AVBL|AVBL)\b/.test(u) ? 300 : (/\bRAC\s*\d*\b/.test(u) ? 200 : 100);
           if (/selected|active/.test(sl.className || '') || sl.getAttribute('aria-selected') === 'true') sc += 20;
           if (sc > bestSlotScore) { bestSlotScore = sc; bestSlot = sl; }
         });
         var isSlotSelected = /selected|active/.test(bestSlot.className || '') || bestSlot.getAttribute('aria-selected') === 'true' || chosen.getAttribute('data-sarthi-slot-done') === '1';
-        if (!isSlotSelected && now - irctcLastActAt >= 1500) {
+        if (!isSlotSelected && now - irctcLastActAt >= 1200) {
           irctcLastActAt = now;
           chosen.setAttribute('data-sarthi-slot-done', '1');
           mark(bestSlot, GREEN);
           clickLikeUser(bestSlot);
           return { state: 'filling', note: 'Available date slot select kiya...' };
         }
-        if (chosenBookBtn && now - irctcBookAt >= 4500) {
+        if (chosenBookBtn && now - irctcLastActAt >= 700 && now - irctcBookAt >= 4000) {
           irctcBookAt = now;
           irctcLastActAt = now;
           mark(chosenBookBtn, GREEN);
@@ -1938,8 +2106,9 @@
       }
 
       // 4) No availability slots open yet in chosen card -> click wanted class tab (SL / 3A / 3E / 2A)
-      var clsTiles = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, [class*="level"], div, a, button, span')).filter(function (el) {
+      var clsTiles = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, td, [role="button"], button, a, div[class*="col"], strong, span')).filter(function (el) {
         if (!isVisible(el)) return false;
+        if (el.querySelectorAll && el.querySelectorAll('.pre-avl').length > 1) return false;
         return !!irctcClassTokenOf(el.innerText || '');
       });
       if (clsTiles.length > 0) {
@@ -1953,8 +2122,11 @@
           }
         }
         if (!pickedTile) pickedTile = clsTiles[0];
+        if (pickedTile && pickedTile.closest) {
+          pickedTile = pickedTile.closest('.pre-avl, td, [role="button"], button, a') || pickedTile;
+        }
         var clsAt = parseInt(chosen.getAttribute('data-sarthi-cls-at') || '0', 10);
-        if (pickedTile && now - clsAt >= 3000 && now - irctcLastActAt >= 1500) {
+        if (pickedTile && now - clsAt >= 2800 && now - irctcLastActAt >= 1200) {
           irctcLastActAt = now;
           chosen.setAttribute('data-sarthi-cls-at', String(now));
           chosen.removeAttribute('data-sarthi-slot-done');
@@ -1973,6 +2145,21 @@
   function autopilotCore(payload, opts) {
     opts = opts || {};
     if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; }
+
+    // On IRCTC /train-list or confirmation popups: handle train cards FIRST so top "Modify Search" header bar NEVER loops!
+    var irStep = irctcTrainListStep(payload || {});
+    if (irStep) {
+      ddQueue = [];
+      clearTimeout(ddStartTimer);
+      return {
+        filled: 0, url: root.location ? root.location.href : '', title: document.title || '',
+        hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
+        isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
+        state: irStep.state || 'filling', clicked: irStep.clicked || '', asks: [], uploads: [], uploadFields: [],
+        done: false, irctcHandled: true, note: irStep.note || '', profile: 'IRCTC Ticket Booking', emptyRequired: 0
+      };
+    }
+
     var s = run(payload, {});
     var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
     s.filled += sd.filled;
@@ -2006,15 +2193,6 @@
       s.state = 'otp';
       s.otpAction = oa;
       s.note = oa === 'send' ? 'OTP bhej diya - aap OTP daal dein' : 'OTP verify dabaya';
-      return s;
-    }
-
-    // IRCTC Confirmation popups + Train List selection (preferredTrain ya best available train + Class + Slot + Book Now)
-    var irStep = irctcTrainListStep(payload || {});
-    if (irStep) {
-      s.state = irStep.state || 'filling';
-      if (irStep.clicked) s.clicked = irStep.clicked;
-      if (irStep.note) s.note = irStep.note;
       return s;
     }
 
@@ -2101,7 +2279,7 @@
     s.stuck = null;
     var host = root.location ? root.location.hostname : '';
     if (host && recipeHost !== host) { recipeHost = host; s.needRecipe = true; }   // form ki poori list (sabji ka saman) ek baar
-    if (ddBusy || ddQueue.length > 0) {
+    if (ddBusy || ddQueue.length > 0 || s.irctcHandled) {
       stuckTicks = 0; stuckSig = '';
     } else if (!s.done && s.asks.length === 0 && /^(filling|final|waiting|working)$/.test(s.state)) {
       var sig = pageSig() + '|' + s.emptyRequired + '|' + s.state;
@@ -2163,9 +2341,9 @@
     _internal: {
       norm: norm, matchKey: matchKey, classifySecurity: classifySecurity,
       parseDate: parseDate, formatDateForInput: formatDateForInput,
-      bestOptionIndex: bestOptionIndex, expandSyn: expandSyn, splitName: splitName, valueFor: valueFor,
+      scoreOption: scoreOption, bestOptionIndex: bestOptionIndex, expandSyn: expandSyn, splitName: splitName, valueFor: valueFor,
       irctcWantedClasses: irctcWantedClasses, irctcCardMatchesTrain: irctcCardMatchesTrain,
-      irctcClassTokenOf: irctcClassTokenOf, isAutocompleteCommitted: isAutocompleteCommitted
+      irctcClassTokenOf: irctcClassTokenOf, irctcTrainListStep: irctcTrainListStep, isAutocompleteCommitted: isAutocompleteCommitted
     }
   };
   root.SarthiFill = api;
