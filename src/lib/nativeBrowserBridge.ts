@@ -115,7 +115,13 @@ export function buildAutoFillPayload(params: {
       const v = String(f?.value ?? '').trim();
       if (!v) continue;
       const lower = `${k} ${String(f?.label ?? '')}`.toLowerCase();
-      if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
+      if (lower.includes('income_source') || lower.includes('income source')) {
+        map.incomeSource = map.incomeSource || v;
+      } else if (lower.includes('marital')) {
+        map.maritalStatus = map.maritalStatus || v;
+      } else if (lower.includes('designation')) {
+        map.designation = map.designation || v;
+      } else if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
         map.fullName = map.fullName || v;
       } else if (lower.includes('father')) {
         map.fatherName = map.fatherName || v;
