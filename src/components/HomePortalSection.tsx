@@ -37,6 +37,7 @@ interface HomePortalSectionProps {
   zeroSave: boolean;
   onAddEphemeralDoc: (doc: EphemeralDocumentExtract) => void;
   onUpdateEphemeralDocField?: (docId: string, key: string, label: string, value: string) => void;
+  onWipeEphemeralDocs?: () => void;
   onOpenDirectFormBrowser: (directUrl: string, goal: string) => void;
   onOpenAiChat: (prefillPrompt?: string) => void;
   onOpenFormStudio: () => void;
@@ -177,6 +178,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   zeroSave,
   onAddEphemeralDoc,
   onUpdateEphemeralDocField,
+  onWipeEphemeralDocs,
   onOpenDirectFormBrowser,
   onOpenAiChat,
   onOpenDirectory,
@@ -212,6 +214,11 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   const openServiceBrief = async (item?: ServiceCatalogItem, customQuery?: string) => {
     const query = customQuery?.trim() || item?.title || '';
     if (!query) return;
+
+    // Har nayi service / naye ticket / naye form par purane sabhi documents aur details RAM se turant saaf
+    onWipeEphemeralDocs?.();
+    window.SarthiNative?.wipePortalSession?.();
+    setUploadedDocsMap({});
 
     setSheetOpen(true);
     setSheetError(null);
@@ -668,7 +675,14 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setSheetOpen(false)}
+                onClick={() => {
+                  setSheetOpen(false);
+                  setUploadedDocsMap({});
+                  setInlineValues({});
+                  setExtraNote('');
+                  onWipeEphemeralDocs?.();
+                  window.SarthiNative?.wipePortalSession?.();
+                }}
                 aria-label="Close"
                 className="min-h-[40px] min-w-[40px] rounded-xl border border-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center shrink-0"
               >
@@ -822,8 +836,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
                   Is form ke liye baaki details (website kholne se pehle)
                 </div>
                 <p className="text-[11px] text-amber-900/80">
-                  Sirf wahi jo OCR se nahi mili. Yahin bhar do. Website khulne ke baad AI koi popup nahi dikhayega,
-                  dropdown/tick/next sab khud karega.
+                  Sirf isi form ke liye details dein — kaam poora hone, back karne ya app band karne par ye sab RAM se apne-aap delete ho jayengi.
                 </p>
                 {needBusy && inlineFields.length === 0 && (
                   <div className="flex items-center gap-2 text-[11px] text-amber-900">

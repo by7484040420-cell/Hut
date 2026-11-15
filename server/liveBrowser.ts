@@ -999,6 +999,7 @@ export class LiveBrowserController {
     startUrl?: string;
     profile: ProfileVault;
     ephemeralDocs?: EphemeralDocumentExtract[];
+    zeroSave?: boolean;
   }) {
     if (this.status.agentRunning) {
       return;
@@ -1229,7 +1230,7 @@ export class LiveBrowserController {
           await this.runInstantRuleAndAiFill({
             profile: params.profile,
             ephemeralDocs: params.ephemeralDocs || [],
-            zeroSave: false,
+            zeroSave: Boolean(params.zeroSave),
             goal: params.goal,
             autoApply: false,
           });
@@ -1248,7 +1249,7 @@ export class LiveBrowserController {
           await this.runInstantRuleAndAiFill({
             profile: params.profile,
             ephemeralDocs: params.ephemeralDocs || [],
-            zeroSave: false,
+            zeroSave: Boolean(params.zeroSave),
             goal: params.goal,
             autoApply: false,
           });
@@ -1268,7 +1269,7 @@ export class LiveBrowserController {
       await this.runInstantRuleAndAiFill({
         profile: params.profile,
         ephemeralDocs: params.ephemeralDocs || [],
-        zeroSave: false,
+        zeroSave: Boolean(params.zeroSave),
         goal: params.goal,
         autoApply: true,
       });

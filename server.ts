@@ -773,6 +773,7 @@ app.post('/api/live-browser/agent/start', (req, res) => {
     startUrl,
     profile: zeroSave ? createEmptyProfile() : workspace.profile,
     ephemeralDocs,
+    zeroSave,
   });
 
   res.json({ status: liveBrowser.getStatus() });

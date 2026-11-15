@@ -498,12 +498,23 @@
     var proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype;
     var desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) desc.set.call(el, val); else el.value = val;
+    var s = String(val == null ? '' : val);
+    var lastCh = s ? s.charAt(s.length - 1) : 'Backspace';
+    var code = lastCh.length === 1 ? lastCh.toUpperCase().charCodeAt(0) : 8;
     try {
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(val), inputType: 'insertText' }));
+      if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keydown', { key: lastCh, keyCode: code, which: code, bubbles: true }));
+    } catch (e) { /* ignore */ }
+    try {
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: s, inputType: s ? 'insertText' : 'deleteContentBackward' }));
     } catch (e) {
       fire(el, ['input']);
     }
-    fire(el, opts.noBlur ? ['keydown', 'keyup'] : ['keydown', 'keyup', 'change', 'blur']);
+    try {
+      if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: lastCh, keyCode: code, which: code, bubbles: true }));
+    } catch (e) {
+      fire(el, ['keyup']);
+    }
+    if (!opts.noBlur) fire(el, ['change', 'blur']);
   }
 
   function fire(el, names) {
@@ -638,10 +649,23 @@
   //     (Angular Material, ng-select, PrimeNG, Bootstrap, React-Select, SSC/IRCTC)
   // ---------------------------------------------------------------
   var CUSTOM_DD_SEL = '[role="combobox"],[role="listbox"],mat-select,ng-select,p-dropdown,.ui-dropdown,[aria-haspopup="listbox"],[aria-haspopup="true"],.select2-selection,[class*="select__control"],.p-dropdown,.dropdown-toggle';
-  var OPTION_SEL = '[role="option"],mat-option,.mat-option,.ng-option,.p-dropdown-item,.ui-dropdown-item,.p-autocomplete-item,.ui-autocomplete-list-item,.select2-results__option,.dropdown-item,[role="listbox"] li,.cdk-overlay-container li,.p-dropdown-items li,.ui-dropdown-items li,.p-autocomplete-items li,.ui-autocomplete-items li,ul.dropdown-menu li';
+  var OPTION_SEL = '[role="option"],mat-option,.mat-option,.ng-option,.p-dropdown-item,.ui-dropdown-item,p-dropdownitem li,.p-dropdown-panel li,.ui-dropdown-panel li,.p-autocomplete-item,.ui-autocomplete-list-item,p-autocomplete li,.ui-autocomplete-panel li,.p-autocomplete-panel li,.select2-results__option,.dropdown-item,[role="listbox"] li,.cdk-overlay-container li,.p-dropdown-items li,.ui-dropdown-items li,.p-autocomplete-items li,.ui-autocomplete-items li,ul.dropdown-menu li';
 
   var ddQueue = [];
   var ddBusy = false;
+  var ddStartTimer = null;
+
+  function customDropdownLabelText(dd) {
+    if (!dd) return '';
+    try {
+      var lblEl = dd.querySelector && dd.querySelector('.ui-dropdown-label, .p-dropdown-label, .mat-select-value-text, .mat-select-min-line, .ng-value-label, [class*="singleValue"]');
+      if (lblEl) {
+        var lt = (lblEl.innerText || lblEl.textContent || '').trim();
+        if (lt) return lt;
+      }
+    } catch (e) { /* ignore */ }
+    return (dd.innerText || dd.textContent || '').trim();
+  }
 
   function isCustomPlaceholderText(txt) {
     var t = norm(txt);
@@ -652,7 +676,7 @@
     if (!el) return false;
     if (el.getAttribute && el.getAttribute('data-sarthi-ac-done') === '1') return true;
     var v = String(el.value || '').trim();
-    // IRCTC stations look like "SIWAN JN - SV" or "NEW DELHI - NDLS"
+    // IRCTC stations look like "SIWAN JN - SV" or "DELHI JN. - DLI (NEW DELHI)"
     return /\s-\s[A-Za-z0-9]{1,8}(\s*\([^)]+\))?$|\([A-Z]{2,5}\)$/.test(v);
   }
 
@@ -693,13 +717,18 @@
     if (!el) return;
     var target = el;
     if (/^(P-DROPDOWN|MAT-SELECT|NG-SELECT)$/.test(el.tagName) && el.querySelector) {
-      target = el.querySelector('.ui-dropdown-trigger, .p-dropdown-trigger, .ui-dropdown, .p-dropdown, .mat-select-trigger, .ng-select-container') || el;
+      target = el.querySelector('.ui-dropdown, .p-dropdown, .ui-dropdown-trigger, .p-dropdown-trigger, .mat-select-trigger, .ng-select-container') || el;
     }
     try { target.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
-    ['mousedown', 'mouseup', 'click'].forEach(function (evName) {
+    ['mousedown', 'mouseup'].forEach(function (evName) {
       try { target.dispatchEvent(new MouseEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
     });
-    try { target.click(); } catch (e) { /* ignore */ }
+    // Fire ONLY ONE click event so toggle components like PrimeNG p-dropdown do not open and immediately close
+    if (typeof target.click === 'function') {
+      try { target.click(); } catch (e) { /* ignore */ }
+    } else {
+      try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
+    }
   }
 
   function pickBestOverlayOption(opts, wanted, key, isAutocomplete) {
@@ -739,27 +768,34 @@
     var el = job.el;
     var wanted = job.wanted;
     var key = job.key;
+    function finishJob() {
+      setTimeout(function () {
+        try { el.removeAttribute && el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ }
+      }, 600);
+      ddBusy = false;
+      setTimeout(processDdQueue, 200);
+    }
     try {
       if (job.isAutocomplete && isAutocompleteCommitted(el) && !job.overwrite) {
-        ddBusy = false;
-        setTimeout(processDdQueue, 60);
+        finishJob();
         return;
       }
 
       if (job.isAutocomplete && el.tagName === 'INPUT') {
         clickLikeUser(el);
-        if (String(el.value || '').trim()) {
+        var hadVal = String(el.value || '').trim().length > 0;
+        if (hadVal) {
           setNativeValue(el, '', { noBlur: true });
         }
         setTimeout(function () {
           setNativeValue(el, wanted, { noBlur: true });
-        }, 70);
+        }, hadVal ? 120 : 60);
       } else {
         clickLikeUser(el);
       }
 
       var pollAttempts = 0;
-      var maxPollAttempts = job.isAutocomplete ? 12 : 7;
+      var maxPollAttempts = job.isAutocomplete ? 14 : 8;
       function pollOptions() {
         pollAttempts++;
         try {
@@ -785,13 +821,11 @@
             el.blur && el.blur();
           }
         } catch (e) { /* ignore */ }
-        ddBusy = false;
-        setTimeout(processDdQueue, 200);
+        finishJob();
       }
-      setTimeout(pollOptions, job.isAutocomplete ? 520 : 320);
+      setTimeout(pollOptions, job.isAutocomplete ? 560 : 320);
     } catch (e) {
-      ddBusy = false;
-      setTimeout(processDdQueue, 100);
+      finishJob();
     }
   }
 
@@ -799,9 +833,10 @@
     if (!job || !job.el || !job.wanted) return;
     if (job.el.getAttribute('data-sarthi-dd-queued') === '1') return;
     job.el.setAttribute('data-sarthi-dd-queued', '1');
-    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 4500);
+    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 6000);
     ddQueue.push(job);
-    processDdQueue();
+    clearTimeout(ddStartTimer);
+    ddStartTimer = setTimeout(processDdQueue, 240);
   }
 
   // ---------------------------------------------------------------
@@ -995,7 +1030,7 @@
 
     // Custom non-native dropdowns (SSC OTR mat-select / ng-select, IRCTC p-dropdown/ui-dropdown, Bootstrap/React dropdowns)
     findCustomDropdownTriggers().forEach(function (dd) {
-      var curTxt = (dd.innerText || dd.textContent || '').trim();
+      var curTxt = customDropdownLabelText(dd);
       var hint = norm(hintOf(dd) + ' ' + curTxt);
       if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
       var pw = portalSelectWant(hint, data);
@@ -1263,7 +1298,7 @@
     });
     // Also detect required custom dropdowns that still say "Select"
     findCustomDropdownTriggers().forEach(function (dd) {
-      var curTxt = (dd.innerText || dd.textContent || '').trim();
+      var curTxt = customDropdownLabelText(dd);
       if (!isCustomPlaceholderText(curTxt)) return;
       var hint = hintOf(dd);
       if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
@@ -1383,7 +1418,7 @@
       }
       else if ('value' in el) value = String(el.value || '');
       else {
-        var rawTxt = (el.textContent || '').trim().slice(0, 60);
+        var rawTxt = customDropdownLabelText(el).slice(0, 60);
         value = isCustomPlaceholderText(rawTxt) ? '' : rawTxt;
       }
       fields.push({
@@ -2066,7 +2101,9 @@
     s.stuck = null;
     var host = root.location ? root.location.hostname : '';
     if (host && recipeHost !== host) { recipeHost = host; s.needRecipe = true; }   // form ki poori list (sabji ka saman) ek baar
-    if (!s.done && s.asks.length === 0 && /^(filling|final|waiting|working)$/.test(s.state)) {
+    if (ddBusy || ddQueue.length > 0) {
+      stuckTicks = 0; stuckSig = '';
+    } else if (!s.done && s.asks.length === 0 && /^(filling|final|waiting|working)$/.test(s.state)) {
       var sig = pageSig() + '|' + s.emptyRequired + '|' + s.state;
       stuckTicks = (sig === stuckSig) ? stuckTicks + 1 : 1;
       stuckSig = sig;

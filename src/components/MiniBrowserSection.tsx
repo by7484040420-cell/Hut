@@ -190,6 +190,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const popupOcrRef = useRef<HTMLInputElement | null>(null);
   const pendingDocReqRef = useRef<string | null>(null);
   const lastWheelAtRef = useRef<number>(0);
+  const portalLaunchedAtRef = useRef<number>(0);
 
   const missingFields = useMemo(() => status.missingFields || [], [status.missingFields]);
 
@@ -391,16 +392,40 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       })();
     };
 
-    // Form complete ho gaya -> chat + documents + RAM details sab saaf
-    window.onSarthiNativeFormDone = () => {
+    // Form complete ya portal close/back -> chat + documents + RAM details sab turant saaf
+    const wipeCurrentTaskSession = (logMsg: string) => {
+      portalLaunchedAtRef.current = 0;
+      setUploadedReqMap({});
+      setMissingValues({});
+      setAgentGoal('');
+      setTypeBox('');
+      window.SarthiNative?.wipePortalSession?.();
+      if (!serverOfflineMode) {
+        void apiFetchJson('/api/live-browser/wipe', { method: 'POST' }).catch(() => {});
+      }
       wipeRef.current();
-      setNativePortalLogs((prev) => ['Form complete - chat aur documents saaf kar diye', ...prev].slice(0, 30));
+      setNativePortalLogs((prev) => [logMsg, ...prev].slice(0, 30));
+    };
+
+    window.onSarthiNativeFormDone = () => {
+      wipeCurrentTaskSession('Form complete - sabhi details aur documents RAM se saaf kar diye');
     };
 
     window.onSarthiNativePortalEvent = (eventJson: string) => {
       try {
-        const parsed = JSON.parse(eventJson) as { message?: string; url?: string };
+        const parsed = JSON.parse(eventJson) as {
+          event?: string;
+          type?: string;
+          status?: string;
+          message?: string;
+          url?: string;
+        };
         if (parsed.url) setAddressInput(parsed.url);
+        const sig = `${parsed.event || ''} ${parsed.type || ''} ${parsed.status || ''} ${parsed.message || ''}`;
+        if (/(close|closed|exit|back|dismiss|done|finished)/i.test(sig)) {
+          wipeCurrentTaskSession('Portal band hua - sabhi details aur documents saaf kar diye');
+          return;
+        }
         if (parsed.message) {
           setNativePortalLogs((prev) => [parsed.message!, ...prev].slice(0, 30));
         }
@@ -408,10 +433,24 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         // ignore
       }
     };
+
+    // Native APK portal screen (< BACK / CLOSE) se wapas aate hi RAM details aur docs wipe karo
+    const handleReturnFromNativePortal = () => {
+      if (document.visibilityState === 'hidden') return;
+      const launchedAt = portalLaunchedAtRef.current;
+      if (launchedAt > 0 && Date.now() - launchedAt > 1200) {
+        wipeCurrentTaskSession('Portal wapas/band hone par sabhi details aur documents delete kar diye');
+      }
+    };
+    document.addEventListener('visibilitychange', handleReturnFromNativePortal);
+    window.addEventListener('focus', handleReturnFromNativePortal);
+
     return () => {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       wsRef.current?.close();
+      document.removeEventListener('visibilitychange', handleReturnFromNativePortal);
+      window.removeEventListener('focus', handleReturnFromNativePortal);
       delete window.onSarthiNativeUnmatched;
       delete window.onSarthiNativeFormDone;
       delete window.onSarthiNativeStuck;
@@ -426,6 +465,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setShowPortalsList(false);
     setAddressInput(url);
     if (nativeApkMode && serverOfflineMode) {
+      portalLaunchedAtRef.current = Date.now();
       launchNativeControlledPortal({
         url,
         profile,
@@ -447,6 +487,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       if (data.status) setStatus(data.status);
     } catch (err) {
       if (nativeApkMode) {
+        portalLaunchedAtRef.current = Date.now();
         launchNativeControlledPortal({
           url,
           profile,
@@ -472,6 +513,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setShowToolsMenu(false);
     const targetUrl = urlOverride || addressInput;
     if (nativeApkMode && serverOfflineMode) {
+      portalLaunchedAtRef.current = Date.now();
       launchNativeControlledPortal({
         url: targetUrl,
         profile,
@@ -700,6 +742,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       if (initialGoal) setAgentGoal(initialGoal);
 
       if (nativeApkMode && initialUrl) {
+        portalLaunchedAtRef.current = Date.now();
         launchNativeControlledPortal({
           url: initialUrl,
           profile,
@@ -740,9 +783,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   };
 
   const handleWipeBrowser = async () => {
+    portalLaunchedAtRef.current = 0;
     setFrameSrc(null);
     setNativePortalLogs([]);
     setMissingPopupOpen(false);
+    setMissingValues({});
+    setUploadedReqMap({});
+    setAgentGoal('');
+    setTypeBox('');
     setShowToolsMenu(false);
     window.SarthiNative?.wipePortalSession?.();
     if (!serverOfflineMode) {

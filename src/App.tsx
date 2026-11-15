@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
   Compass,
@@ -245,8 +245,9 @@ export function App() {
     setEphemeralDocs([]);
   };
 
-  const handleWipeAllSession = () => {
+  const handleWipeAllSession = useCallback(() => {
     setEphemeralDocs([]);
+    setQueuedAiPrompt(null);
     setWorkspace((prev) => (prev ? { ...prev, chatHistory: [] } : prev));
     if (zeroSave) {
       setWorkspace((prev) =>
@@ -258,7 +259,40 @@ export function App() {
           : prev
       );
     }
-  };
+  }, [zeroSave]);
+
+  // Jab user Browser tab se bahar nikle -> purani task ki saari details/documents aur browser session turant saaf
+  const prevTabRef = useRef<TabKey>(activeTab);
+  useEffect(() => {
+    const prev = prevTabRef.current;
+    prevTabRef.current = activeTab;
+    if (prev === 'browser' && activeTab !== 'browser') {
+      handleWipeAllSession();
+      window.SarthiNative?.wipePortalSession?.();
+      if (!serverOfflineMode) {
+        void fetch('/api/live-browser/wipe', { method: 'POST' }).catch(() => {});
+      }
+    }
+  }, [activeTab, handleWipeAllSession, serverOfflineMode]);
+
+  // App cut / band / refresh karte hi saare temporary details, documents aur browser session khatam
+  useEffect(() => {
+    const wipeOnExit = () => {
+      setEphemeralDocs([]);
+      window.SarthiNative?.wipePortalSession?.();
+      try {
+        navigator.sendBeacon?.('/api/live-browser/wipe');
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('pagehide', wipeOnExit);
+    window.addEventListener('beforeunload', wipeOnExit);
+    return () => {
+      window.removeEventListener('pagehide', wipeOnExit);
+      window.removeEventListener('beforeunload', wipeOnExit);
+    };
+  }, []);
 
   const activeDraft =
     workspace?.applications.find((a) => a.id === selectedDraftId) ||
@@ -401,6 +435,7 @@ export function App() {
                 zeroSave={zeroSave}
                 onAddEphemeralDoc={handleAddEphemeralDoc}
                 onUpdateEphemeralDocField={handleUpdateEphemeralDocField}
+                onWipeEphemeralDocs={handleWipeAllSession}
                 onOpenDirectFormBrowser={openUrlInLiveBrowser}
                 onOpenAiChat={openAiWithPrompt}
                 onOpenFormStudio={() => setActiveTab('forms')}
