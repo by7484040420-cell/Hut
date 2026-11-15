@@ -24,7 +24,7 @@
 
   // Java har tick pe ye file dobara inject karta hai. Agar engine pehle se loaded hai to dobara mat banao,
   // warna state (fillingTicks, askedSig, ids) har baar reset ho jata hai aur AI user se kuch poochta hi nahi.
-  if (root.SarthiFill && root.SarthiFill.version === 3) return;
+  if (root.SarthiFill && root.SarthiFill.version === 4) return;
 
   // ---------------------------------------------------------------
   // 1. Text normalisation
@@ -981,15 +981,189 @@
 
   var fillingTicks = 0, askedSig = '';
 
-  function autopilot(payload, opts) {
+  // ---------------------------------------------------------------
+  // AI PAGE READER: jab rules page ko na samjhein (custom JS widgets, naye layout)
+  // snapshot() page ka naksha Gemini ko bhejta hai, applyPlan() uska jawab lagata hai.
+  // CAPTCHA/OTP/password/payment/Submit/Pay kabhi nahi chhuta.
+  // ---------------------------------------------------------------
+  var CUSTOM_SEL = '[role="combobox"],[role="listbox"],[role="radio"],[role="checkbox"],[role="switch"],[contenteditable="true"],mat-select,.select2-selection,[class*="select__control"]';
+  var PLAN_NO_CLICK = /submit|pay|payment|final|confirm|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e sign|digilocker|भुगतान|जमा|रद्द|पीछे|बंद/;
+
+  function sectionOf(el) {
+    try {
+      var fs = el.closest && el.closest('fieldset');
+      if (fs) { var lg = fs.querySelector('legend'); if (lg && lg.innerText) return lg.innerText.trim().slice(0, 60); }
+      var n = el, hops = 0;
+      while (n && hops < 8) {
+        var prev = n.previousElementSibling;
+        while (prev) {
+          if (/^H[1-5]$/.test(prev.tagName) && prev.innerText) return prev.innerText.trim().slice(0, 60);
+          var h = prev.querySelector && prev.querySelector('h1,h2,h3,h4,h5,legend');
+          if (h && h.innerText) return h.innerText.trim().slice(0, 60);
+          prev = prev.previousElementSibling;
+        }
+        n = n.parentElement; hops++;
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
+  function snapshot() {
+    var fields = [], buttons = [], headings = [];
+    var all = document.querySelectorAll('input,select,textarea,' + CUSTOM_SEL);
+    for (var i = 0; i < all.length && fields.length < 80; i++) {
+      var el = all[i];
+      var type = (el.type || el.getAttribute('role') || el.tagName).toLowerCase();
+      if (/^(hidden|submit|button|reset|image|range|color|search|password)$/.test(type)) continue;
+      if (!isVisible(el) || el.disabled) continue;
+      var hint = '';
+      try { hint = hintOf(el); } catch (e) { hint = norm(el.getAttribute('aria-label') || el.textContent || ''); }
+      if (classifySecurity(hint) || RE_ROBOT.test(hint)) continue;
+      var id = el.getAttribute('data-sarthi-id');
+      if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
+      var label = '';
+      try { label = readableLabelOf(el, null); } catch (e) { /* ignore */ }
+      if (!label) label = (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.textContent || '').trim().slice(0, 80);
+      var value = '';
+      if (el.tagName === 'SELECT') value = el.selectedIndex >= 0 ? (el.options[el.selectedIndex].text || '').trim() : '';
+      else if (type === 'checkbox' || type === 'radio') value = el.checked ? 'checked' : '';
+      else if ('value' in el) value = String(el.value || '');
+      else value = (el.textContent || '').trim().slice(0, 60);
+      fields.push({
+        id: id, tag: el.tagName.toLowerCase(), type: type, label: label, value: value.slice(0, 60),
+        required: isRequiredEl(el), section: sectionOf(el),
+        options: el.tagName === 'SELECT' ? optionsOf(el) : []
+      });
+    }
+    var bs = document.querySelectorAll('button,a[href],input[type="button"],input[type="submit"],[role="button"]');
+    for (var j = 0; j < bs.length && buttons.length < 30; j++) {
+      var b = bs[j];
+      if (!isVisible(b)) continue;
+      var tx = (b.innerText || b.value || b.getAttribute('aria-label') || '').trim();
+      if (!tx || tx.length > 40) continue;
+      var bid = b.getAttribute('data-sarthi-id');
+      if (!bid) { bid = 'sfb' + (++uid); b.setAttribute('data-sarthi-id', bid); }
+      buttons.push({ id: bid, text: tx });
+    }
+    Array.prototype.slice.call(document.querySelectorAll('h1,h2,h3,legend')).forEach(function (h) {
+      if (headings.length < 12 && isVisible(h) && h.innerText) headings.push(h.innerText.trim().slice(0, 80));
+    });
+    return { url: root.location ? root.location.href : '', title: document.title || '', headings: headings, fields: fields, buttons: buttons };
+  }
+
+  function fillCustom(el, value) {
+    var role = el.getAttribute('role') || '';
+    if (el.isContentEditable) {
+      el.textContent = value; fire(el, ['input', 'change']); return;
+    }
+    if (role === 'radio' || role === 'checkbox' || role === 'switch') {
+      if (el.getAttribute('aria-checked') !== 'true') el.click();
+      return;
+    }
+    // dropdown / autocomplete: kholo, option dhoondo, click karo
+    if (el.tagName === 'INPUT') { setNativeValue(el, value); fire(el, ['input']); }
+    try { el.click(); } catch (e) { /* ignore */ }
+    setTimeout(function () {
+      var want = norm(value), best = null, bestScore = 0;
+      Array.prototype.slice.call(document.querySelectorAll('[role="option"],mat-option,.mat-option,.select2-results__option,[class*="option"],ul li')).forEach(function (o) {
+        if (!isVisible(o)) return;
+        var t = norm(o.innerText || o.textContent || '');
+        if (!t) return;
+        var sc = t === want ? 100 : (t.indexOf(want) >= 0 || want.indexOf(t) >= 0 ? 60 : 0);
+        if (sc > bestScore) { bestScore = sc; best = o; }
+      });
+      if (best) { try { best.click(); } catch (e) { fire(best, ['click']); } }
+    }, 450);
+  }
+
+  function applyPlan(plan) {
+    plan = plan || {};
+    var res = { filled: 0, clickQueued: '' };
+    var fills = plan.fills || {}, std = {}, custom = [];
+    Object.keys(fills).forEach(function (id) {
+      var el = document.querySelector('[data-sarthi-id="' + id + '"]');
+      var role = el ? (el.getAttribute('role') || '') : '';
+      if (!el || (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && !/^(combobox|listbox|radio|checkbox|switch)$/.test(role) && !el.isContentEditable)) std[id] = fills[id];
+      else custom.push({ el: el, value: fills[id] });
+    });
+    if (Object.keys(std).length) res.filled += (applyMap(std).filled || 0);
+    custom.forEach(function (c, i) {
+      setTimeout(function () { try { fillCustom(c.el, c.value); } catch (e) { /* ignore */ } }, 600 * i);
+      res.filled++;
+    });
+    if (plan.click) {
+      var btn = document.querySelector('[data-sarthi-id="' + plan.click + '"]');
+      var bt = btn ? norm(btn.innerText || btn.value || btn.getAttribute('aria-label') || '') : '';
+      if (btn && bt && !PLAN_NO_CLICK.test(bt)) {
+        res.clickQueued = bt;
+        setTimeout(function () {
+          try { btn.scrollIntoView({ block: 'center' }); btn.click(); } catch (e) { fire(btn, ['click']); }
+        }, 600 * (custom.length + 1) + 900);
+      }
+    }
+    return res;
+  }
+
+  // ---------------------------------------------------------------
+  // FORM PROFILES: AI ko pata hai kaunsa form banane me kaun si details/documents lagte hain
+  // (rules badal sakte hain - portal ka page final hai)
+  // ---------------------------------------------------------------
+  var ASK_LABELS = {
+    fullName: 'Poora naam (jaise Aadhaar me hai)', dob: 'Date of Birth (DD/MM/YYYY)', gender: 'Gender',
+    fatherName: 'Father ka poora naam (First Middle Last)', motherName: 'Mother ka poora naam (First Middle Last)',
+    mobile: 'Mobile number', email: 'Email ID', addressLine: 'Poora address', pinCode: 'PIN code',
+    state: 'State', birthPlace: 'Janm sthan (Place of birth)', bloodGroup: 'Blood group', qualification: 'Qualification'
+  };
+  var PROFILES = [
+    { name: 'PAN Card',
+      test: /proteantech|tin-nsdl|tin\.nsdl|utiitsl|nsdl\.co|new pan|form 49a|pan application/,
+      keys: ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'email'],
+      docs: ['Aadhaar card (eKYC me Aadhaar-linked mobile ka OTP lagta hai)',
+             'Aadhaar na ho to ID proof + address proof + DOB proof (voter ID / DL / 10th marksheet / birth certificate)',
+             'Passport size photo aur signature (sirf document-upload mode me)'] },
+    { name: 'Driving Licence / Learner',
+      test: /parivahan|sarathi|driving licen/,
+      keys: ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'addressLine', 'pinCode', 'bloodGroup'],
+      docs: ['Aadhaar card', 'Age/DOB proof (10th marksheet ya birth certificate)', 'Address proof',
+             'Passport photo aur signature', 'Medical Form 1 (self declaration; 40+ umar me doctor ka Form 1A)'] },
+    { name: 'Passport',
+      test: /passportindia|passport seva/,
+      keys: ['fullName', 'dob', 'gender', 'birthPlace', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'pinCode'],
+      docs: ['Aadhaar ya address proof', 'DOB proof (birth certificate / 10th marksheet)', 'Education proof (ECR/non-ECR ke liye)'] },
+    { name: 'IRCTC Account',
+      test: /irctc/,
+      keys: ['fullName', 'dob', 'gender', 'mobile', 'email'],
+      docs: [] },
+    { name: 'Voter ID',
+      test: /voters\.eci|nvsp|voter service/,
+      keys: ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'addressLine', 'pinCode'],
+      docs: ['Passport size photo', 'DOB proof', 'Address proof', 'Aadhaar (optional)'] }
+  ];
+
+  function detectProfile() {
+    var t = String((root.location ? root.location.href : '') + ' ' + (document.title || '')).toLowerCase();
+    for (var i = 0; i < PROFILES.length; i++) if (PROFILES[i].test.test(t)) return PROFILES[i];
+    return null;
+  }
+
+  function haveKey(data, key) {
+    if (key === 'fullName') return !!(data.fullName || (data.firstName && data.lastName));
+    return !!(data[key] && String(data[key]).trim());
+  }
+
+  var profAskedSig = '', profNoteFor = '';
+
+  function autopilotCore(payload, opts) {
     opts = opts || {};
-    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; }
+    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; }
     var s = run(payload, {});
     s.state = 'working';
     s.clicked = '';
     s.asks = [];
     s.uploads = [];
     s.done = false;
+    s.note = '';
+    s.profile = '';
     var list = emptyRequiredList();
     s.emptyRequired = list.length;
 
@@ -997,6 +1171,25 @@
 
     s.uploadFields = [];
     list.forEach(function (a) { if (a.kind === 'file') { s.uploads.push(a.label); s.uploadFields.push({ id: a.id, label: a.label, docKind: a.docKind }); } });
+
+    // Form ka type pehchano -> jo details vault/OCR me nahi hain pehle hi maango, aur documents ki list batao
+    var prof = detectProfile();
+    if (prof) {
+      s.profile = prof.name;
+      var pa = prof.keys.filter(function (k) { return !haveKey(payload || {}, k); }).map(function (k) {
+        return { id: '', key: k, label: ASK_LABELS[k] || k, type: k === 'gender' ? 'select' : 'text',
+                 options: k === 'gender' ? ['Male', 'Female', 'Other'] : [] };
+      });
+      var pnote = prof.docs.length ? (prof.name + ' ke liye documents: ' + prof.docs.join(' | ') + '. Page upload maange to us field pe tap karke file chuno.') : '';
+      if (profNoteFor !== prof.name && pnote) { profNoteFor = prof.name; s.note = pnote; }
+      var psig = prof.name + ':' + pa.map(function (a) { return a.key; }).join(',');
+      if (pa.length > 0 && psig !== profAskedSig) {
+        profAskedSig = psig;
+        s.asks = pa;
+        s.state = 'filling';
+        return s;
+      }
+    }
 
     var pending = list.length > 0 || s.needsUser.length > 0 || s.unmatched.length > 0;
     if (pending) {
@@ -1019,6 +1212,26 @@
     var t = clickNext();
     if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; }
     else { s.state = 'final'; }
+    return s;
+  }
+
+  var stuckSig = '', stuckTicks = 0, scanCount = {}, recipeHost = '';
+
+  function autopilot(payload, opts) {
+    opts = opts || {};
+    if (opts.reset) { scanCount = {}; stuckSig = ''; stuckTicks = 0; }
+    var s = autopilotCore(payload, opts);
+    s.needRecipe = false;
+    s.stuck = null;
+    var host = root.location ? root.location.hostname : '';
+    if (host && recipeHost !== host) { recipeHost = host; s.needRecipe = true; }   // form ki poori list (sabji ka saman) ek baar
+    if (!s.done && s.asks.length === 0 && /^(filling|final|waiting|working)$/.test(s.state)) {
+      var sig = pageSig() + '|' + s.emptyRequired + '|' + s.state;
+      stuckTicks = (sig === stuckSig) ? stuckTicks + 1 : 1;
+      stuckSig = sig;
+      var key = pageSig();
+      if (stuckTicks >= 3 && (scanCount[key] || 0) < 2) { scanCount[key] = (scanCount[key] || 0) + 1; s.stuck = snapshot(); }
+    } else { stuckTicks = 0; stuckSig = ''; }
     return s;
   }
 
@@ -1060,9 +1273,11 @@
   // export
   // ---------------------------------------------------------------
   var api = {
-    version: 3,
+    version: 4,
     run: run,
     autopilot: autopilot,
+    snapshot: snapshot,
+    applyPlan: applyPlan,
     applyMap: applyMap,
     watch: watch,
     unwatch: unwatch,
