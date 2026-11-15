@@ -909,7 +909,11 @@
       if (el.tagName === 'SELECT') {
         var cur = el.selectedIndex >= 0 ? norm(el.options[el.selectedIndex].text) : '';
         if (!el.value || /^(select|choose|please)/.test(cur)) {
-          out.push({ id: id, kind: 'select', key: key || '', label: readableLabelOf(el, key), tag: 'select', type: 'select', options: optionsOf(el) });
+          var opts = optionsOf(el);
+          if (opts.length === 0) { out.push({ id: id, kind: 'wait', key: '', label: readableLabelOf(el, key) }); return; }   // options abhi load ho rahe hain
+          var pw2 = portalSelectWant(hint, {});
+          if (pw2 && selectOption(el, pw2, null)) return;                                                               // Individual / New PAN jaise default
+          out.push({ id: id, kind: 'select', key: key || '', label: readableLabelOf(el, key), tag: 'select', type: 'select', options: opts });
         }
         return;
       }
@@ -936,6 +940,8 @@
     function add(a) {
       var k = a.key ? 'k:' + a.key : 'i:' + a.id;
       if (seen[k]) return;
+      // dropdown ke options abhi load nahi hue (dependent dropdown) -> user kya chunega, thoda ruko
+      if ((a.type === 'select' || a.tag === 'select') && !(a.options && a.options.length)) return;
       seen[k] = 1;
       var lbl = a.label || 'Detail';
       if (a.key === 'fatherName') lbl = "Father ka poora naam (First Middle Last)";
@@ -1205,7 +1211,7 @@
     }
     fillingTicks = 0;
 
-    if (s.hasCaptcha || s.hasOtp || s.hasPassword || s.hasPayment) { s.state = 'user'; return s; }
+    if (s.hasCaptcha || s.hasOtp || s.hasPassword || s.hasPayment) { s.state = 'user'; userHold = { sig: pageSig() }; return s; }
 
     var sig = pageSig();
     if (sig === lastNextSig && Date.now() - lastNextAt < 10000) { s.state = 'waiting'; return s; }
@@ -1215,11 +1221,17 @@
     return s;
   }
 
-  var stuckSig = '', stuckTicks = 0, scanCount = {}, recipeHost = '';
+  var stuckSig = '', stuckTicks = 0, scanCount = {}, recipeHost = '', userHold = null;
 
   function autopilot(payload, opts) {
     opts = opts || {};
-    if (opts.reset) { scanCount = {}; stuckSig = ''; stuckTicks = 0; }
+    if (opts.reset) { scanCount = {}; stuckSig = ''; stuckTicks = 0; userHold = null; }
+    // CAPTCHA/OTP pe user ka intezaar: jab tak page nahi badla, page me kuch mat likho (site ka session bigad sakta hai)
+    if (userHold && userHold.sig === pageSig()) {
+      return { state: 'user', filled: 0, asks: [], uploads: [], uploadFields: [], done: false, note: '', profile: '', needRecipe: false, stuck: null,
+               hasCaptcha: true, hasOtp: false, hasPassword: false, hasPayment: false, needsUser: [], unmatched: [], emptyRequired: 0, url: root.location ? root.location.href : '', title: document.title || '' };
+    }
+    userHold = null;
     var s = autopilotCore(payload, opts);
     s.needRecipe = false;
     s.stuck = null;
