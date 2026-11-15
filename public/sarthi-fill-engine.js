@@ -453,6 +453,9 @@
     if (/applicant (category|status|type)|category of (the )?applicant|individual.*(trust|huf)|(trust|huf).*individual/.test(hint)) {
       return 'individual';
     }
+    // Country code / ISD / nationality: user ne India hi chahiye (popup me poochne ki zarurat nahi)
+    if (/country code|isd|std code of country|dial(ing)? code/.test(hint)) return 'india (91)';
+    if (/nationality|citizenship|country of (citizenship|nationality)/.test(hint)) return 'indian';
     return '';
   }
 
@@ -712,7 +715,24 @@
         var labs = grp.map(radioLabel).join(' ');
         if (/\bmale\b/.test(labs) && /\bfemale\b/.test(labs)) key = 'gender';
       }
-      if (!key) return;
+      if (!key) {
+        // Citizenship / Nationality radio: Indian Citizen khud chuno (NRI / Foreign nahi)
+        var cLabs = grp.map(radioLabel).join(' ');
+        if (/citizen|nationality/.test(gh) || /indian citizen/.test(cLabs)) {
+          var cPick = null;
+          grp.forEach(function (r) {
+            var l = radioLabel(r);
+            if (!cPick && /indian/.test(l) && !/nri|foreign|non/.test(l)) cPick = r;
+          });
+          if (cPick && !cPick.checked) {
+            cPick.checked = true;
+            try { cPick.click(); } catch (e) { fire(cPick, ['input', 'change']); }
+            mark(cPick.parentElement || cPick, GREEN);
+            summary.filled++;
+          }
+        }
+        return;
+      }
       var want = valueFor(key, data);
       if (!want) {
         if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
@@ -1157,11 +1177,108 @@
     return !!(data[key] && String(data[key]).trim());
   }
 
+
+  // ---------------------------------------------------------------
+  // OTP ASSIST: mobile/Aadhaar bhar jaye to "Send/Get OTP" khud dabao.
+  // OTP user khud dalta hai. OTP dalne ke baad "Verify" khud dabao.
+  // CAPTCHA kabhi nahi bharta: captcha khali ho to Send OTP nahi dabata.
+  // ---------------------------------------------------------------
+  var RE_OTP_SEND = /(^|\s)(send|get|generate|request|receive)\s*(an\s*|the\s*)?(otp|one time (password|pin)|verification code|code)|^otp\s*(send|generate|bhejo)|send\s*code|ओटीपी\s*(भेजें|प्राप्त|जनरेट)|otp\s*भेजें/;
+  var RE_OTP_RESEND = /resend|re-send|dobara|फिर से/;
+  var RE_OTP_VERIFY = /(verify|validate|confirm|submit)\s*(the\s*)?(otp|code)|otp\s*(verify|validate|submit|confirm)|^(verify|validate)$|^(verify|validate)\s*(mobile|phone|number)?$|सत्यापित|ओटीपी\s*(जमा|सत्यापन)/;
+  var otpSentAt = {}, otpVerifyAt = {};
+
+  function otpPageKey() { return (root.location ? root.location.pathname : '') + '|' + (document.title || ''); }
+
+  function clickables(scope) {
+    return Array.prototype.slice.call((scope || document).querySelectorAll('button,a,input[type="button"],input[type="submit"],[role="button"]'))
+      .filter(function (el) { return isVisible(el); });
+  }
+
+  function btnText(el) { return norm(el.innerText || el.value || el.getAttribute('aria-label') || el.title || ''); }
+
+  function findBtn(re, scope) {
+    var els = clickables(scope);
+    for (var i = 0; i < els.length; i++) {
+      var t = btnText(els[i]);
+      if (!t || t.length > 40) continue;
+      if (RE_OTP_RESEND.test(t)) continue;
+      if (re.test(t)) return els[i];
+    }
+    return null;
+  }
+
+  function contactFilled() {
+    var ins = Array.prototype.slice.call(document.querySelectorAll('input,textarea'));
+    for (var i = 0; i < ins.length; i++) {
+      var el = ins[i], type = (el.type || '').toLowerCase();
+      if (/^(hidden|submit|button|checkbox|radio|file|password)$/.test(type) || !isVisible(el)) continue;
+      var v = String(el.value || '').trim();
+      if (!v) continue;
+      var k = matchKey(hintOf(el), { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
+      var digits = v.replace(/\D/g, '');
+      if (k === 'mobile' && digits.length >= 10) return true;
+      if (k === 'email' && /@/.test(v)) return true;
+      if (k === 'aadhaarNumber' && digits.length >= 12) return true;
+    }
+    return false;
+  }
+
+  function captchaPending() {
+    var ins = Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type]),input[type="tel"],input[type="number"]'));
+    for (var i = 0; i < ins.length; i++) {
+      var el = ins[i];
+      if (!isVisible(el)) continue;
+      if (RE_CAPTCHA.test(hintOf(el)) && !String(el.value || '').trim()) return true;
+    }
+    return false;
+  }
+
+  function findOtpInput() {
+    var ins = Array.prototype.slice.call(document.querySelectorAll('input'));
+    for (var i = 0; i < ins.length; i++) {
+      var el = ins[i], type = (el.type || '').toLowerCase();
+      if (/^(hidden|submit|button|checkbox|radio|file)$/.test(type) || !isVisible(el)) continue;
+      if (RE_OTP.test(hintOf(el))) return el;
+    }
+    return null;
+  }
+
+  // return: '' | 'send' | 'verify'
+  function otpAssist() {
+    try {
+      var key = otpPageKey();
+      // 1) User ne OTP dal diya -> Verify dabao (ek baar)
+      var oi = findOtpInput();
+      if (oi && !otpVerifyAt[key] && /^\d{4,8}$/.test(String(oi.value || '').trim())) {
+        var scope = (oi.closest && oi.closest('form')) || (oi.parentElement && oi.parentElement.parentElement && oi.parentElement.parentElement.parentElement) || document;
+        var vb = findBtn(RE_OTP_VERIFY, scope) || findBtn(RE_OTP_VERIFY, document);
+        if (vb) {
+          otpVerifyAt[key] = Date.now();
+          try { vb.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+          try { vb.click(); } catch (e) { fire(vb, ['click']); }
+          return 'verify';
+        }
+      }
+      // 2) Number bhar gaya, OTP abhi bheja nahi -> Send OTP dabao (ek baar)
+      if (!otpSentAt[key]) {
+        var sb = findBtn(RE_OTP_SEND, document);
+        if (sb && contactFilled() && !captchaPending()) {
+          otpSentAt[key] = Date.now();
+          try { sb.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+          try { sb.click(); } catch (e) { fire(sb, ['click']); }
+          return 'send';
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
   var profAskedSig = '', profNoteFor = '';
 
   function autopilotCore(payload, opts) {
     opts = opts || {};
-    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; }
+    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; }
     var s = run(payload, {});
     s.state = 'working';
     s.clicked = '';
@@ -1174,6 +1291,15 @@
     s.emptyRequired = list.length;
 
     if (looksFinished(list)) { s.state = 'done'; s.done = true; return s; }
+
+    // OTP: number bharte hi Send OTP khud dabao; OTP user dalega, phir Verify khud dabao
+    var oa = otpAssist();
+    if (oa) {
+      s.state = 'otp';
+      s.otpAction = oa;
+      s.note = oa === 'send' ? 'OTP bhej diya - aap OTP daal dein' : 'OTP verify dabaya';
+      return s;
+    }
 
     s.uploadFields = [];
     list.forEach(function (a) { if (a.kind === 'file') { s.uploads.push(a.label); s.uploadFields.push({ id: a.id, label: a.label, docKind: a.docKind }); } });
@@ -1223,16 +1349,30 @@
 
   var stuckSig = '', stuckTicks = 0, scanCount = {}, recipeHost = '', userHold = null;
 
+  // Website khulne ke baad koi popup nahi: jo detail nahi mili wo s.pending me label ke roop me jaati hai
+  // (user ko sirf status line me dikhti hai). Purana popup chahiye to: window.SARTHI_ASK_POPUP = true
+  function silenceAsks(s) {
+    if (root.SARTHI_ASK_POPUP === true) return s;
+    if (s && s.asks && s.asks.length) {
+      s.pending = s.asks.map(function (a) { return a.label || a.key || 'Detail'; });
+      s.asks = [];
+    }
+    return s;
+  }
+
   function autopilot(payload, opts) {
     opts = opts || {};
     if (opts.reset) { scanCount = {}; stuckSig = ''; stuckTicks = 0; userHold = null; }
     // CAPTCHA/OTP pe user ka intezaar: jab tak page nahi badla, page me kuch mat likho (site ka session bigad sakta hai)
+    // Bas: OTP dalte hi Verify dabana (otpAssist) allowed hai
     if (userHold && userHold.sig === pageSig()) {
-      return { state: 'user', filled: 0, asks: [], uploads: [], uploadFields: [], done: false, note: '', profile: '', needRecipe: false, stuck: null,
+      var holdAct = otpAssist();
+      return { state: 'user', otpAction: holdAct, note: holdAct === 'verify' ? 'OTP verify dabaya' : (holdAct === 'send' ? 'OTP bhej diya - aap OTP daal dein' : ''), filled: 0, asks: [], uploads: [], uploadFields: [], done: false, profile: '', needRecipe: false, stuck: null,
                hasCaptcha: true, hasOtp: false, hasPassword: false, hasPayment: false, needsUser: [], unmatched: [], emptyRequired: 0, url: root.location ? root.location.href : '', title: document.title || '' };
     }
     userHold = null;
     var s = autopilotCore(payload, opts);
+    silenceAsks(s);
     s.needRecipe = false;
     s.stuck = null;
     var host = root.location ? root.location.hostname : '';
