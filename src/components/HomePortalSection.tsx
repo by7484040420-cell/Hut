@@ -285,6 +285,14 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
     },
     [ephemeralDocs]
   );
+
+  const latestStateVal =
+    String(
+      latestDoc?.fields?.find(
+        (f) => String(f?.key ?? '').toLowerCase() === 'state' || String(f?.label ?? '').toLowerCase() === 'state'
+      )?.value ?? ''
+    );
+
   return (
     <div className="space-y-6">
       <input
