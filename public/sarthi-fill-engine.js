@@ -46,7 +46,7 @@
   var RE_OTP = /\botp\b|one time|onetime|ओटीपी|mpin/;
   var RE_PASSWORD = /pass ?word|passwd|\bpwd\b|passcode|पासवर्ड/;
   var RE_PAYMENT = /card ?(no|number|num)|\bcvv\b|\bcvc\b|expiry|expire|\bupi\b|\bvpa\b|net ?banking|debit|credit|account ?(no|number|num)|\bifsc\b|\batm\b|bank ?account/;
-  var RE_DECLARATION = /declaration|i agree|i accept|i hereby|terms|consent|undertaking|shapath|स्वीकार|घोषणा|सहमत/;
+  var RE_DECLARATION = /declaration|i agree|i accept|i hereby|hereby state|no objection|terms( and conditions)?|privacy policy|declare that|i confirm|agree to|consent|undertaking|shapath|स्वीकार|घोषणा|सहमत/;
   var RE_ROBOT = /robot|human/;
 
   function classifySecurity(hint) {
@@ -121,6 +121,7 @@
      { key: 'policeStation', pos: /police station|\bthana\b|थाना/, neg: /office address/ },
      { key: 'postOffice', pos: /post office|\bpo\b|डाकघर/, neg: /office address/ },
      { key: 'villageOrWard', pos: /village|\bgram\b|ward|mohalla|locality|town|गांव|ग्राम|मोहल्ला/, neg: /office address/ },
+     { key: 'district', pos: /\bverifying place\b|^place$/i, neg: /birth|office|work|station|from|to/ },
      { key: 'addressLine', pos: /address|\bpata\b|house|street|residen|पता/, neg: /office address|e ?mail|\bip\b|web|proof|type|same/ }],
 
     // Name as per Aadhaar BEFORE aadhaarNumber so it maps to fullName
@@ -298,7 +299,7 @@
     '3a': ['3a', 'ac 3 tier', 'ac 3 tier 3a', '3 tier ac', '3ac', 'ac 3'],
     '3e': ['3e', 'ac 3 economy', 'ac 3 economy 3e', '3ac economy'],
     '2a': ['2a', 'ac 2 tier', 'ac 2 tier 2a', '2ac'],
-    '1a': ['1a', 'ac first class', 'ac first class 1a', '1ac', 'first ac'],
+    '1a': ['1a', 'ac first class', 'ac first class 1a', '1ac', 'first ac', 'fast ac', '1st ac', 'first class ac'],
     cc: ['cc', 'ac chair car', 'ac chair car cc', 'chair car'],
     '2s': ['2s', 'second sitting', 'second sitting 2s']
   };
@@ -820,7 +821,12 @@
     if (/^(P-DROPDOWN|MAT-SELECT|NG-SELECT)$/.test(el.tagName) && el.querySelector) {
       target = el.querySelector('.ui-dropdown, .p-dropdown, .ui-dropdown-trigger, .p-dropdown-trigger, .mat-select-trigger, .ng-select-container') || el;
     }
-    try { target.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+    try { target.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { /* ignore */ }
+    if (root.PointerEvent) {
+      ['pointerdown', 'pointerup'].forEach(function (evName) {
+        try { target.dispatchEvent(new root.PointerEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
+      });
+    }
     ['mousedown', 'mouseup'].forEach(function (evName) {
       try { target.dispatchEvent(new MouseEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
     });
@@ -1084,30 +1090,33 @@
       if ((key === 'loginUserId' || key === 'loginPassword') && !val) return;
 
       if (key && !val) {
-        if (/^(fullName|firstName|fatherName|motherName|dob|aadhaarNumber|panNumber|addressLine|pinCode|district|state|tenthRoll|twelfthRoll)$/.test(key)) {
+        var isReqField = isRequiredEl(el);
+        if (isReqField && /^(fullName|firstName|fatherName|motherName|dob|aadhaarNumber|panNumber|addressLine|pinCode|district|state|tenthRoll|twelfthRoll)$/.test(key)) {
           summary.isPersonalForm = true;
         }
-        if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
-        mark(el, BLUE);
-        var mId = el.getAttribute('data-sarthi-id');
-        if (!mId) { mId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', mId); }
-        var mOpts = [];
-        if (isSelect) {
-          for (var mi = 0; mi < el.options.length && mi < 50; mi++) {
-            var mtx = (el.options[mi].text || '').trim();
-            if (mtx && !/^(select|choose|please|--)/i.test(mtx)) mOpts.push(mtx);
+        if (isReqField) {
+          if (summary.needsUser.indexOf(key) < 0) summary.needsUser.push(key);
+          mark(el, BLUE);
+          var mId = el.getAttribute('data-sarthi-id');
+          if (!mId) { mId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', mId); }
+          var mOpts = [];
+          if (isSelect) {
+            for (var mi = 0; mi < el.options.length && mi < 50; mi++) {
+              var mtx = (el.options[mi].text || '').trim();
+              if (mtx && !/^(select|choose|please|--)/i.test(mtx)) mOpts.push(mtx);
+            }
           }
-        }
-        if (summary.missingFields.length < 30) {
-          summary.missingFields.push({
-            id: mId,
-            key: key,
-            label: readableLabelOf(el, key),
-            tag: el.tagName.toLowerCase(),
-            type: type,
-            placeholder: el.placeholder || '',
-            options: mOpts
-          });
+          if (summary.missingFields.length < 30) {
+            summary.missingFields.push({
+              id: mId,
+              key: key,
+              label: readableLabelOf(el, key),
+              tag: el.tagName.toLowerCase(),
+              type: type,
+              placeholder: el.placeholder || '',
+              options: mOpts
+            });
+          }
         }
         return;
       }
@@ -1140,8 +1149,14 @@
           if (el.maxLength > 0 && String(finalVal).length > el.maxLength && key !== 'dob' && key !== 'journeyDate') finalVal = String(finalVal).slice(0, el.maxLength);
           var wasRO = el.readOnly;
           if (wasRO) el.removeAttribute('readonly');
-          if (key === 'aadhaarNumber') typeDigitsIncrementally(el, finalVal);
-          else setNativeValue(el, finalVal);
+          if (key === 'aadhaarNumber') {
+            typeDigitsIncrementally(el, finalVal);
+          } else {
+            setNativeValue(el, finalVal);
+            if ((key === 'mobile' || key === 'alternateMobile' || key === 'pinCode') && String(el.value || '').replace(/\D/g, '') !== finalVal) {
+              typeDigitsIncrementally(el, finalVal);
+            }
+          }
           if (wasRO) el.setAttribute('readonly', 'readonly');
           if (key === 'journeyDate') {
             try {
@@ -1184,7 +1199,8 @@
           id: id, tag: el.tagName.toLowerCase(), type: type,
           name: el.name || '', label: readableLabelOf(el, null),
           rawHint: (hint || '').slice(0, 120),
-          placeholder: el.placeholder || '', options: o
+          placeholder: el.placeholder || '', options: o,
+          required: isRequiredEl(el)
         });
       }
     });
@@ -1723,7 +1739,7 @@
   // ---------------------------------------------------------------
   var RE_OTP_SEND = /(^|\s)(send|get|generate|request|receive)\s*(an\s*|the\s*)?(otp|one time (password|pin)|verification code|code)|^otp\s*(send|generate|bhejo)|send\s*code|ओटीपी\s*(भेजें|प्राप्त|जनरेट)|otp\s*भेजें/;
   var RE_OTP_RESEND = /resend|re-send|dobara|फिर से/;
-  var RE_OTP_VERIFY = /(verify|validate|confirm|submit)\s*(the\s*)?(otp|code)|otp\s*(verify|validate|submit|confirm)|^(verify|validate)$|^(verify|validate)\s*(mobile|phone|number)?$|सत्यापित|ओटीपी\s*(जमा|सत्यापन)/;
+  var RE_OTP_VERIFY = /(verify|validate|confirm|submit)\s*(the\s*|my\s*|your\s*|aadhaa?r\s*|mobile\s*|phone\s*|email\s*)?(otp|code)|otp\s*(verify|validate|submit|confirm)|^(verify|validate)(\s+(mobile|phone|email|aadhaa?r|number))?$|सत्यापित|ओटीपी\s*(जमा|सत्यापन)/;
   var otpSentAt = {}, otpVerifyAt = {};
 
   function otpPageKey() { return (root.location ? root.location.pathname : '') + '|' + (document.title || ''); }
@@ -1733,17 +1749,44 @@
       .filter(function (el) { return isVisible(el); });
   }
 
-  function btnText(el) { return norm(el.innerText || el.value || el.getAttribute('aria-label') || el.title || ''); }
+  function btnText(el) { return norm(el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.title || ''); }
 
-  function findBtn(re, scope) {
-    var els = clickables(scope);
-    for (var i = 0; i < els.length; i++) {
-      var t = btnText(els[i]);
-      if (!t || t.length > 40) continue;
-      if (RE_OTP_RESEND.test(t)) continue;
-      if (re.test(t)) return els[i];
+  function isBtnEnabled(b) {
+    if (!b || b.disabled) return false;
+    if (b.getAttribute && b.getAttribute('aria-disabled') === 'true') return false;
+    if (/disable-btn|disabled/.test(b.className || '')) return false;
+    return true;
+  }
+
+  function findAllBtns(re, scope) {
+    return clickables(scope).filter(function (el) {
+      if (!isBtnEnabled(el)) return false;
+      var t = btnText(el);
+      if (!t || t.length > 40) return false;
+      if (RE_OTP_RESEND.test(t)) return false;
+      return re.test(t);
+    });
+  }
+
+  function findNearestOtpBtn(re, oi) {
+    var node = oi ? oi.parentElement : null;
+    for (var up = 0; up < 5 && node && node !== document.body; up++) {
+      var hits = findAllBtns(re, node);
+      if (hits.length > 0) return hits[0];
+      node = node.parentElement;
     }
-    return null;
+    var all = findAllBtns(re, document);
+    return all.length ? all[0] : null;
+  }
+
+  function captchaPending() {
+    var ins = Array.prototype.slice.call(document.querySelectorAll('input,textarea'));
+    for (var i = 0; i < ins.length; i++) {
+      var el = ins[i], type = (el.type || '').toLowerCase();
+      if (/^(hidden|submit|button|checkbox|radio|file)$/.test(type) || !isVisible(el) || el.disabled) continue;
+      if (classifySecurity(hintOf(el)) === 'captcha' && !String(el.value || '').trim()) return true;
+    }
+    return false;
   }
 
   function contactFilled() {
@@ -1751,61 +1794,87 @@
     for (var i = 0; i < ins.length; i++) {
       var el = ins[i], type = (el.type || '').toLowerCase();
       if (/^(hidden|submit|button|checkbox|radio|file|password)$/.test(type) || !isVisible(el)) continue;
-      var v = String(el.value || '').trim();
-      if (!v) continue;
       var k = matchKey(hintOf(el), { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
-      var digits = v.replace(/\D/g, '');
-      if (k === 'mobile' && digits.length >= 10) return true;
-      if (k === 'email' && /@/.test(v)) return true;
-      if (k === 'aadhaarNumber' && digits.length >= 12) return true;
+      var v = String(el.value || '').trim();
+      var d = v.replace(/\D/g, '');
+      if (k === 'mobile' && /^[6-9]\d{9}$/.test(d)) return true;
+      if (k === 'email' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return true;
+      if (k === 'aadhaarNumber' && d.length === 12) return true;
     }
     return false;
   }
 
-  function captchaPending() {
-    var ins = Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type]),input[type="tel"],input[type="number"]'));
-    for (var i = 0; i < ins.length; i++) {
-      var el = ins[i];
-      if (!isVisible(el)) continue;
-      if (RE_CAPTCHA.test(hintOf(el)) && !String(el.value || '').trim()) return true;
+  function rowContactReady(sb) {
+    var node = sb ? sb.parentElement : null;
+    for (var up = 0; up < 4 && node && node !== document.body; up++) {
+      var ins = Array.prototype.slice.call(node.querySelectorAll('input,textarea'));
+      var hasContact = false;
+      for (var i = 0; i < ins.length; i++) {
+        var el = ins[i], type = (el.type || '').toLowerCase();
+        if (/^(hidden|submit|button|checkbox|radio|file|password)$/.test(type) || !isVisible(el)) continue;
+        var h = hintOf(el);
+        var k = matchKey(h, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
+        if (k === 'mobile' || k === 'email' || k === 'aadhaarNumber') {
+          hasContact = true;
+          var v = String(el.value || '').trim();
+          var d = v.replace(/\D/g, '');
+          if (k === 'mobile' && /^[6-9]\d{9}$/.test(d)) return true;
+          if (k === 'email' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return true;
+          if (k === 'aadhaarNumber' && d.length === 12) return true;
+        }
+      }
+      if (hasContact) return false;
+      node = node.parentElement;
     }
-    return false;
+    return contactFilled();
   }
 
-  function findOtpInput() {
+  function findOtpInputs() {
+    var out = [];
     var ins = Array.prototype.slice.call(document.querySelectorAll('input'));
     for (var i = 0; i < ins.length; i++) {
       var el = ins[i], type = (el.type || '').toLowerCase();
-      if (/^(hidden|submit|button|checkbox|radio|file)$/.test(type) || !isVisible(el)) continue;
-      if (RE_OTP.test(hintOf(el))) return el;
+      if (/^(hidden|submit|button|checkbox|radio|file)$/.test(type) || !isVisible(el) || el.disabled) continue;
+      if (RE_OTP.test(hintOf(el))) out.push(el);
     }
-    return null;
+    return out;
   }
 
   // return: '' | 'send' | 'verify'
   function otpAssist() {
     try {
-      var key = otpPageKey();
-      // 1) User ne OTP dal diya -> Verify dabao (ek baar)
-      var oi = findOtpInput();
-      if (oi && !otpVerifyAt[key] && /^\d{4,8}$/.test(String(oi.value || '').trim())) {
-        var scope = (oi.closest && oi.closest('form')) || (oi.parentElement && oi.parentElement.parentElement && oi.parentElement.parentElement.parentElement) || document;
-        var vb = findBtn(RE_OTP_VERIFY, scope) || findBtn(RE_OTP_VERIFY, document);
+      var now = Date.now();
+      // 1) User ne kisi bhi OTP box me 4-8 digit OTP dal diya -> us row ka Verify OTP dabao
+      var ois = findOtpInputs();
+      for (var i = 0; i < ois.length; i++) {
+        var oi = ois[i];
+        var v = String(oi.value || '').trim();
+        if (!/^\d{4,8}$/.test(v)) continue;
+        var lastAt = parseInt(oi.getAttribute('data-sarthi-otp-v-at') || '0', 10);
+        var lastVal = oi.getAttribute('data-sarthi-otp-v-val') || '';
+        if (lastVal === v && now - lastAt < 4500) continue;
+        var vb = findNearestOtpBtn(RE_OTP_VERIFY, oi);
         if (vb) {
-          otpVerifyAt[key] = Date.now();
-          try { vb.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
-          try { vb.click(); } catch (e) { fire(vb, ['click']); }
+          oi.setAttribute('data-sarthi-otp-v-at', String(now));
+          oi.setAttribute('data-sarthi-otp-v-val', v);
+          mark(vb, GREEN);
+          clickLikeUser(vb);
           return 'verify';
         }
       }
-      // 2) Number bhar gaya, OTP abhi bheja nahi -> Send OTP dabao (ek baar)
-      if (!otpSentAt[key]) {
-        var sb = findBtn(RE_OTP_SEND, document);
-        if (sb && contactFilled() && !captchaPending()) {
-          otpSentAt[key] = Date.now();
-          try { sb.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
-          try { sb.click(); } catch (e) { fire(sb, ['click']); }
-          return 'send';
+      // 2) Jis contact row me sahi number/email/aadhaar bhar gaya hai, uska Send OTP dabao (per-button cooldown)
+      if (!captchaPending()) {
+        var sbs = findAllBtns(RE_OTP_SEND, document);
+        for (var j = 0; j < sbs.length; j++) {
+          var sb = sbs[j];
+          var sentAt = parseInt(sb.getAttribute('data-sarthi-otp-sent-at') || '0', 10);
+          if (sentAt && now - sentAt < 25000) continue;
+          if (rowContactReady(sb)) {
+            sb.setAttribute('data-sarthi-otp-sent-at', String(now));
+            mark(sb, GREEN);
+            clickLikeUser(sb);
+            return 'send';
+          }
         }
       }
     } catch (e) { /* ignore */ }
@@ -1828,6 +1897,7 @@
     { q: /proof of date of birth|proof of dob|date of birth proof/, pick: /aadhaa?r/ },
     { q: /proof of identity|identity proof/, pick: /aadhaa?r/ },
     { q: /proof of address|address proof/, pick: /aadhaa?r/ },
+    { q: /\bcapacity\b|in the capacity of/, pick: /himself|herself|individual|self/ },
     { q: /\bcountry\b(?!.*(code|isd|std))/, pick: /^india$/ }
   ];
 
@@ -1885,31 +1955,71 @@
           if (/residence|residential/.test(radioLabel(pickedRadio))) out.unlockedSection = true;
         }
       });
-      // dropdowns
+      // dropdowns (Proof of ID/Address/DOB, Country, Declaration Capacity)
       Array.prototype.slice.call(document.querySelectorAll('select')).forEach(function (sel) {
         if (sel.disabled || !isVisible(sel)) return;
         if (sel.selectedIndex > 0 && sel.value) return;
         var h = hintOf(sel);
         if (classifySecurity(h)) return;
         for (var i = 0; i < DEF_SELECTS.length; i++) {
-          if (DEF_SELECTS[i].q.test(h) && pickByRegex(sel, DEF_SELECTS[i].pick)) { mark(sel, BLUE); out.filled++; return; }
+          if (DEF_SELECTS[i].q.test(h)) {
+            if (pickByRegex(sel, DEF_SELECTS[i].pick)) { mark(sel, BLUE); out.filled++; return; }
+            if (/proof of/.test(h) && sel.options.length > 1) {
+              for (var oi = 1; oi < sel.options.length; oi++) {
+                if (sel.options[oi].value && !/select|choose|please/i.test(sel.options[oi].text || '')) {
+                  sel.selectedIndex = oi; fire(sel, ['input', 'change']); mark(sel, BLUE); out.filled++; return;
+                }
+              }
+            }
+          }
         }
       });
-      // designation (declaration)
+      // designation & verifying place (declaration)
       Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type])')).forEach(function (el) {
         if (el.disabled || el.readOnly || !isVisible(el) || String(el.value || '').trim()) return;
-        if (/designation/.test(hintOf(el))) {
+        var h = hintOf(el);
+        if (/designation/.test(h)) {
           setNativeValue(el, data.designation || 'Self');
           mark(el, BLUE); out.filled++;
+        } else if (/\b(verifying place|place)\b/.test(h) && !/birth|office|work|station|from|to/.test(h)) {
+          var pv = (data && (data.district || data.villageOrWard || data.state)) || '';
+          if (pv) { setNativeValue(el, pv); mark(el, BLUE); out.filled++; }
         }
       });
-      // source of income (checkbox group)
+      // PAN Step 4 AO Code auto-Fetch: if area code/range code empty & Fetch button is visible with State/City set
+      var aoEmpty = Array.prototype.slice.call(document.querySelectorAll('input')).some(function (el) {
+        return isVisible(el) && !el.disabled && !String(el.value || '').trim() && /area ?code|range ?code|ao ?no|ao ?type/.test(hintOf(el));
+      });
+      if (aoEmpty) {
+        var aoRadios = Array.prototype.slice.call(document.querySelectorAll('table input[type="radio"], .ao-table input[type="radio"]')).filter(function (r) { return !r.disabled && isVisible(r); });
+        if (aoRadios.length > 0 && !aoRadios.some(function (r) { return r.checked; })) {
+          clickLikeUser(aoRadios[0]);
+          mark(aoRadios[0], BLUE);
+          out.filled++;
+        } else {
+          var fetchBtn = findAllBtns(/^fetch$/i, document)[0];
+          if (fetchBtn && !fetchBtn.getAttribute('data-sarthi-ao-fetched')) {
+            fetchBtn.setAttribute('data-sarthi-ao-fetched', '1');
+            clickLikeUser(fetchBtn);
+            out.unlockedSection = true;
+          }
+        }
+      }
+      // source of income (checkbox group) -> user na de to "No income" smart-default chuno (kabhi blank mat chhodo)
       var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"]')).filter(function (c) { return !c.disabled && isVisible(c); });
       var inc = boxes.filter(function (c) { return ancestorMatches(c, /source of income/, 900) && /salary|business|profession|house property|other sources|capital gains|no income/.test(norm(labelTextOf(c))); });
       if (inc.length && !inc.some(function (c) { return c.checked; })) {
         var want = norm(data.incomeSource || '');
-        if (!want) { out.missing.push('Source of Income'); }
-        else {
+        if (!want) {
+          var noInc = inc.find(function (c) { return /no income/.test(norm(labelTextOf(c))); }) ||
+                      inc.find(function (c) { return /other sources/.test(norm(labelTextOf(c))); });
+          if (noInc) {
+            try { noInc.click(); } catch (e) { noInc.checked = true; fire(noInc, ['input', 'change']); }
+            mark(noInc.parentElement || noInc, BLUE); out.filled++;
+          } else {
+            out.missing.push('Source of Income');
+          }
+        } else {
           var toks = want.split(/[,;|\/]+/).map(function (x) { return x.trim(); }).filter(Boolean);
           inc.forEach(function (c) {
             var lb = norm(labelTextOf(c));
@@ -1949,14 +2059,14 @@
 
   function irctcWantedClasses(trainClass) {
     var cp = norm(trainClass || '');
+    if (/\b(1a|1st|fc)\b|first\s*ac|fast\s*ac|ac\s*first|first\s*class/.test(cp)) return ['1A', '2A', '3A'];
+    if (/\b(2a|2ac)\b|2\s*tier|second\s*ac/.test(cp)) return ['2A', '3A', '1A'];
+    if (/\b3e\b|economy/.test(cp)) return ['3E', '3A', 'SL', '2A'];
+    if (/\b(cc|ec)\b|chair/.test(cp)) return ['CC', 'EC', '2S'];
+    if (/\b2s\b|second sitting/.test(cp)) return ['2S', 'SL', 'CC'];
     if (/sleeper|\bsl\b/.test(cp)) return ['SL', '2S', '3E', '3A'];
-    if (/3e|economy/.test(cp)) return ['3E', '3A', 'SL', '2A'];
-    if (/3a|3 tier|3ac|\bac\b/.test(cp)) return ['3A', '3E', '2A', 'SL'];
-    if (/2a|2 tier|2ac/.test(cp)) return ['2A', '3A', '1A'];
-    if (/1a|first/.test(cp)) return ['1A', '2A'];
-    if (/cc|chair/.test(cp)) return ['CC', '2S', 'EC'];
-    if (/2s|second sitting/.test(cp)) return ['2S', 'SL', 'CC'];
-    return ['SL', '3A', '3E', '2A', 'CC', '2S'];
+    if (/3a|3\s*tier|3ac|\bac\b/.test(cp)) return ['3A', '3E', '2A', '1A', 'SL'];
+    return ['SL', '3A', '3E', '2A', '1A', 'CC', '2S'];
   }
 
   function irctcCardMatchesTrain(cardText, prefTrain) {
@@ -1979,10 +2089,41 @@
     if (/\b3e\b|ac 3 economy/.test(t)) return '3E';
     if (/\b(3a|3 tier|ac 3)\b/.test(t) && !/economy/.test(t)) return '3A';
     if (/\b(2a|2 tier|ac 2)\b/.test(t)) return '2A';
-    if (/\b(1a|first class)\b/.test(t)) return '1A';
+    if (/\b(1a|first class|first ac|ac first)\b/.test(t)) return '1A';
     if (/\b(cc|chair car)\b/.test(t)) return 'CC';
     if (/\b(2s|second sitting)\b/.test(t)) return '2S';
     if (/\bec\b|exec/.test(t)) return 'EC';
+    return '';
+  }
+
+  function irctcClickableChild(tile, wantRefresh) {
+    if (!tile || !tile.querySelectorAll) return tile;
+    var pre = tile.querySelector('.pre-avl');
+    var rootTile = pre || tile;
+    if (wantRefresh) {
+      var list = rootTile.querySelectorAll('a, button, [role="button"], .link, [class*="refresh"], i.fa-refresh, div, span, strong');
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        if (!isVisible(c)) continue;
+        var ct = norm(c.innerText || '');
+        if ((c.classList && c.classList.contains('link')) || /refresh/.test(ct) || /fa-refresh|refresh/.test(c.className || '')) {
+          if (c.children && c.children.length === 1 && /refresh/i.test(c.children[0].innerText || '')) return c.children[0];
+          return c;
+        }
+      }
+    }
+    var inner = rootTile.querySelector('a, button, [role="button"], strong');
+    return (inner && isVisible(inner)) ? inner : rootTile;
+  }
+
+  function irctcInferPageClassHint() {
+    try {
+      var dd = document.querySelector('p-dropdown[formcontrolname="journeyClass"], p-dropdown[formcontrolname*="class"]');
+      if (dd) {
+        var lt = customDropdownLabelText(dd);
+        if (lt && !/all classes/i.test(lt)) return lt;
+      }
+    } catch (e) { /* ignore */ }
     return '';
   }
 
@@ -2021,7 +2162,8 @@
       if (!cards.length) return null;
 
       var prefTrain = (data && data.preferredTrain) ? String(data.preferredTrain).trim() : '';
-      var wantedClasses = irctcWantedClasses(data && data.trainClass);
+      var effClass = (data && data.trainClass && !/all classes/i.test(data.trainClass)) ? data.trainClass : irctcInferPageClassHint();
+      var wantedClasses = irctcWantedClasses(effClass);
       var matchingCards = cards.filter(function (c) {
         return prefTrain ? irctcCardMatchesTrain(c.innerText || '', prefTrain) : (c.getAttribute('data-sarthi-regret') !== '1');
       });
@@ -2030,17 +2172,24 @@
         matchingCards = cards;
       }
 
-      // Score cards: prefer cards already showing AVAILABLE or RAC + enabled Book Now
+      // Score cards: prefer cards having wanted primary class + AVAILABLE / RAC + enabled Book Now
       var chosen = matchingCards[0], bestCardScore = -1;
       matchingCards.forEach(function (card, idx) {
         var txt = (card.innerText || '').toUpperCase();
         var sc = (matchingCards.length - idx);
-        var hasAvl = /\b(AVAILABLE|CURR_AVBL)\b/.test(txt);
-        var hasRac = /\bRAC\b/.test(txt);
-        var hasWl = /\b(WL|RLWL|PQWL|GNWL)\b/.test(txt);
+        var hasAvl = /\b(AVAILABLE|CURR[_\s-]?AVBL|AVBL)\b/.test(txt);
+        var hasRac = /\bRAC\s*\d*\b/.test(txt);
+        var hasWl = /\b(WL|RLWL|PQWL|GNWL|TQWL)\s*\d*\b/.test(txt);
+        var cardTiles = Array.prototype.slice.call(card.querySelectorAll('.pre-avl, td, strong, span')).filter(function (el) {
+          return isVisible(el) && !!irctcClassTokenOf(el.innerText || '');
+        });
+        var hasPrimary = cardTiles.some(function (t) { return irctcClassTokenOf(t.innerText || '') === wantedClasses[0]; });
+        var hasSecondary = wantedClasses[1] && cardTiles.some(function (t) { return irctcClassTokenOf(t.innerText || '') === wantedClasses[1]; });
         var bookBtn = Array.prototype.slice.call(card.querySelectorAll('button, input[type="button"]')).find(function (b) {
           return isVisible(b) && !b.disabled && !/disable-btn|disabled/.test(b.className || '') && /^book now$/.test(norm(b.innerText || b.value || ''));
         });
+        if (hasPrimary) sc += 180;
+        else if (hasSecondary) sc += 80;
         if (hasAvl) sc += 500;
         else if (hasRac) sc += 250;
         else if (hasWl) sc += 80;
@@ -2050,9 +2199,10 @@
 
       if (!chosen) return null;
 
-      // 3) Look for date/availability slots inside chosen card
+      // 3) Look for date/availability slots inside chosen card (prefer inner .pre-avl over outer td wrapper)
       var slotCandidates = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, td, div[class*="avl"], div[tabindex], a')).filter(function (el) {
         if (!isVisible(el)) return false;
+        if (el.tagName === 'TD' && el.querySelector && el.querySelector('.pre-avl')) return false;
         var t = (el.innerText || '').trim();
         if (!t || t.length > 72) return false;
         return /\b(AVAILABLE|CURR[_\s-]?AVBL|AVBL|RAC\s*\d*|WL\s*\d*|RLWL\s*\d*|PQWL\s*\d*|GNWL\s*\d*|TQWL\s*\d*|REGRET|NOT AVAILABLE)\b/i.test(t) &&
@@ -2087,15 +2237,16 @@
           if (/selected|active/.test(sl.className || '') || sl.getAttribute('aria-selected') === 'true') sc += 20;
           if (sc > bestSlotScore) { bestSlotScore = sc; bestSlot = sl; }
         });
-        var isSlotSelected = /selected|active/.test(bestSlot.className || '') || bestSlot.getAttribute('aria-selected') === 'true' || chosen.getAttribute('data-sarthi-slot-done') === '1';
-        if (!isSlotSelected && now - irctcLastActAt >= 1200) {
+        var slotAt = parseInt(chosen.getAttribute('data-sarthi-slot-at') || '0', 10);
+        var isSlotSelected = /selected|active/.test(bestSlot.className || '') || bestSlot.getAttribute('aria-selected') === 'true' || !!chosenBookBtn || (now - slotAt < 2500);
+        if (!isSlotSelected && now - irctcLastActAt >= 1100) {
           irctcLastActAt = now;
-          chosen.setAttribute('data-sarthi-slot-done', '1');
+          chosen.setAttribute('data-sarthi-slot-at', String(now));
           mark(bestSlot, GREEN);
-          clickLikeUser(bestSlot);
-          return { state: 'filling', note: 'Available date slot select kiya...' };
+          clickLikeUser(irctcClickableChild(bestSlot, false));
+          return { state: 'filling', note: 'Available/Waiting date slot select kiya...' };
         }
-        if (chosenBookBtn && now - irctcLastActAt >= 700 && now - irctcBookAt >= 4000) {
+        if (chosenBookBtn && now - irctcLastActAt >= 600 && now - irctcBookAt >= 4000) {
           irctcBookAt = now;
           irctcLastActAt = now;
           mark(chosenBookBtn, GREEN);
@@ -2105,10 +2256,10 @@
         return { state: 'filling', note: 'Seat slot check ho raha hai...' };
       }
 
-      // 4) No availability slots open yet in chosen card -> click wanted class tab (SL / 3A / 3E / 2A)
+      // 4) No availability slots open yet in chosen card -> click wanted class tab's inner clickable/Refresh target so Angular catches it!
       var clsTiles = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, td, [role="button"], button, a, div[class*="col"], strong, span')).filter(function (el) {
         if (!isVisible(el)) return false;
-        if (el.querySelectorAll && el.querySelectorAll('.pre-avl').length > 1) return false;
+        if (el.querySelectorAll && el.querySelectorAll('.pre-avl').length > 0 && !el.classList.contains('pre-avl')) return false;
         return !!irctcClassTokenOf(el.innerText || '');
       });
       if (clsTiles.length > 0) {
@@ -2123,16 +2274,17 @@
         }
         if (!pickedTile) pickedTile = clsTiles[0];
         if (pickedTile && pickedTile.closest) {
-          pickedTile = pickedTile.closest('.pre-avl, td, [role="button"], button, a') || pickedTile;
+          pickedTile = pickedTile.closest('.pre-avl') || pickedTile.closest('td, [role="button"], button, a') || pickedTile;
         }
         var clsAt = parseInt(chosen.getAttribute('data-sarthi-cls-at') || '0', 10);
-        if (pickedTile && now - clsAt >= 2800 && now - irctcLastActAt >= 1200) {
+        if (pickedTile && now - clsAt >= 2600 && now - irctcLastActAt >= 1100) {
+          var tok = irctcClassTokenOf(pickedTile.innerText || '');
           irctcLastActAt = now;
           chosen.setAttribute('data-sarthi-cls-at', String(now));
-          chosen.removeAttribute('data-sarthi-slot-done');
+          chosen.removeAttribute('data-sarthi-slot-at');
           mark(pickedTile, GREEN);
-          clickLikeUser(pickedTile);
-          return { state: 'filling', note: 'Class (' + irctcClassTokenOf(pickedTile.innerText || '') + ') availability check ho rahi hai...' };
+          clickLikeUser(irctcClickableChild(pickedTile, true));
+          return { state: 'filling', note: 'Class (' + tok + ') availability check ho rahi hai...' };
         }
         return { state: 'filling', note: 'Train availability load ho rahi hai...' };
       }
@@ -2218,7 +2370,8 @@
       }
     }
 
-    var pending = list.length > 0 || s.needsUser.length > 0 || s.unmatched.length > 0 || (s.smartMissing && s.smartMissing.length > 0);
+    var reqUnmatched = (s.unmatched || []).filter(function (u) { return u.required; });
+    var pending = list.length > 0 || s.needsUser.length > 0 || reqUnmatched.length > 0 || (s.smartMissing && s.smartMissing.length > 0);
     if (pending) {
       fillingTicks++;
       if (fillingTicks >= 2) {
@@ -2262,10 +2415,11 @@
     opts = opts || {};
     if (opts.reset) { scanCount = {}; stuckSig = ''; stuckTicks = 0; userHold = null; }
     // CAPTCHA/OTP pe user ka intezaar: jab tak page nahi badla, page me kuch mat likho (site ka session bigad sakta hai)
-    // Bas: OTP dalte hi Verify dabana (otpAssist) allowed hai
+    // Bas: OTP dalte hi Verify dabana (otpAssist) allowed hai; verify click ke baad userHold chhod do taaki aage badhe
     if (userHold && userHold.sig === pageSig()) {
       var holdAct = otpAssist();
-      return { state: 'user', otpAction: holdAct, note: holdAct === 'verify' ? 'OTP verify dabaya' : (holdAct === 'send' ? 'OTP bhej diya - aap OTP daal dein' : ''), filled: 0, asks: [], uploads: [], uploadFields: [], done: false, profile: '', needRecipe: false, stuck: null,
+      if (holdAct === 'verify') userHold = null;
+      return { state: holdAct === 'verify' ? 'otp' : 'user', otpAction: holdAct, note: holdAct === 'verify' ? 'OTP verify dabaya' : (holdAct === 'send' ? 'OTP bhej diya - aap OTP daal dein' : ''), filled: 0, asks: [], uploads: [], uploadFields: [], done: false, profile: '', needRecipe: false, stuck: null,
                hasCaptcha: true, hasOtp: false, hasPassword: false, hasPayment: false, needsUser: [], unmatched: [], emptyRequired: 0, url: root.location ? root.location.href : '', title: document.title || '' };
     }
     userHold = null;

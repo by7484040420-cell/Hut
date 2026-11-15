@@ -117,9 +117,9 @@ const DETAIL_FIELDS: Array<{
   { payloadKey: 'pinCode', fkey: 'pin_code', label: 'PIN Code', placeholder: '6 digit PIN', inputMode: 'numeric' },
   { payloadKey: 'birthPlace', fkey: 'birth_place', label: 'Birth Place', placeholder: 'Janm sthan' },
   { payloadKey: 'bloodGroup', fkey: 'blood_group', label: 'Blood Group', placeholder: 'jaise B+' },
-  { payloadKey: 'incomeSource', fkey: 'income_source', label: 'Income Source (kamai ka zariya)', placeholder: 'Salary / Business / House property / Other sources / No income', options: ['Salary', 'Income from Business / Profession', 'Income from House property', 'Income from Other sources', 'Capital Gains', 'No income'] },
+  { payloadKey: 'incomeSource', fkey: 'income_source', label: 'Income Source (kamai ka zariya)', placeholder: 'No income / Salary / Business / Other sources', options: ['No income', 'Salary', 'Income from Business / Profession', 'Income from House property', 'Income from Other sources', 'Capital Gains'] },
   { payloadKey: 'alternateMobile', fkey: 'alternate_mobile', label: 'Alternate Mobile', placeholder: '10 digit mobile', inputMode: 'tel' },
-  { payloadKey: 'qualification', fkey: 'qualification', label: 'Qualification', placeholder: 'jaise 12th, Graduate' },
+  { payloadKey: 'qualification', fkey: 'qualification', label: 'Highest Qualification (Uchchatam Yogyata)', placeholder: '10th / 12th / Graduate', options: ['Matriculation (10th)', 'Higher Secondary (10+2)', 'Diploma', 'Graduation', 'Post Graduation'] },
   { payloadKey: 'loginUserId', fkey: 'login_user_id', label: 'Portal User ID / Login ID (agar account hai)', placeholder: 'Optional — login ke liye User ID' },
   { payloadKey: 'loginPassword', fkey: 'login_password', label: 'Portal Password (RAM-only, optional)', placeholder: 'Optional — sirf is session ke liye', inputType: 'password' },
 ];
@@ -132,7 +132,7 @@ const BASELINE_KEYS: Array<{ test: RegExp; keys: string[] }> = [
   },
   {
     test: /ssc|army|rrb|police|constable|otr|bharti|recruitment|job/i,
-    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'category', 'fatherName', 'motherName', 'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent', 'mobile', 'email', 'addressLine', 'district', 'state', 'pinCode', 'loginUserId', 'loginPassword'],
+    keys: ['aadhaarNumber', 'fullName', 'dob', 'gender', 'category', 'fatherName', 'motherName', 'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent', 'qualification', 'mobile', 'email', 'addressLine', 'district', 'state', 'pinCode', 'loginUserId', 'loginPassword'],
   },
   {
     test: /\bpan\b|protean|tin-nsdl|nsdl|utiitsl|49a|panonline/i,
