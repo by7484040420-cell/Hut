@@ -99,6 +99,7 @@ function buildServerFillPayload(params: {
       ['passingYear', p.passingYear],
       ['percentageOrGrade', p.percentageOrGrade],
       ['panNumber', p.panNumber],
+      ['aadhaarLast4', p.aadhaarLast4],
       ['passportNumber', p.passportNumber],
       ['dlNumber', p.dlNumber],
       ['voterId', p.voterId],
@@ -131,7 +132,7 @@ function buildServerFillPayload(params: {
     }
   }
   const EXPLICIT_DIRECT_KEYS = new Set([
-    'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'berthPreference',
+    'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'preferredTrain', 'berthPreference',
     'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation',
     'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent',
     'twelfthBoard', 'twelfthRoll', 'twelfthYear', 'twelfthPercent',
@@ -154,6 +155,7 @@ function buildServerFillPayload(params: {
       else if (k === 'journeyDate' || lower.includes('journey date') || lower.includes('travel date')) map.journeyDate = map.journeyDate || v;
       else if (k === 'trainClass' || lower.includes('train class')) map.trainClass = map.trainClass || v;
       else if (k === 'trainQuota' || lower.includes('quota')) map.trainQuota = map.trainQuota || v;
+      else if (k === 'preferredTrain' || lower.includes('preferred train') || lower.includes('train name') || lower.includes('train number')) map.preferredTrain = map.preferredTrain || v;
       else if (k === 'berthPreference' || lower.includes('berth')) map.berthPreference = map.berthPreference || v;
       else if (k === 'loginUserId' || lower.includes('login user') || lower.includes('irctc user')) map.loginUserId = map.loginUserId || v;
       else if (k === 'loginPassword') map.loginPassword = map.loginPassword || v;
@@ -210,6 +212,10 @@ function buildServerFillPayload(params: {
       }
       map[`ocr_${k}`] = v;
     }
+  }
+  if (map.aadhaarNumber && !map.aadhaarLast4) {
+    const digits = map.aadhaarNumber.replace(/\D/g, '');
+    if (digits.length >= 4) map.aadhaarLast4 = digits.slice(-4);
   }
   const resolvedState = resolveIndianState({
     state: map.state,
@@ -841,7 +847,7 @@ export class LiveBrowserController {
             maxTotal: number;
           }) => {
             const selectors =
-              'input, textarea, select, button, a[href], [role="button"], [role="combobox"], mat-select, ng-select, p-dropdown, [aria-haspopup="listbox"], [role="listbox"], .dropdown-toggle';
+              'input, textarea, select, button, a[href], [role="button"], [role="combobox"], mat-select, ng-select, p-dropdown, .ui-dropdown, [aria-haspopup="listbox"], [role="listbox"], .dropdown-toggle';
             const nodes = Array.from(document.querySelectorAll(selectors));
             const results: InteractiveDomElement[] = [];
             let idx = startIdx;
@@ -903,7 +909,7 @@ export class LiveBrowserController {
                 el.tagName.toLowerCase() !== 'input' &&
                 el.tagName.toLowerCase() !== 'textarea' &&
                 el.tagName.toLowerCase() !== 'select' &&
-                el.matches('mat-select, ng-select, p-dropdown, [role="combobox"], [aria-haspopup="listbox"], .dropdown-toggle');
+                el.matches('mat-select, ng-select, p-dropdown, .ui-dropdown, [role="combobox"], [aria-haspopup="listbox"], .dropdown-toggle');
               const displayValue =
                 inputEl.value || (isCustomSelect ? (el.textContent || '').trim().replace(/\s+/g, ' ') : '');
 
@@ -1128,7 +1134,7 @@ export class LiveBrowserController {
           const selectCustomOption = async (): Promise<boolean> => {
             await page.waitForTimeout(450);
             const optSel =
-              '[role="option"], mat-option, .ng-option, .p-dropdown-item, .p-autocomplete-item, .dropdown-item, .cdk-overlay-container li, .select2-results__option, ul[role="listbox"] li';
+              '[role="option"], mat-option, .ng-option, .p-dropdown-item, .ui-dropdown-item, .p-autocomplete-item, .ui-autocomplete-list-item, .dropdown-item, .cdk-overlay-container li, .ui-autocomplete-items li, .select2-results__option, ul[role="listbox"] li';
             const optMatch = await page.evaluate(
               ({ sel, want }: { sel: string; want: string }) => {
                 const w = want.toLowerCase().trim();

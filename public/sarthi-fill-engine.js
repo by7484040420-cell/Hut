@@ -80,23 +80,23 @@
 
   var RULES = [].concat(
     // IRCTC / travel
-    [{ key: 'fromStation', pos: /\bfrom\b|origin|source station|departure station|boarding/i, neg: /date|time|dob|year|month|day|bank|income|name/ },
-     { key: 'toStation', pos: /\bto\b|destination|arrival station/i, neg: /date|time|dob|year|month|day|bank|income|name|agree|consent|terms|same|equal|verify|confirm|back|next|proceed|apply|upload/ },
-     { key: 'journeyDate', pos: /journey date|travel date|departure date|date of journey|\bdoj\b|dd\/mm\/yyyy/i, neg: /birth|dob|issue|expiry/ },
-     { key: 'trainClass', pos: /all classes|journey class|travel class|\bclass\b|coach/i, neg: /10th|12th|tenth|twelfth|matric|high ?school|inter/ },
-     { key: 'trainQuota', pos: /\bquota\b|reservation quota/i, neg: /^$/ },
-     { key: 'berthPreference', pos: /berth|seat preference/i, neg: /^$/ }],
+    [{ key: 'fromStation', pos: /\bfrom\b|\borigin\b|source station|departure station|boarding/, neg: /date|time|dob|year|month|day|bank|income|name/ },
+     { key: 'toStation', pos: /\bto\b|\bdestination\b|arrival station/, neg: /date|time|dob|year|month|day|bank|income|name|agree|consent|terms|same|equal|verify|confirm|back|next|proceed|apply|upload|photo|print/ },
+     { key: 'journeyDate', pos: /journey date|travel date|departure date|date of journey|\bdoj\b|jdate|dd\/mm\/yyyy/, neg: /birth|dob|issue|expiry/ },
+     { key: 'trainClass', pos: /all classes|journey class|travel class|journeyclass|\bclass\b|coach/, neg: /10th|12th|tenth|twelfth|matric|high ?school|inter/ },
+     { key: 'trainQuota', pos: /\bquota\b|journey ?quota|reservation quota/, neg: /^$/ },
+     { key: 'berthPreference', pos: /berth|seat preference/, neg: /^$/ }],
 
     // optional login (only filled when user supplied loginUserId / loginPassword)
-    [{ key: 'loginUserId', pos: /user ?name|user ?id|login ?id|reg(istration)? ?(no|number|id)|roll ?no.*login/i, neg: /father|mother|10th|12th|matric|inter|bank|upi/ },
-     { key: 'loginPassword', pos: /pass ?word|passwd|\bpwd\b|पासवर्ड/i, neg: /otp|pin|mpin|captcha/ }],
+    [{ key: 'loginUserId', pos: /user ?name|user ?id|login ?id|reg(istration)? ?(no|number|id)|roll ?no.*login/, neg: /father|mother|10th|12th|matric|inter|bank|upi/ },
+     { key: 'loginPassword', pos: /pass ?word|passwd|\bpwd\b|पासवर्ड/, neg: /otp|pin|mpin|captcha/ }],
 
-    // names
-    [{ key: 'firstName',  pos: /first name|given name|fname|पहला नाम/, neg: /father|mother|spouse/ },
-     { key: 'middleName', pos: /middle name|mname/, neg: /father|mother/ },
-     { key: 'lastName',   pos: /last name|surname|family name|lname|उपनाम/, neg: /father|mother/ },
-     { key: 'fatherName', pos: /father|pita|guardian|s ?o\b|पिता/, neg: /mobile|phone|email|occupation|income|\bid\b|aadhaar/ },
-     { key: 'motherName', pos: /mother|mata|माता|माँ/, neg: /mobile|phone|email|occupation|income|tongue|maiden/ }],
+    // parents BEFORE applicant first/middle/last so "Father's First Name" NEVER gets applicant's First Name
+    [{ key: 'fatherName', pos: /father|pita|guardian|s ?o\b|पिता/, neg: /mobile|phone|email|occupation|income|\bid\b|aadhaar|single parent|printed on/ },
+     { key: 'motherName', pos: /mother|mata|माता|माँ/, neg: /mobile|phone|email|occupation|income|tongue|maiden|single parent|printed on/ },
+     { key: 'firstName',  pos: /first name|given name|\bfname\b|पहला नाम/, neg: /father|mother|spouse/ },
+     { key: 'middleName', pos: /middle name|\bmname\b/, neg: /father|mother/ },
+     { key: 'lastName',   pos: /last name|surname|family name|\blname\b|उपनाम/, neg: /father|mother/ }],
 
     // contact
     [{ key: 'alternateMobile', pos: /(alt|alternate|other|emergency|parent|guardian|whatsapp).*(mobile|phone|contact|number)|(mobile|phone|contact).*(alt|alternate|other|emergency)/, neg: /email/ },
@@ -106,25 +106,28 @@
     // personal
     [{ key: 'birthPlace', pos: /place of birth|birth ?place|janm ?sthan|जन्म स्थान/, neg: /date/ },
      { key: 'dob', pos: /\bdob\b|date of birth|birth ?date|janm ?tithi|जन्म/, neg: /place|state|district|city|village|certificate|proof/ },
+     { key: 'age', pos: /\bage\b|passenger age|\bumr\b|उम्र|आयु/, neg: /page|language|village|percentage|average|stage|image|message|manage|storage|package/ },
      { key: 'gender', pos: /gender|\bsex\b|ling\b|लिंग/, neg: /^$/ },
      { key: 'category', pos: /category|caste|\bvarg\b|reservation|वर्ग|श्रेणी/, neg: /sub ?category|certificate|number|issue|applicant/ },
      { key: 'maritalStatus', pos: /marital|married|vaivahik|वैवाहिक/, neg: /^$/ },
      { key: 'bloodGroup', pos: /blood ?group|rakht|रक्त/, neg: /^$/ }],
 
-    // address
-    [{ key: 'addressLine', pos: /flat|door|building|road|street|sector|house no|plot/, neg: /e ?mail|proof|type|same|police|station|pin ?code|post office/ },
-     { key: 'pinCode', pos: /pin ?code|\bpin\b|postal|पिन/, neg: /security|otp|mpin|pan/ },
-     { key: 'district', pos: /district|\bjila\b|जिला/, neg: /court|pin ?code|std/ },
-     { key: 'state', pos: /\bstate\b|rajya|राज्य|pradesh|province|domicile state/, neg: /domicile board|\bstatus\b|statement|pin ?code|std/ },
-     { key: 'blockOrTehsil', pos: /block|tehsil|tahsil|taluka|taluk|anchal|अंचल|तहसील|प्रखंड/, neg: /^$/ },
-     { key: 'policeStation', pos: /police station|\bthana\b|थाना/, neg: /^$/ },
-     { key: 'postOffice', pos: /post office|\bpo\b|डाकघर/, neg: /^$/ },
-     { key: 'villageOrWard', pos: /village|\bgram\b|ward|mohalla|locality|town|गांव|ग्राम|मोहल्ला/, neg: /^$/ },
-     { key: 'addressLine', pos: /address|\bpata\b|house|street|residen|पता/, neg: /e ?mail|\bip\b|web|proof|type|same/ }],
+    // address (skip office address boxes so residence details don't leak into office address)
+    [{ key: 'addressLine', pos: /flat|door|building|road|street|sector|house no|plot/, neg: /office address|e ?mail|proof|type|same|police|station|pin ?code|post office/ },
+     { key: 'pinCode', pos: /pin ?code|\bpin\b|postal|पिन/, neg: /office address|security|otp|mpin|pan/ },
+     { key: 'district', pos: /district|\bjila\b|जिला/, neg: /office address|court|pin ?code|std/ },
+     { key: 'state', pos: /\bstate\b|rajya|राज्य|pradesh|province|domicile state/, neg: /office address|domicile board|\bstatus\b|statement|pin ?code|std/ },
+     { key: 'blockOrTehsil', pos: /block|tehsil|tahsil|taluka|taluk|anchal|अंचल|तहसील|प्रखंड/, neg: /office address/ },
+     { key: 'policeStation', pos: /police station|\bthana\b|थाना/, neg: /office address/ },
+     { key: 'postOffice', pos: /post office|\bpo\b|डाकघर/, neg: /office address/ },
+     { key: 'villageOrWard', pos: /village|\bgram\b|ward|mohalla|locality|town|गांव|ग्राम|मोहल्ला/, neg: /office address/ },
+     { key: 'addressLine', pos: /address|\bpata\b|house|street|residen|पता/, neg: /office address|e ?mail|\bip\b|web|proof|type|same/ }],
 
-    // IDs
-    [{ key: 'panNumber', pos: /\bpan\b|permanent account|पैन/, neg: /company|father|mother|pancha|panel|expan|company/ },
-     { key: 'aadhaarNumber', pos: /aadhaar|aadhar|adhar|\buid\b|uidai|आधार/, neg: /enrol|virtual|consent|have a aadhaar|do you have/ },
+    // Name as per Aadhaar BEFORE aadhaarNumber so it maps to fullName
+    [{ key: 'fullName', pos: /name as per aadhaa?r|aadhaa?r name|name on aadhaa?r/, neg: /father|mother|spouse|number/ },
+     { key: 'aadhaarLast4', pos: /last (four|4) digits? of aadhaa?r|aadhaa?r last 4/, neg: /^$/ },
+     { key: 'panNumber', pos: /\bpan\b|permanent account|पैन/, neg: /company|father|mother|pancha|panel|expan|printed on|card|application/ },
+     { key: 'aadhaarNumber', pos: /aadhaar|aadhar|adhar|\buid\b|uidai|आधार/, neg: /enrol|virtual|consent|have a aadhaar|do you have|name as per|photo|last four|last 4/ },
      { key: 'passportNumber', pos: /passport|पासपोर्ट/, neg: /issue|expiry|office|place|date/ },
      { key: 'dlNumber', pos: /driving ?licen[cs]e|\bdl\b ?(no|number)|licen[cs]e ?(no|number)|लाइसेंस/, neg: /issue|expiry|authority/ },
      { key: 'voterId', pos: /voter|epic|matdata|मतदाता/, neg: /^$/ }],
@@ -141,9 +144,9 @@
      { key: 'passingYear', pos: /passing year|year of passing|pass out/, neg: /roll/ },
      { key: 'percentageOrGrade', pos: /percentage|percent|cgpa|grade|marks obtained|प्रतिशत/, neg: /roll|year|max/ }],
 
-    // generic "name" last (so father/mother/first/last win first)
-    [{ key: 'fullName', pos: /full ?name|applicant ?name|candidate ?name|student ?name|passenger ?name|your name|name (as per|of) (the )?(applicant|candidate|student|aadhaar|pan|matric)|applicant|candidate|naam|^name$|\bname\b|नाम/,
-       neg: /father|mother|spouse|husband|wife|city|school|college|board|bank|account|company|organi[sz]ation|user ?name|user ?id|login ?id|file ?name|nominee|guardian|referee|hospital|institute|district|state|post|police|village|panchayat|branch|changed name|new name/ }]
+    // generic "name" last (must NEVER match Area Name, City Name, Office Name, Bank Name, etc.)
+    [{ key: 'fullName', pos: /full ?name|applicant ?name|candidate ?name|student ?name|passenger ?name|your name|name (as per|of) (the )?(applicant|candidate|student|aadhaa?r|pan|matric)|naam|^name$|\bname\b|नाम/,
+       neg: /father|mother|spouse|husband|wife|area|ao|ward|range|circle|city|town|locality|road|street|flat|door|building|landmark|country|nationality|pan card|document|school|college|board|bank|ifsc|holder|account|company|organi[sz]ation|user ?name|user ?id|login ?id|file ?name|nominee|guardian|referee|hospital|institute|district|state|post|police|village|panchayat|branch|changed name|new name|office|employer|station|train|board|exam/ }]
   );
 
   // flatten + ensure group filter works
@@ -155,6 +158,9 @@
       if (r.pos.test(hint) && !(r.neg && r.neg.test(hint))) {
         return r.key;
       }
+    }
+    if ((ctx.type === 'select' || ctx.isCustomDd) && /^(general|tatkal|premium tatkal|ladies|lower berth sr citizen)$/.test(hint)) {
+      return 'trainQuota';
     }
     if (ctx.type === 'email') return 'email';
     if (ctx.type === 'tel') return 'mobile';
@@ -193,12 +199,29 @@
     return full;
   }
 
+  function computeAge(dobStr) {
+    var p = parseDate(dobStr);
+    if (!p) return '';
+    var y = parseInt(p.y, 10), m = parseInt(p.m, 10), d = parseInt(p.d, 10);
+    if (!y || y < 1900) return '';
+    var now = new Date();
+    var age = now.getFullYear() - y;
+    var dm = (now.getMonth() + 1) - m;
+    if (dm < 0 || (dm === 0 && now.getDate() < d)) age--;
+    return (age > 0 && age < 120) ? String(age) : '';
+  }
+
   function valueFor(key, data) {
     var n = splitName(data.fullName);
     switch (key) {
       case 'firstName': return data.firstName || n.first;
       case 'middleName': return data.middleName || n.middle;
       case 'lastName': return data.lastName || n.last;
+      case 'age': return data.age || computeAge(data.dob);
+      case 'aadhaarLast4': {
+        var digits = String(data.aadhaarLast4 || data.aadhaarNumber || '').replace(/\D/g, '');
+        return digits.length >= 4 ? digits.slice(-4) : '';
+      }
       case 'villageOrWard': return data.villageOrWard || data.addressLine || '';
       case 'postOffice': return data.postOffice || data.villageOrWard || data.district || '';
       case 'blockOrTehsil': return data.blockOrTehsil || data.district || '';
@@ -254,11 +277,11 @@
     mpbse: ['mpbse', 'board of secondary education madhya pradesh'],
     wbbse: ['wbbse', 'west bengal board of secondary education'],
     sl: ['sl', 'sleeper', 'sleeper sl'],
-    '3a': ['3a', 'ac 3 tier', 'ac 3 tier 3a', '3 tier ac'],
-    '3e': ['3e', 'ac 3 economy', 'ac 3 economy 3e'],
-    '2a': ['2a', 'ac 2 tier', 'ac 2 tier 2a'],
-    '1a': ['1a', 'ac first class', 'ac first class 1a'],
-    cc: ['cc', 'ac chair car', 'ac chair car cc'],
+    '3a': ['3a', 'ac 3 tier', 'ac 3 tier 3a', '3 tier ac', '3ac', 'ac', 'ac 3'],
+    '3e': ['3e', 'ac 3 economy', 'ac 3 economy 3e', '3ac economy'],
+    '2a': ['2a', 'ac 2 tier', 'ac 2 tier 2a', '2ac'],
+    '1a': ['1a', 'ac first class', 'ac first class 1a', '1ac', 'first ac'],
+    cc: ['cc', 'ac chair car', 'ac chair car cc', 'chair car'],
     '2s': ['2s', 'second sitting', 'second sitting 2s']
   };
 
@@ -433,21 +456,54 @@
     return txt;
   }
 
+  function parentSectionTag(el) {
+    try {
+      var n = el.parentElement, hops = 0;
+      while (n && hops < 4) {
+        var head = '';
+        var sib = n.previousElementSibling;
+        if (sib && sib.innerText && sib.innerText.length < 120) head += ' ' + sib.innerText;
+        var h = n.querySelector && n.querySelector('h1,h2,h3,h4,h5,legend,.section-title,.card-header,.panel-title');
+        if (h && !h.contains(el) && h.innerText && h.innerText.length < 120) head += ' ' + h.innerText;
+        var nh = norm(head);
+        if (/father s? name/.test(nh) && !/mother/.test(nh)) return 'father';
+        if (/mother s? name/.test(nh) && !/father/.test(nh)) return 'mother';
+        if (/office address/.test(nh) && !/residence/.test(nh)) return 'office address';
+        n = n.parentElement;
+        hops++;
+      }
+    } catch (e) { /* ignore */ }
+    return '';
+  }
+
   function hintOf(el) {
+    var ddHost = el.closest ? el.closest('p-dropdown, p-autocomplete, p-calendar, mat-select, ng-select, [formcontrolname]') : null;
     return norm([
       el.name, el.id, el.placeholder, el.title,
+      el.getAttribute && el.getAttribute('formcontrolname'),
+      el.getAttribute && el.getAttribute('ng-reflect-name'),
+      ddHost && ddHost.getAttribute && ddHost.getAttribute('formcontrolname'),
+      ddHost && ddHost.getAttribute && ddHost.getAttribute('ng-reflect-name'),
+      el.getAttribute && el.getAttribute('data-placeholder'),
       el.getAttribute && el.getAttribute('aria-label'),
       el.getAttribute && el.getAttribute('data-label'),
-      labelTextOf(el)
+      labelTextOf(el),
+      parentSectionTag(el)
     ].join(' '));
   }
 
-  function setNativeValue(el, val) {
+  function setNativeValue(el, val, opts) {
+    opts = opts || {};
     el.focus && el.focus();
     var proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype;
     var desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) desc.set.call(el, val); else el.value = val;
-    fire(el, ['input', 'keyup', 'change', 'blur']);
+    try {
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, data: String(val), inputType: 'insertText' }));
+    } catch (e) {
+      fire(el, ['input']);
+    }
+    fire(el, opts.noBlur ? ['keydown', 'keyup'] : ['keydown', 'keyup', 'change', 'blur']);
   }
 
   function fire(el, names) {
@@ -486,8 +542,12 @@
     if (/applicant (category|status|type)|category of (the )?applicant|individual.*(trust|huf)|(trust|huf).*individual/.test(hint)) {
       return 'individual';
     }
-    // Country code / ISD / nationality: user ne India hi chahiye (popup me poochne ki zarurat nahi)
+    if (/agree to have.*aadhaa?r photo|aadhaa?r photo printed|photo printed on.*pan|hereby agree/.test(hint)) {
+      return 'yes';
+    }
+    // Country code / ISD / nationality / country: India default
     if (/country code|isd|std code of country|dial(ing)? code/.test(hint)) return 'india (91)';
+    if (/\bcountry\b|country region/.test(hint) && !/code|isd|std/.test(hint)) return 'india';
     if (/nationality|citizenship|country of (citizenship|nationality)/.test(hint)) return 'indian';
     return '';
   }
@@ -577,8 +637,8 @@
   // 5b. Universal Custom Dropdown & Autocomplete Engine
   //     (Angular Material, ng-select, PrimeNG, Bootstrap, React-Select, SSC/IRCTC)
   // ---------------------------------------------------------------
-  var CUSTOM_DD_SEL = '[role="combobox"],[role="listbox"],mat-select,ng-select,p-dropdown,[aria-haspopup="listbox"],[aria-haspopup="true"],.select2-selection,[class*="select__control"],.p-dropdown,.dropdown-toggle';
-  var OPTION_SEL = '[role="option"],mat-option,.mat-option,.ng-option,.p-dropdown-item,.p-autocomplete-item,.ui-autocomplete-list-item,.select2-results__option,.dropdown-item,[role="listbox"] li,.cdk-overlay-container li,.p-dropdown-items li,.p-autocomplete-items li,ul.dropdown-menu li';
+  var CUSTOM_DD_SEL = '[role="combobox"],[role="listbox"],mat-select,ng-select,p-dropdown,.ui-dropdown,[aria-haspopup="listbox"],[aria-haspopup="true"],.select2-selection,[class*="select__control"],.p-dropdown,.dropdown-toggle';
+  var OPTION_SEL = '[role="option"],mat-option,.mat-option,.ng-option,.p-dropdown-item,.ui-dropdown-item,.p-autocomplete-item,.ui-autocomplete-list-item,.select2-results__option,.dropdown-item,[role="listbox"] li,.cdk-overlay-container li,.p-dropdown-items li,.ui-dropdown-items li,.p-autocomplete-items li,.ui-autocomplete-items li,ul.dropdown-menu li';
 
   var ddQueue = [];
   var ddBusy = false;
@@ -586,6 +646,24 @@
   function isCustomPlaceholderText(txt) {
     var t = norm(txt);
     return !t || /^(select|choose|please select|select one|select option|चुनें|चयन|--)$/.test(t);
+  }
+
+  function isAutocompleteCommitted(el) {
+    if (!el) return false;
+    if (el.getAttribute && el.getAttribute('data-sarthi-ac-done') === '1') return true;
+    var v = String(el.value || '').trim();
+    // IRCTC stations look like "SIWAN JN - SV" or "NEW DELHI - NDLS"
+    return /\s-\s[A-Za-z0-9]{1,8}(\s*\([^)]+\))?$|\([A-Z]{2,5}\)$/.test(v);
+  }
+
+  function isAutocompleteEl(el) {
+    if (!el || el.tagName !== 'INPUT') return false;
+    return Boolean(
+      el.getAttribute('role') === 'combobox' ||
+      el.getAttribute('role') === 'searchbox' ||
+      el.getAttribute('aria-autocomplete') ||
+      (el.closest && el.closest('p-autocomplete,mat-autocomplete,.ui-autocomplete,[class*="autocomplete"]'))
+    );
   }
 
   function findCustomDropdownTriggers() {
@@ -602,7 +680,7 @@
     return candidates.filter(function (el) {
       if (!isVisible(el)) return false;
       if (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return false;
-      if (el.tagName === 'INPUT' && (el.type || '').toLowerCase() === 'text') return false; // autocomplete inputs handled separately
+      if (el.tagName === 'INPUT' && /^(text|search|)$/i.test(el.type || '')) return false; // autocomplete inputs handled separately
       for (var i = 0; i < seen.length; i++) {
         if (seen[i].contains(el) || el.contains(seen[i])) return false;
       }
@@ -613,11 +691,45 @@
 
   function clickLikeUser(el) {
     if (!el) return;
-    try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
+    var target = el;
+    if (/^(P-DROPDOWN|MAT-SELECT|NG-SELECT)$/.test(el.tagName) && el.querySelector) {
+      target = el.querySelector('.ui-dropdown-trigger, .p-dropdown-trigger, .ui-dropdown, .p-dropdown, .mat-select-trigger, .ng-select-container') || el;
+    }
+    try { target.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
     ['mousedown', 'mouseup', 'click'].forEach(function (evName) {
-      try { el.dispatchEvent(new MouseEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
+      try { target.dispatchEvent(new MouseEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
     });
-    try { el.click(); } catch (e) { /* ignore */ }
+    try { target.click(); } catch (e) { /* ignore */ }
+  }
+
+  function pickBestOverlayOption(opts, wanted, key, isAutocomplete) {
+    var wNorm = norm(wanted);
+    var best = null, bestSc = 0;
+    opts.forEach(function (o) {
+      if (o.getAttribute && o.getAttribute('aria-disabled') === 'true') return;
+      if (o.classList && (o.classList.contains('ui-state-disabled') || o.classList.contains('p-disabled') || o.classList.contains('ui-autocomplete-group'))) return;
+      var raw = (o.innerText || o.textContent || '').trim();
+      if (!raw || /^-+.*-+$/.test(raw)) return;
+      var tNorm = norm(raw);
+      if (!tNorm) return;
+      var sc = scoreOption(raw, raw, wanted, key);
+      if (isAutocomplete) {
+        if (tNorm === wNorm) sc = Math.max(sc, 100);
+        else if (tNorm.indexOf(wNorm + ' jn') === 0 || tNorm.indexOf('new ' + wNorm) === 0 || tNorm.indexOf(wNorm + ' ') === 0) sc = Math.max(sc, 95);
+        else if (tNorm.indexOf(wNorm) >= 0) sc = Math.max(sc, 82);
+        else if (wNorm.length >= 2 && wNorm.length <= 4 && new RegExp('\\b' + wNorm + '$').test(tNorm)) sc = Math.max(sc, 90);
+      }
+      if (sc > bestSc) { bestSc = sc; best = o; }
+    });
+    if ((!best || bestSc < 40) && opts.length > 0 && isAutocomplete) {
+      for (var i = 0; i < opts.length; i++) {
+        var c = opts[i];
+        if (c.classList && (c.classList.contains('ui-state-disabled') || c.classList.contains('p-disabled'))) continue;
+        var firstTx = norm(c.innerText || c.textContent || '');
+        if (firstTx && !/station/.test(firstTx.slice(0, 12)) && firstTx.indexOf(wNorm.slice(0, 3)) >= 0) { best = c; break; }
+      }
+    }
+    return best;
   }
 
   function processDdQueue() {
@@ -628,62 +740,55 @@
     var wanted = job.wanted;
     var key = job.key;
     try {
-      // Skip if already selected to a non-placeholder value unless overwrite
-      var curTxt = (el.innerText || el.textContent || '').trim();
-      if (!job.overwrite && curTxt && !isCustomPlaceholderText(curTxt) && job.isSelectBox) {
+      if (job.isAutocomplete && isAutocompleteCommitted(el) && !job.overwrite) {
         ddBusy = false;
         setTimeout(processDdQueue, 60);
         return;
       }
 
       if (job.isAutocomplete && el.tagName === 'INPUT') {
-        setNativeValue(el, wanted);
         clickLikeUser(el);
+        if (String(el.value || '').trim()) {
+          setNativeValue(el, '', { noBlur: true });
+        }
+        setTimeout(function () {
+          setNativeValue(el, wanted, { noBlur: true });
+        }, 70);
       } else {
         clickLikeUser(el);
       }
 
-      setTimeout(function () {
+      var pollAttempts = 0;
+      var maxPollAttempts = job.isAutocomplete ? 12 : 7;
+      function pollOptions() {
+        pollAttempts++;
         try {
-          // If dropdown opened with an internal search box, type into it first
-          var filterInput = document.querySelector('.p-dropdown-filter,.select2-search__field,.ng-input input,[role="listbox"] input[type="text"],.cdk-overlay-container input[type="text"]');
-          if (filterInput && isVisible(filterInput) && filterInput !== el) {
-            setNativeValue(filterInput, wanted);
+          var filterInput = document.querySelector('.p-dropdown-filter,.ui-dropdown-filter,.select2-search__field,.ng-input input,[role="listbox"] input[type="text"],.cdk-overlay-container input[type="text"]');
+          if (filterInput && isVisible(filterInput) && filterInput !== el && !filterInput.getAttribute('data-sarthi-filtered')) {
+            filterInput.setAttribute('data-sarthi-filtered', '1');
+            setNativeValue(filterInput, wanted, { noBlur: true });
+            setTimeout(pollOptions, 280);
+            return;
           }
-          setTimeout(function () {
-            try {
-              var opts = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
-              var best = null, bestSc = 0;
-              opts.forEach(function (o) {
-                var tx = (o.innerText || o.textContent || '').trim();
-                if (!tx) return;
-                var sc = scoreOption(tx, tx, wanted, key);
-                if (job.isAutocomplete && norm(tx).indexOf(norm(wanted)) >= 0) {
-                  sc = Math.max(sc, 85);
-                }
-                if (sc > bestSc) { bestSc = sc; best = o; }
-              });
-              if (best && bestSc >= 40) {
-                clickLikeUser(best);
-                mark(el, GREEN);
-                fire(el, ['change', 'blur']);
-              } else if (opts.length > 0 && job.isAutocomplete) {
-                // First autocomplete suggestion when user typed partial station/city name
-                var firstTx = norm(opts[0].innerText || opts[0].textContent || '');
-                if (firstTx && firstTx.indexOf(norm(wanted).slice(0, 3)) >= 0) {
-                  clickLikeUser(opts[0]);
-                  mark(el, GREEN);
-                }
-              }
-            } catch (e) { /* ignore */ }
-            ddBusy = false;
-            setTimeout(processDdQueue, 180);
-          }, filterInput ? 320 : 60);
-        } catch (e) {
-          ddBusy = false;
-          setTimeout(processDdQueue, 120);
-        }
-      }, job.isAutocomplete ? 750 : 420);
+          var opts = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
+          if (opts.length === 0 && pollAttempts < maxPollAttempts) {
+            setTimeout(pollOptions, 240);
+            return;
+          }
+          var best = pickBestOverlayOption(opts, wanted, key, job.isAutocomplete);
+          if (best) {
+            clickLikeUser(best);
+            if (job.isAutocomplete) el.setAttribute('data-sarthi-ac-done', '1');
+            mark(el, GREEN);
+            fire(el, ['change', 'blur']);
+          } else if (job.isAutocomplete) {
+            el.blur && el.blur();
+          }
+        } catch (e) { /* ignore */ }
+        ddBusy = false;
+        setTimeout(processDdQueue, 200);
+      }
+      setTimeout(pollOptions, job.isAutocomplete ? 520 : 320);
     } catch (e) {
       ddBusy = false;
       setTimeout(processDdQueue, 100);
@@ -694,7 +799,7 @@
     if (!job || !job.el || !job.wanted) return;
     if (job.el.getAttribute('data-sarthi-dd-queued') === '1') return;
     job.el.setAttribute('data-sarthi-dd-queued', '1');
-    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 4000);
+    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 4500);
     ddQueue.push(job);
     processDdQueue();
   }
@@ -752,14 +857,18 @@
       }
 
       var isSelect = el.tagName === 'SELECT';
-      var already = !isSelect && el.value && String(el.value).trim().length > 0;
+      var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
+      var val = key ? valueFor(key, data) : '';
+      var acPending = (key === 'fromStation' || key === 'toStation' || isAutocompleteEl(el)) && !isAutocompleteCommitted(el);
+      var dateNeedsUpdate = key === 'journeyDate' && val && String(el.value || '').trim() !== formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
+      var already = !isSelect && el.value && String(el.value).trim().length > 0 && !acPending && !dateNeedsUpdate;
       if (already && !opts.overwrite) return;
       if (isSelect && el.selectedIndex > 0 && !opts.overwrite) {
         var curTxt = norm(el.options[el.selectedIndex].text);
         if (curTxt && !/^(select|choose|please)/.test(curTxt)) return;
       }
 
-      // PAN-type dropdown (Application Type / Applicant Category): matchKey se pehle
+      // PAN-type dropdown (Application Type / Applicant Category / Aadhaar Photo Agree): matchKey se pehle
       if (isSelect) {
         var pw = portalSelectWant(hint, data);
         if (pw && selectOption(el, pw, null)) {
@@ -773,8 +882,6 @@
         }
       }
 
-      var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
-      var val = key ? valueFor(key, data) : '';
       if ((key === 'fatherName' || key === 'motherName') && val) {
         var pp = parentPart(val, hint);
         if (pp === null) return;
@@ -820,13 +927,7 @@
         var filledId = el.getAttribute('data-sarthi-id');
         if (!filledId) { filledId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', filledId); }
         var finalVal = val;
-        var isAcInput = !isSelect && (
-          el.getAttribute('role') === 'combobox' ||
-          el.getAttribute('aria-autocomplete') ||
-          Boolean(el.closest && el.closest('p-autocomplete,mat-autocomplete,.ui-autocomplete,[class*="autocomplete"]')) ||
-          key === 'fromStation' ||
-          key === 'toStation'
-        );
+        var isAcInput = !isSelect && (isAutocompleteEl(el) || key === 'fromStation' || key === 'toStation');
 
         if (isSelect) {
           ok = selectOption(el, val, key);
@@ -834,7 +935,7 @@
             finalVal = (el.options[el.selectedIndex].text || val).trim();
           }
         } else if (isAcInput) {
-          enqueueCustomDropdown({ el: el, wanted: String(val), key: key, isAutocomplete: true, overwrite: opts.overwrite });
+          enqueueCustomDropdown({ el: el, wanted: String(val), key: key, isAutocomplete: true, overwrite: opts.overwrite || acPending });
           ok = true;
           summary.customQueued = (summary.customQueued || 0) + 1;
         } else {
@@ -846,6 +947,18 @@
           if (wasRO) el.removeAttribute('readonly');
           setNativeValue(el, finalVal);
           if (wasRO) el.setAttribute('readonly', 'readonly');
+          if (key === 'journeyDate') {
+            try {
+              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+              el.blur && el.blur();
+              var dp = document.querySelector('.ui-datepicker, .p-datepicker, .mat-datepicker-content');
+              if (dp && isVisible(dp)) {
+                var safeHdr = document.querySelector('h1, h2, .book-ticket, .heading-font');
+                if (safeHdr && safeHdr.click) safeHdr.click();
+              }
+            } catch (e) { /* ignore */ }
+          }
           ok = true;
         }
         if (ok) {
@@ -880,21 +993,24 @@
       }
     });
 
-    // Custom non-native dropdowns (SSC OTR mat-select / ng-select, IRCTC p-dropdown, Bootstrap/React dropdowns)
+    // Custom non-native dropdowns (SSC OTR mat-select / ng-select, IRCTC p-dropdown/ui-dropdown, Bootstrap/React dropdowns)
     findCustomDropdownTriggers().forEach(function (dd) {
       var curTxt = (dd.innerText || dd.textContent || '').trim();
-      if (!opts.overwrite && curTxt && !isCustomPlaceholderText(curTxt)) return;
-      var hint = hintOf(dd);
+      var hint = norm(hintOf(dd) + ' ' + curTxt);
       if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
       var pw = portalSelectWant(hint, data);
-      var key = pw ? null : matchKey(hint, { type: 'select' });
+      var key = pw ? null : matchKey(hint, { type: 'select', isCustomDd: true });
       var val = pw || (key ? valueFor(key, data) : '');
-      if (val) {
-        enqueueCustomDropdown({ el: dd, wanted: String(val), key: key, isSelectBox: true, overwrite: opts.overwrite });
-        summary.filled++;
-        summary.customQueued = (summary.customQueued || 0) + 1;
-        if (key && summary.filledKeys.indexOf(key) < 0) summary.filledKeys.push(key);
+      if (!val) return;
+      var isPrePopulated = curTxt && !isCustomPlaceholderText(curTxt);
+      if (!opts.overwrite && isPrePopulated) {
+        // Already matches user's wanted value -> skip! If default ("All Classes" / "GENERAL"), update to user's choice!
+        if (scoreOption(curTxt, curTxt, String(val), key) >= 80) return;
       }
+      enqueueCustomDropdown({ el: dd, wanted: String(val), key: key, isSelectBox: true, overwrite: opts.overwrite || isPrePopulated });
+      summary.filled++;
+      summary.customQueued = (summary.customQueued || 0) + 1;
+      if (key && summary.filledKeys.indexOf(key) < 0) summary.filledKeys.push(key);
     });
 
     // radios
@@ -1070,7 +1186,7 @@
   // AUTOPILOT: fill -> sab required bhare? -> Next/Continue click -> agla page
   // CAPTCHA / OTP / password / payment aur final Submit kabhi nahi dabata
   // ---------------------------------------------------------------
-  var RE_NEXT = /^(next|next step|next page|continue|proceed|go to next|save (and )?(next|continue|proceed)|save & (next|continue|proceed)|submit & (next|continue)|search trains?|search|book now|continue to book|ok & proceed|i agree & continue|आगे|अगला|आगे बढ़ें|आगे बढे|जारी रखें|सेव और आगे)( |$)/;
+  var RE_NEXT = /^(next|next step|next page|continue|proceed|go to next|save (and )?(next|continue|proceed)|save & (next|continue|proceed)|submit & (next|continue)|search trains?|search|ok & proceed|i agree & continue|आगे|अगला|आगे बढ़ें|आगे बढे|जारी रखें|सेव और आगे)( |$)/;
   var RE_NO_CLICK = /final submit|finalise|pay now|make payment|proceed to pay|confirm booking|place order|checkout|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|भुगतान|जमा|रद्द|पीछे|बंद/;
   var lastNextSig = '', lastNextAt = 0;
 
@@ -1101,10 +1217,17 @@
       if (el.readOnly && type !== 'checkbox') return;
       var hint = hintOf(el);
       if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
+      var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
+      var isStationAc = (key === 'fromStation' || key === 'toStation' || isAutocompleteEl(el));
+      if (isStationAc && !isAutocompleteCommitted(el)) {
+        var acId = el.getAttribute('data-sarthi-id');
+        if (!acId) { acId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', acId); }
+        out.push({ id: acId, kind: 'text', key: key || '', label: readableLabelOf(el, key), tag: 'input', type: 'text', placeholder: el.placeholder || '', options: [] });
+        return;
+      }
       if (!isRequiredEl(el)) return;
       var id = el.getAttribute('data-sarthi-id');
       if (!id) { id = 'sf' + (++uid); el.setAttribute('data-sarthi-id', id); }
-      var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
       if (type === 'file') {
         if (!(el.files && el.files.length)) {
           var fl = readableLabelOf(el, null);
@@ -1137,6 +1260,17 @@
       if (!String(el.value || '').trim()) {
         out.push({ id: id, kind: 'text', key: key || '', label: readableLabelOf(el, key), tag: el.tagName.toLowerCase(), type: type, placeholder: el.placeholder || '', options: [] });
       }
+    });
+    // Also detect required custom dropdowns that still say "Select"
+    findCustomDropdownTriggers().forEach(function (dd) {
+      var curTxt = (dd.innerText || dd.textContent || '').trim();
+      if (!isCustomPlaceholderText(curTxt)) return;
+      var hint = hintOf(dd);
+      if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
+      if (!isRequiredEl(dd) && !/gender|board|state|category/.test(hint)) return;
+      var id = dd.getAttribute('data-sarthi-id');
+      if (!id) { id = 'sf' + (++uid); dd.setAttribute('data-sarthi-id', id); }
+      out.push({ id: id, kind: 'select', key: matchKey(hint, { type: 'select', isCustomDd: true }) || '', label: readableLabelOf(dd, null), tag: dd.tagName.toLowerCase(), type: 'custom-select', options: [] });
     });
     Object.keys(radios).forEach(function (g) {
       var r = radios[g];
@@ -1201,7 +1335,7 @@
 
   var fillingTicks = 0, askedSig = '';
 
-  var CUSTOM_SEL = '[role="combobox"],[role="listbox"],[role="radio"],[role="checkbox"],[role="switch"],[contenteditable="true"],mat-select,ng-select,p-dropdown,[aria-haspopup="listbox"],.select2-selection,[class*="select__control"],.dropdown-toggle';
+  var CUSTOM_SEL = '[role="combobox"],[role="listbox"],[role="radio"],[role="checkbox"],[role="switch"],[contenteditable="true"],mat-select,ng-select,p-dropdown,.ui-dropdown,[aria-haspopup="listbox"],.select2-selection,[class*="select__control"],.dropdown-toggle';
   var PLAN_NO_CLICK = /final submit|finalise|pay now|make payment|proceed to pay|confirm booking|place order|checkout|logout|sign ?out|cancel|back|previous|reset|clear|close|download|print|delete|remove|draft|verify|send otp|get otp|generate|upload|choose file|esign|e sign|digilocker|भुगतान|जमा|रद्द|पीछे|बंद/;
 
   function sectionOf(el) {
@@ -1243,6 +1377,10 @@
       var value = '';
       if (el.tagName === 'SELECT') value = el.selectedIndex >= 0 ? (el.options[el.selectedIndex].text || '').trim() : '';
       else if (type === 'checkbox' || type === 'radio') value = el.checked ? 'checked' : '';
+      else if (el.tagName === 'INPUT' && isAutocompleteEl(el)) {
+        var acVal = String(el.value || '').trim();
+        value = isAutocompleteCommitted(el) ? acVal : '';
+      }
       else if ('value' in el) value = String(el.value || '');
       else {
         var rawTxt = (el.textContent || '').trim().slice(0, 60);
@@ -1296,7 +1434,7 @@
     Object.keys(fills).forEach(function (id) {
       var el = document.querySelector('[data-sarthi-id="' + id + '"]');
       var role = el ? (el.getAttribute('role') || '') : '';
-      var isAc = el && el.tagName === 'INPUT' && (role === 'combobox' || el.getAttribute('aria-autocomplete') || (el.closest && el.closest('p-autocomplete,mat-autocomplete,.ui-autocomplete')));
+      var isAc = isAutocompleteEl(el);
       if (!el || (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && !/^(combobox|listbox|radio|checkbox|switch)$/.test(role) && !el.isContentEditable && !isAc)) std[id] = fills[id];
       else custom.push({ el: el, value: fills[id] });
     });
@@ -1310,8 +1448,20 @@
       if (btn && bt && !PLAN_NO_CLICK.test(bt)) {
         res.clickQueued = bt;
         setTimeout(function () {
-          try { btn.scrollIntoView({ block: 'center' }); clickLikeUser(btn); } catch (e) { fire(btn, ['click']); }
-        }, 900 * (custom.length + 1) + 900);
+          try {
+            if (ddBusy || ddQueue.length > 0) return;
+            var rem = emptyRequiredList();
+            if (rem.length > 0) {
+              rem.forEach(function (r) {
+                var rel = document.querySelector('[data-sarthi-id="' + r.id + '"]');
+                if (rel) mark(rel, BLUE);
+              });
+              return;
+            }
+            btn.scrollIntoView({ block: 'center' });
+            clickLikeUser(btn);
+          } catch (e) { /* ignore */ }
+        }, 1000 * (custom.length + 1) + 1200);
       }
     }
     return res;
@@ -1325,12 +1475,14 @@
     fullName: 'Poora naam (jaise Aadhaar me hai)', dob: 'Date of Birth (DD/MM/YYYY)', gender: 'Gender',
     fatherName: 'Father ka poora naam (First Middle Last)', motherName: 'Mother ka poora naam (First Middle Last)',
     mobile: 'Mobile number', email: 'Email ID', addressLine: 'Poora address', pinCode: 'PIN code',
-    state: 'State', birthPlace: 'Janm sthan (Place of birth)', bloodGroup: 'Blood group', qualification: 'Qualification'
+    state: 'State', birthPlace: 'Janm sthan (Place of birth)', bloodGroup: 'Blood group', qualification: 'Qualification',
+    fromStation: 'From Station (Kahan se)', toStation: 'To Station (Kahan tak)', journeyDate: 'Journey Date (DD/MM/YYYY)',
+    trainClass: 'Train Class (SL / 3A / 2A)', trainQuota: 'Quota (GENERAL / TATKAL / LADIES)'
   };
   var PROFILES = [
     { name: 'PAN Card',
       test: /proteantech|tin-nsdl|tin\.nsdl|utiitsl|nsdl\.co|new pan|form 49a|pan application/,
-      keys: ['fullName', 'dob', 'gender', 'fatherName', 'mobile', 'email'],
+      keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'district', 'state', 'pinCode'],
       docs: ['Aadhaar card (eKYC me Aadhaar-linked mobile ka OTP lagta hai)',
              'Aadhaar na ho to ID proof + address proof + DOB proof (voter ID / DL / 10th marksheet / birth certificate)',
              'Passport size photo aur signature (sirf document-upload mode me)'] },
@@ -1343,9 +1495,9 @@
       test: /passportindia|passport seva/,
       keys: ['fullName', 'dob', 'gender', 'birthPlace', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'pinCode'],
       docs: ['Aadhaar ya address proof', 'DOB proof (birth certificate / 10th marksheet)', 'Education proof (ECR/non-ECR ke liye)'] },
-    { name: 'IRCTC Account',
+    { name: 'IRCTC Ticket Booking',
       test: /irctc/,
-      keys: ['fullName', 'dob', 'gender', 'mobile', 'email'],
+      keys: ['fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'fullName', 'dob', 'gender', 'mobile', 'email'],
       docs: [] },
     { name: 'Voter ID',
       test: /voters\.eci|nvsp|voter service/,
@@ -1502,26 +1654,37 @@
   }
 
   function smartDefaults(data) {
-    var out = { filled: 0, missing: [] };
+    var out = { filled: 0, missing: [], unlockedSection: false };
     try {
-      // radios
+      // radios (match both ancestor context AND the radio group's option labels directly)
       var radios = Array.prototype.slice.call(document.querySelectorAll('input[type="radio"]')).filter(function (r) { return !r.disabled && isVisible(r); });
       var gs = groupRadios(radios);
       Object.keys(gs).forEach(function (gk) {
         var grp = gs[gk];
         if (grp.some(function (r) { return r.checked; })) return;
-        DEF_RADIOS.forEach(function (d) {
-          if (!d.q.test(norm(grp.map(function (r) { return ancestorText(r); }).join(' ')))) return;
-          if (grp.some(function (r) { return r.checked; })) return;
-          for (var i = 0; i < grp.length; i++) {
-            if (d.pick.test(norm(labelTextOf(grp[i]) || grp[i].value || ''))) {
-              try { grp[i].click(); } catch (e) { grp[i].checked = true; fire(grp[i], ['input', 'change']); }
-              mark(grp[i].parentElement || grp[i], BLUE);
-              out.filled++;
-              return;
-            }
-          }
-        });
+        var ctx = norm(grp.map(function (r) { return ancestorText(r); }).join(' ') + ' ' + sectionOf(grp[0]));
+        var optLabs = grp.map(function (r) { return radioLabel(r); });
+        var hasOpt = function (re) { return optLabs.some(function (l) { return re.test(l); }); };
+
+        var pickedRadio = null;
+        if (hasOpt(/^(residence|residential)$/) && hasOpt(/^office$/)) {
+          pickedRadio = grp.find(function (r) { return /^(residence|residential)$/.test(radioLabel(r)); });
+        } else if (hasOpt(/^resident$/) && hasOpt(/non ?resident/)) {
+          pickedRadio = grp.find(function (r) { return /^resident$/.test(radioLabel(r)); });
+        } else if (hasOpt(/indian citizen/) && hasOpt(/nri|foreign/)) {
+          pickedRadio = grp.find(function (r) { return /indian citizen/.test(radioLabel(r)); });
+        } else {
+          DEF_RADIOS.forEach(function (d) {
+            if (pickedRadio || !d.q.test(ctx)) return;
+            pickedRadio = grp.find(function (r) { return d.pick.test(norm(labelTextOf(r) || r.value || '')); }) || null;
+          });
+        }
+        if (pickedRadio) {
+          try { pickedRadio.click(); } catch (e) { pickedRadio.checked = true; fire(pickedRadio, ['input', 'change']); }
+          mark(pickedRadio.parentElement || pickedRadio, GREEN);
+          out.filled++;
+          if (/residence|residential/.test(radioLabel(pickedRadio))) out.unlockedSection = true;
+        }
       });
       // dropdowns
       Array.prototype.slice.call(document.querySelectorAll('select')).forEach(function (sel) {
@@ -1562,28 +1725,226 @@
     return out;
   }
 
-  // Radio group ka sawal: apna dabba + uske upar ke heading (aksar alag element me hota hai)
+  // Radio group ka sawal: parent levels + previous headings sab padho (25 chars pe break mat karo)
   function ancestorText(el) {
-    var n = el, hops = 0, t = '';
-    while (n && hops < 5) {
-      t = norm(String(n.innerText || '').slice(0, 400));
-      if (t.length >= 25) break;
-      n = n.parentElement; hops++;
+    var n = el, hops = 0, parts = [];
+    while (n && hops < 6 && n.tagName !== 'FORM' && n.tagName !== 'BODY') {
+      var txt = String(n.innerText || '').trim();
+      if (txt.length <= 500) {
+        if (txt) parts.push(norm(txt));
+        var prev = n.previousElementSibling;
+        if (prev && prev.innerText && prev.innerText.length <= 160) parts.push(norm(prev.innerText));
+      }
+      n = n.parentElement;
+      hops++;
     }
-    var h = 0, sib = n ? n.previousElementSibling : null;
-    while (sib && h < 2) { t += ' ' + norm(String(sib.innerText || '').slice(0, 100)); sib = sib.previousElementSibling; h++; }
-    return t;
+    return parts.join(' ');
+  }
+
+  // ---------------------------------------------------------------
+  // IRCTC SMART BOOKING BRAIN (Confirmation popups + Train List + Class + Slot + Book Now)
+  // User ne preferredTrain diya ho to wahi train, warna BEST available/RAC train khud chuno.
+  // CAPTCHA / OTP / Payment par user ko pause dena compulsory hai.
+  // ---------------------------------------------------------------
+  var irctcLastActAt = 0, irctcBookAt = 0;
+
+  function irctcWantedClasses(trainClass) {
+    var cp = norm(trainClass || '');
+    if (/sleeper|\bsl\b/.test(cp)) return ['SL', '2S', '3E', '3A'];
+    if (/3e|economy/.test(cp)) return ['3E', '3A', 'SL', '2A'];
+    if (/3a|3 tier|3ac|\bac\b/.test(cp)) return ['3A', '3E', '2A', 'SL'];
+    if (/2a|2 tier|2ac/.test(cp)) return ['2A', '3A', '1A'];
+    if (/1a|first/.test(cp)) return ['1A', '2A'];
+    if (/cc|chair/.test(cp)) return ['CC', '2S', 'EC'];
+    if (/2s|second sitting/.test(cp)) return ['2S', 'SL', 'CC'];
+    return ['SL', '3A', '3E', '2A', 'CC', '2S'];
+  }
+
+  function irctcCardMatchesTrain(cardText, prefTrain) {
+    var pt = norm(prefTrain || '');
+    if (!pt) return true;
+    var ct = norm(cardText || '');
+    var numMatch = pt.match(/\b\d{4,5}\b/);
+    if (numMatch && ct.indexOf(numMatch[0]) >= 0) return true;
+    var toks = pt.split(' ').filter(function (w) { return w.length > 2 && !/^(express|exp|superfast|sf|mail|train|special|spl)$/.test(w); });
+    if (!toks.length) return ct.indexOf(pt) >= 0;
+    var hits = 0;
+    toks.forEach(function (t) { if (ct.indexOf(t) >= 0) hits++; });
+    return hits >= Math.min(2, toks.length);
+  }
+
+  function irctcClassTokenOf(txt) {
+    var t = norm(txt);
+    if (!t || t.length > 42) return '';
+    if (/\b(sl|sleeper)\b/.test(t) && !/ladies|tatkal/.test(t)) return 'SL';
+    if (/\b3e\b|ac 3 economy/.test(t)) return '3E';
+    if (/\b(3a|3 tier|ac 3)\b/.test(t) && !/economy/.test(t)) return '3A';
+    if (/\b(2a|2 tier|ac 2)\b/.test(t)) return '2A';
+    if (/\b(1a|first class)\b/.test(t)) return '1A';
+    if (/\b(cc|chair car)\b/.test(t)) return 'CC';
+    if (/\b(2s|second sitting)\b/.test(t)) return '2S';
+    if (/\bec\b|exec/.test(t)) return 'EC';
+    return '';
+  }
+
+  function irctcTrainListStep(data) {
+    try {
+      var href = String((root.location ? root.location.href : '') || '').toLowerCase();
+      if (!/irctc/.test(href)) return null;
+      var now = Date.now();
+
+      // 1) Confirmation / T&C modal dialogs ("Yes", "I Agree", "OK") — never click Cancel/No/Pay
+      var dialogs = Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show, app-confirmation-dialog')).filter(isVisible);
+      for (var d = 0; d < dialogs.length; d++) {
+        var dlgBtns = Array.prototype.slice.call(dialogs[d].querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+        for (var db = 0; db < dlgBtns.length; db++) {
+          var bt = norm(dlgBtns[db].innerText || dlgBtns[db].value || '');
+          if (/^(yes|i agree|agree|ok|ok proceed|continue|proceed)$/.test(bt) && !RE_NO_CLICK.test(bt)) {
+            if (now - irctcLastActAt < 1800) return { state: 'filling', note: 'Confirmation popup check...' };
+            irctcLastActAt = now;
+            clickLikeUser(dlgBtns[db]);
+            return { state: 'next', clicked: bt, note: 'IRCTC popup accepted (' + bt + ')' };
+          }
+        }
+      }
+
+      // 2) Only act on train cards when train search results are visible (never on Search/Passenger page)
+      var cards = Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).filter(isVisible);
+      if (!cards.length) {
+        var bookBtns = Array.prototype.slice.call(document.querySelectorAll('button, input[type="button"]')).filter(function (b) {
+          return isVisible(b) && /^book now$/.test(norm(b.innerText || b.value || ''));
+        });
+        bookBtns.forEach(function (b) {
+          var c = b.closest && (b.closest('.form-group, .white-back, .bull-back, .train-container, div[class*="train"]') || b.parentElement.parentElement);
+          if (c && cards.indexOf(c) < 0) cards.push(c);
+        });
+      }
+      if (!cards.length) return null;
+
+      var prefTrain = (data && data.preferredTrain) ? String(data.preferredTrain).trim() : '';
+      var wantedClasses = irctcWantedClasses(data && data.trainClass);
+      var matchingCards = cards.filter(function (c) {
+        return prefTrain ? irctcCardMatchesTrain(c.innerText || '', prefTrain) : (c.getAttribute('data-sarthi-regret') !== '1');
+      });
+      if (!matchingCards.length) {
+        if (prefTrain) return { state: 'filling', note: 'Train "' + prefTrain + '" list me dhundhi ja rahi hai...' };
+        matchingCards = cards;
+      }
+
+      // Score cards: prefer cards already showing AVAILABLE or RAC + enabled Book Now
+      var chosen = matchingCards[0], bestCardScore = -1;
+      matchingCards.forEach(function (card, idx) {
+        var txt = (card.innerText || '').toUpperCase();
+        var sc = (matchingCards.length - idx);
+        var hasAvl = /\b(AVAILABLE|CURR_AVBL)\b/.test(txt);
+        var hasRac = /\bRAC\b/.test(txt);
+        var hasWl = /\b(WL|RLWL|PQWL|GNWL)\b/.test(txt);
+        var bookBtn = Array.prototype.slice.call(card.querySelectorAll('button, input[type="button"]')).find(function (b) {
+          return isVisible(b) && !b.disabled && !/disable-btn|disabled/.test(b.className || '') && /^book now$/.test(norm(b.innerText || b.value || ''));
+        });
+        if (hasAvl) sc += 500;
+        else if (hasRac) sc += 250;
+        else if (hasWl) sc += 80;
+        if (bookBtn && (hasAvl || hasRac || hasWl)) sc += 300;
+        if (sc > bestCardScore) { bestCardScore = sc; chosen = card; }
+      });
+
+      if (!chosen) return null;
+
+      // 3) Look for date/availability slots inside chosen card
+      var slotCandidates = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, td, div[class*="avl"], div[tabindex], a')).filter(function (el) {
+        if (!isVisible(el)) return false;
+        var t = (el.innerText || '').trim();
+        if (!t || t.length > 65) return false;
+        return /\b(AVAILABLE|CURR_AVBL|RAC|WL|RLWL|PQWL|GNWL|REGRET|NOT AVAILABLE)\b/i.test(t) &&
+               !/(SLEEPER|AC 3|AC 2|AC FIRST|CHAIR CAR|SECOND SITTING)/i.test(t);
+      });
+      var bookableSlots = slotCandidates.filter(function (el) {
+        var u = (el.innerText || '').toUpperCase();
+        return /\b(AVAILABLE|CURR_AVBL|RAC|WL|RLWL|PQWL|GNWL)\b/.test(u) && !/\b(REGRET|NOT AVAILABLE|CANCELLED)\b/.test(u);
+      });
+
+      // If all loaded slots in this non-preferred train are REGRET/NOT AVAILABLE, skip this card on next tick
+      if (slotCandidates.length > 0 && bookableSlots.length === 0 && !prefTrain) {
+        chosen.setAttribute('data-sarthi-regret', '1');
+        return { state: 'filling', note: 'Train regret hai - agli available train dekh raha hai...' };
+      }
+
+      // Check enabled Book Now button
+      var chosenBookBtn = Array.prototype.slice.call(chosen.querySelectorAll('button, input[type="button"]')).find(function (b) {
+        return isVisible(b) && !b.disabled && !/disable-btn|disabled/.test(b.className || '') && /^book now$/.test(norm(b.innerText || b.value || ''));
+      });
+
+      if (bookableSlots.length > 0) {
+        // Pick best slot: AVAILABLE/CURR_AVBL first, then RAC, then WL
+        var bestSlot = bookableSlots[0], bestSlotScore = -1;
+        bookableSlots.forEach(function (sl) {
+          var u = (sl.innerText || '').toUpperCase();
+          var sc = /\b(AVAILABLE|CURR_AVBL)\b/.test(u) ? 300 : (/\bRAC\b/.test(u) ? 200 : 100);
+          if (/selected|active/.test(sl.className || '') || sl.getAttribute('aria-selected') === 'true') sc += 20;
+          if (sc > bestSlotScore) { bestSlotScore = sc; bestSlot = sl; }
+        });
+        var isSlotSelected = /selected|active/.test(bestSlot.className || '') || bestSlot.getAttribute('aria-selected') === 'true' || chosen.getAttribute('data-sarthi-slot-done') === '1';
+        if (!isSlotSelected && now - irctcLastActAt >= 1500) {
+          irctcLastActAt = now;
+          chosen.setAttribute('data-sarthi-slot-done', '1');
+          mark(bestSlot, GREEN);
+          clickLikeUser(bestSlot);
+          return { state: 'filling', note: 'Available date slot select kiya...' };
+        }
+        if (chosenBookBtn && now - irctcBookAt >= 4500) {
+          irctcBookAt = now;
+          irctcLastActAt = now;
+          mark(chosenBookBtn, GREEN);
+          clickLikeUser(chosenBookBtn);
+          return { state: 'next', clicked: 'book now', note: 'Book Now dabaya!' };
+        }
+        return { state: 'filling', note: 'Seat slot check ho raha hai...' };
+      }
+
+      // 4) No availability slots open yet in chosen card -> click wanted class tab (SL / 3A / 3E / 2A)
+      var clsTiles = Array.prototype.slice.call(chosen.querySelectorAll('.pre-avl, [class*="level"], div, a, button, span')).filter(function (el) {
+        if (!isVisible(el)) return false;
+        return !!irctcClassTokenOf(el.innerText || '');
+      });
+      if (clsTiles.length > 0) {
+        var pickedTile = null;
+        for (var wi = 0; wi < wantedClasses.length && !pickedTile; wi++) {
+          for (var ti = 0; ti < clsTiles.length; ti++) {
+            if (irctcClassTokenOf(clsTiles[ti].innerText || '') === wantedClasses[wi]) {
+              pickedTile = clsTiles[ti];
+              break;
+            }
+          }
+        }
+        if (!pickedTile) pickedTile = clsTiles[0];
+        var clsAt = parseInt(chosen.getAttribute('data-sarthi-cls-at') || '0', 10);
+        if (pickedTile && now - clsAt >= 3000 && now - irctcLastActAt >= 1500) {
+          irctcLastActAt = now;
+          chosen.setAttribute('data-sarthi-cls-at', String(now));
+          chosen.removeAttribute('data-sarthi-slot-done');
+          mark(pickedTile, GREEN);
+          clickLikeUser(pickedTile);
+          return { state: 'filling', note: 'Class (' + irctcClassTokenOf(pickedTile.innerText || '') + ') availability check ho rahi hai...' };
+        }
+        return { state: 'filling', note: 'Train availability load ho rahi hai...' };
+      }
+    } catch (e) { /* ignore */ }
+    return null;
   }
 
   var profAskedSig = '', profNoteFor = '', forcedNext = {}, tickSig = '', lastPendSig = '';
 
   function autopilotCore(payload, opts) {
     opts = opts || {};
-    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; }
+    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; }
     var s = run(payload, {});
     var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
     s.filled += sd.filled;
     s.smartMissing = sd.missing;
+    if (sd.unlockedSection && !opts._afterUnlock) {
+      setTimeout(function () { try { run(payload || {}, { _afterUnlock: true }); } catch (e) { /* ignore */ } }, 450);
+    }
     var curSig = pageSig();
     if (curSig !== tickSig) { tickSig = curSig; fillingTicks = 0; }
     s.state = 'working';
@@ -1598,12 +1959,27 @@
 
     if (looksFinished(list)) { s.state = 'done'; s.done = true; return s; }
 
+    // Wait while custom dropdowns / station autocompletes are actively opening and selecting
+    if (ddBusy || ddQueue.length > 0 || sd.unlockedSection) {
+      s.state = 'filling';
+      return s;
+    }
+
     // OTP: number bharte hi Send OTP khud dabao; OTP user dalega, phir Verify khud dabao
     var oa = otpAssist();
     if (oa) {
       s.state = 'otp';
       s.otpAction = oa;
       s.note = oa === 'send' ? 'OTP bhej diya - aap OTP daal dein' : 'OTP verify dabaya';
+      return s;
+    }
+
+    // IRCTC Confirmation popups + Train List selection (preferredTrain ya best available train + Class + Slot + Book Now)
+    var irStep = irctcTrainListStep(payload || {});
+    if (irStep) {
+      s.state = irStep.state || 'filling';
+      if (irStep.clicked) s.clicked = irStep.clicked;
+      if (irStep.note) s.note = irStep.note;
       return s;
     }
 
@@ -1629,25 +2005,17 @@
       }
     }
 
-    var pending = list.length > 0 || s.needsUser.length > 0 || s.unmatched.length > 0;
+    var pending = list.length > 0 || s.needsUser.length > 0 || s.unmatched.length > 0 || (s.smartMissing && s.smartMissing.length > 0);
     if (pending) {
       fillingTicks++;
-      // pehle 2 tick Gemini/engine ko do, phir bhi khali ho to user se poochho (ek baar)
       if (fillingTicks >= 2) {
         var asks = buildAsks(list, s);
         var sg = asks.map(function (a) { return a.key || a.id; }).join(',');
         if (asks.length > 0 && sg !== askedSig) { askedSig = sg; s.asks = asks; }
       }
-      // Kuch field bhar nahi paye to bhi ruko mat: Next dabao (Submit/Pay kabhi nahi), baaki fields user ko dikhenge
-      if (fillingTicks >= 6 && !s.hasCaptcha && !s.hasOtp && !s.hasPassword && !s.hasPayment && !forcedNext[curSig]) {
-        forcedNext[curSig] = 1;
-        var ft = clickNext();
-        if (ft) {
-          s.clicked = ft; s.state = 'next'; fillingTicks = 0;
-          s.pending = (s.smartMissing || []).concat(list.map(function (a) { return a.label; }).slice(0, 8));
-          s.note = 'Kuch fields bhar nahi paye, AI aage badh gaya (' + ft + '). Wapas aakar dekh lena';
-          return s;
-        }
+      // NEVER skip a page while required fields or dropdowns are still empty!
+      if (list.length > 0 || (s.smartMissing && s.smartMissing.length > 0)) {
+        s.pending = (s.smartMissing || []).concat(list.map(function (a) { return a.label; }).slice(0, 8));
       }
       s.state = s.uploads.length > 0 ? 'upload' : 'filling';
       return s;
@@ -1758,7 +2126,9 @@
     _internal: {
       norm: norm, matchKey: matchKey, classifySecurity: classifySecurity,
       parseDate: parseDate, formatDateForInput: formatDateForInput,
-      bestOptionIndex: bestOptionIndex, expandSyn: expandSyn, splitName: splitName, valueFor: valueFor
+      bestOptionIndex: bestOptionIndex, expandSyn: expandSyn, splitName: splitName, valueFor: valueFor,
+      irctcWantedClasses: irctcWantedClasses, irctcCardMatchesTrain: irctcCardMatchesTrain,
+      irctcClassTokenOf: irctcClassTokenOf, isAutocompleteCommitted: isAutocompleteCommitted
     }
   };
   root.SarthiFill = api;

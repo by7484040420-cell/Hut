@@ -73,6 +73,12 @@ const DETAIL_FIELDS: Array<{
     options: ['GENERAL', 'TATKAL', 'PREMIUM TATKAL', 'LADIES', 'LOWER BERTH/SR.CITIZEN'],
   },
   {
+    payloadKey: 'preferredTrain',
+    fkey: 'preferred_train',
+    label: 'Train Name / Number (Optional — khali chhodein to AI khud koi train chun lega)',
+    placeholder: 'jaise 12553 Vaishali Express ya khali chhodein',
+  },
+  {
     payloadKey: 'berthPreference',
     fkey: 'berth_preference',
     label: 'Seat / Berth Preference',
@@ -121,7 +127,7 @@ const DETAIL_FIELDS: Array<{
 const BASELINE_KEYS: Array<{ test: RegExp; keys: string[] }> = [
   {
     test: /irctc|train|ticket|rail/i,
-    keys: ['fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'fullName', 'dob', 'gender', 'berthPreference', 'mobile', 'email', 'loginUserId', 'loginPassword'],
+    keys: ['fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'preferredTrain', 'fullName', 'dob', 'gender', 'berthPreference', 'mobile', 'email', 'loginUserId', 'loginPassword'],
   },
   {
     test: /ssc|army|rrb|police|constable|otr|bharti|recruitment|job/i,

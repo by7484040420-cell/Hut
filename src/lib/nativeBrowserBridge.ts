@@ -69,10 +69,12 @@ export function buildAutoFillPayload(params: {
       ['passingYear', p.passingYear],
       ['percentageOrGrade', p.percentageOrGrade],
       ['panNumber', p.panNumber],
+      ['aadhaarLast4', p.aadhaarLast4],
       ['passportNumber', p.passportNumber],
       ['dlNumber', p.dlNumber],
       ['voterId', p.voterId],
       ['preferredDepartureCity', p.preferredDepartureCity],
+      ['preferredTrainClass', p.preferredTrainClass],
       ['bloodGroup', p.bloodGroup],
       ['birthPlace', p.birthPlace],
       ['tenthBoard', p.tenthBoard],
@@ -127,6 +129,8 @@ export function buildAutoFillPayload(params: {
         map.trainClass = map.trainClass || v;
       } else if (lower.includes('train_quota') || lower.includes('train quota') || lower.includes('quota') || k === 'trainQuota') {
         map.trainQuota = map.trainQuota || v;
+      } else if (lower.includes('preferred_train') || lower.includes('preferred train') || lower.includes('train name') || lower.includes('train number') || k === 'preferredTrain') {
+        map.preferredTrain = map.preferredTrain || v;
       } else if (lower.includes('berth') || k === 'berthPreference') {
         map.berthPreference = map.berthPreference || v;
       } else if (lower.includes('login_user') || lower.includes('login user') || lower === 'username' || lower === 'userid' || k === 'loginUserId') {
@@ -213,6 +217,17 @@ export function buildAutoFillPayload(params: {
   });
   if (resolvedState) {
     map.state = resolvedState;
+  }
+
+  if (map.aadhaarNumber && !map.aadhaarLast4) {
+    const digits = map.aadhaarNumber.replace(/\D/g, '');
+    if (digits.length >= 4) map.aadhaarLast4 = digits.slice(-4);
+  }
+  if (map.preferredDepartureCity && !map.fromStation) {
+    map.fromStation = map.preferredDepartureCity;
+  }
+  if (map.preferredTrainClass && !map.trainClass) {
+    map.trainClass = map.preferredTrainClass;
   }
 
   if (params.goal?.trim()) {
