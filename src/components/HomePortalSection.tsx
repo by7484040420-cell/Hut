@@ -73,6 +73,7 @@ const DETAIL_FIELDS: Array<{
   { payloadKey: 'category', fkey: 'category', label: 'Category', placeholder: 'General / OBC / SC / ST', options: ['General', 'OBC', 'SC', 'ST', 'EWS'] },
   { payloadKey: 'maritalStatus', fkey: 'marital_status', label: 'Marital Status', placeholder: 'Single / Married', options: ['Single', 'Married', 'Divorced', 'Widowed'] },
   { payloadKey: 'state', fkey: 'state', label: 'State / Rajya', placeholder: 'Rajya chuno' },
+  { payloadKey: 'incomeSource', fkey: 'income_source', label: 'Income Source (kamai ka zariya)', placeholder: 'Salary / Business / House property / Other sources / No income', options: ['Salary', 'Income from Business / Profession', 'Income from House property', 'Income from Other sources', 'Capital Gains', 'No income'] },
   { payloadKey: 'alternateMobile', fkey: 'alternate_mobile', label: 'Alternate Mobile', placeholder: '10 digit mobile', inputMode: 'tel' },
   { payloadKey: 'qualification', fkey: 'qualification', label: 'Qualification', placeholder: 'jaise 12th, Graduate' },
 ];
@@ -81,7 +82,7 @@ const DETAIL_FIELDS: Array<{
 const BASELINE_KEYS: Array<{ test: RegExp; keys: string[] }> = [
   {
     test: /\bpan\b|protean|tin-nsdl|nsdl|utiitsl|49a|panonline/i,
-    keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email'],
+    keys: ['fullName', 'dob', 'gender', 'fatherName', 'motherName', 'mobile', 'email', 'addressLine', 'villageOrWard', 'postOffice', 'district', 'state', 'pinCode', 'incomeSource'],
   },
   {
     test: /parivahan|sarathi|driving|licen[cs]e/i,
