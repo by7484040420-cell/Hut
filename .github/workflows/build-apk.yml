@@ -748,9 +748,10 @@ jobs:
                                   emitToReact("onSarthiNativeRecipe", rc);
                               } catch (Exception ignored2) {}
                           }
+                          if ("next".equals(st)) tickCount = 0;   // naya page: ginti dobara (4-6 page ke form ke liye)
                           boolean waitingUser = "user".equals(st) || "otp".equals(st);
                           if (waitingUser) { if (waitTicks++ < 900) scheduleTick(2000); }   // OTP/CAPTCHA: user dale tab tak ~30 min poll
-                          else if (tickCount++ < 40) scheduleTick(3000);
+                          else if (tickCount++ < 60) scheduleTick(3000);
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
                       }
