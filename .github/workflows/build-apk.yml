@@ -149,6 +149,9 @@ jobs:
               private LinearLayout portalOverlay;
               private WebView portalWebView;
               private int tickCount = 0;
+              private int waitTicks = 0;   // OTP/CAPTCHA ke intezaar me alag ginti (taaki baad me bhi AI chale)
+              // true = website khulne ke baad koi popup nahi: details pehle hi li jaati hain, baaki status line me dikhta hai
+              private static final boolean SILENT_FILL = true;
               private boolean askOpen = false;
               private boolean resetAsk = false;
               private boolean formDone = false;
@@ -269,7 +272,7 @@ jobs:
                   fillBtn.setTextSize(11f);
                   fillBtn.setTextColor(Color.WHITE);
                   fillBtn.setBackgroundColor(Color.parseColor("#059669"));
-                  fillBtn.setOnClickListener(v -> { tickCount = 0; resetAsk = true; runAutoFillOnPortal(); });
+                  fillBtn.setOnClickListener(v -> { tickCount = 0; waitTicks = 0; resetAsk = true; runAutoFillOnPortal(); });
 
                   Button closeBtn = new Button(this);
                   closeBtn.setText("Close");
@@ -349,6 +352,7 @@ jobs:
                       public void onPageStarted(WebView view, String url, Bitmap favicon) {
                           super.onPageStarted(view, url, favicon);
                           tickCount = 0;
+                          waitTicks = 0;
                           uploadHandled.clear();
                           tickHandler.removeCallbacks(tickRunnable);
                           forceDesktopView(view);
@@ -565,6 +569,12 @@ jobs:
               }
 
               private void askPickDoc(final String id, final String label, final String kind) {
+                  if (SILENT_FILL) {
+                      uploadHandled.add(id);
+                      emitPortalEvent(("photo".equals(kind) ? "Photo" : ("signature".equals(kind) ? "Signature" : "Document"))
+                          + " upload: \"" + label + "\" field pe tap karke file chuno (AI ke paas ye file nahi thi)", null);
+                      return;
+                  }
                   if (uploadDialogOpen) return;
                   uploadDialogOpen = true;
                   final String what = "photo".equals(kind) ? "Photo" : ("signature".equals(kind) ? "Signature" : "Document");
@@ -651,6 +661,10 @@ jobs:
                   reqShown.add(host);
                   final int have;
                   synchronized (ramDocs) { have = ramDocs.size(); }
+                  if (SILENT_FILL) {
+                      emitPortalEvent(req.replace("\n", " ") + " | AI ke paas abhi " + have + " document hai", url);
+                      return;
+                  }
                   runOnUiThread(() -> new AlertDialog.Builder(this)
                       .setTitle("Is form ke liye ye chahiye")
                       .setMessage(req + "\n\nAI ke paas abhi " + have + " document hai.")
@@ -718,7 +732,11 @@ jobs:
                           emitPortalEvent(msg.toString(), url);
                           JSONArray asks = res.optJSONArray("asks");
                           String note = res.optString("note", "");
-                          if (asks != null && asks.length() > 0) showAskDialog(asks, note);
+                          JSONArray pend = res.optJSONArray("pending");
+                          if (pend != null && pend.length() > 0) {
+                              emitPortalEvent("Ye details AI ke paas nahi thi (popup band hai), ye fields khali/highlight rahenge: " + pend.join(", ").replace("\"", ""), url);
+                          }
+                          if (!SILENT_FILL && asks != null && asks.length() > 0) showAskDialog(asks, note);
                           else if (!note.isEmpty()) emitPortalEvent(note, url);
                           JSONObject stuckObj = res.optJSONObject("stuck");
                           if (stuckObj != null) { emitPortalEvent("AI page padh raha hai...", url); emitToReact("onSarthiNativeStuck", stuckObj); }
@@ -730,7 +748,9 @@ jobs:
                                   emitToReact("onSarthiNativeRecipe", rc);
                               } catch (Exception ignored2) {}
                           }
-                          if (tickCount++ < 40) scheduleTick(3000);
+                          boolean waitingUser = "user".equals(st) || "otp".equals(st);
+                          if (waitingUser) { if (waitTicks++ < 900) scheduleTick(2000); }   // OTP/CAPTCHA: user dale tab tak ~30 min poll
+                          else if (tickCount++ < 40) scheduleTick(3000);
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
                       }
@@ -782,7 +802,7 @@ jobs:
                           if (!key.isEmpty() && payload.optString(key, "").trim().length() > 0) continue;
                           out.put(a);
                       }
-                      if (out.length() > 0) showAskDialog(out, note);
+                      if (out.length() > 0 && !SILENT_FILL) showAskDialog(out, note);
                       else if (note != null && !note.isEmpty()) emitPortalEvent(note, null);
                   } catch (Exception ignored) {}
               }
