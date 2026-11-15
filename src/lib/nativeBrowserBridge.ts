@@ -100,7 +100,11 @@ export function buildAutoFillPayload(params: {
   }
 
   // Merge ephemeral RAM-only OCR document fields (highest priority)
-  for (const doc of params.ephemeralDocs) {
+  // User ki khud bhari details (id 'user-details') sabse pehle, phir OCR documents
+  const orderedDocs = [...params.ephemeralDocs].sort(
+    (a, b) => (a.id === 'user-details' ? -1 : 0) - (b.id === 'user-details' ? -1 : 0)
+  );
+  for (const doc of orderedDocs) {
     const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
     const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
     const isTwelfthDoc = /12th|inter|hsc|senior\s*secondary|class\s*xii/.test(docTypeLower);
