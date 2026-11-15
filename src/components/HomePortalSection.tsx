@@ -276,7 +276,13 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
 
   // Abhi AI ke paas jo details hain (OCR + user ki bhari hui)
   const knownDetails = useMemo(
-    () => buildAutoFillPayload({ profile: {} as ProfileVault, ephemeralDocs, zeroSave: true }),
+    () => {
+      try {
+        return buildAutoFillPayload({ profile: {} as ProfileVault, ephemeralDocs, zeroSave: true });
+      } catch {
+        return {} as Record<string, string>; // kuch bhi ho, screen white nahi honi chahiye
+      }
+    },
     [ephemeralDocs]
   );
   return (
