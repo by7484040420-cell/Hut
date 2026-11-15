@@ -6,9 +6,12 @@ export interface SarthiNativeInterface {
   openPortal?: (url: string, payloadJson: string) => void;
   autoFillPortal?: (payloadJson: string) => void;
   applyAiFieldMap?: (mapJson: string) => void;
+  applyAiPlan?: (planJson: string) => void;
+  showAsks?: (asksJson: string, note: string) => void;
   closePortal?: () => void;
   wipePortalSession?: () => void;
   scanDocumentOcr?: (base64Image: string, requestId: string) => void;
+  stashDocument?: (name: string, mime: string, base64: string) => void;
   getNativeInfo?: () => string;
 }
 
@@ -19,6 +22,8 @@ declare global {
     onSarthiNativePortalEvent?: (eventJson: string) => void;
     onSarthiNativeUnmatched?: (eventJson: string) => void;
     onSarthiNativeFormDone?: () => void;
+    onSarthiNativeStuck?: (eventJson: string) => void;
+    onSarthiNativeRecipe?: (eventJson: string) => void;
   }
 }
 
@@ -264,4 +269,37 @@ export function runNativeOnDeviceOcr(file: File): Promise<EphemeralDocumentExtra
     };
     reader.readAsDataURL(file);
   });
+}
+
+
+// User jo bhi document (image/PDF) app me chunta hai, uski copy sirf phone ki RAM me rakhi jati hai,
+// taaki form bharte waqt AI use khud upload kar sake. Form complete hone pe ye saaf ho jati hai.
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'change',
+    (e) => {
+      const el = e.target as HTMLInputElement | null;
+      if (!el || el.tagName !== 'INPUT' || el.type !== 'file' || !el.files) return;
+      if (!hasNativePortalBridge() || !window.SarthiNative?.stashDocument) return;
+      Array.from(el.files).forEach((f) => {
+        if (f.size > 8 * 1024 * 1024) return;
+        if (!/^image\//.test(f.type) && f.type !== 'application/pdf') return;
+        void fileToBase64(f)
+          .then((b64) => {
+            if (b64) window.SarthiNative?.stashDocument?.(f.name, f.type || 'application/octet-stream', b64);
+          })
+          .catch(() => undefined);
+      });
+    },
+    true
+  );
 }
