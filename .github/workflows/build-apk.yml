@@ -212,6 +212,11 @@ jobs:
                   for (String host : AD_HOSTS) {
                       if (url.contains(host)) return true;
                   }
+                  if (lastPortalUrl != null && lastPortalUrl.contains("irctc")) {   // IRCTC tez: faltu tracking band
+                      for (String host : IRCTC_JUNK) {
+                          if (url.contains(host)) return true;
+                      }
+                  }
                   return false;
               }
 
@@ -232,6 +237,153 @@ jobs:
                           }
                       });
                   } catch (Exception ignored) {}
+              }
+
+              // ===== IRCTC: session bachao + login ek baar save =====
+              private static final String[] IRCTC_JUNK = {
+                  "google-analytics.com", "googletagmanager.com", "facebook.net", "facebook.com/tr",
+                  "hotjar.com", "clarity.ms", "connect.facebook"
+              };
+              private static final String KS_ALIAS = "sarthi_cred_key";
+              private volatile String currentPortalUrl = "";
+              private String[] irctcStaged = null;          // login click par RAM me; login SAFAL hone par hi save
+              private boolean irctcFilledThisModal = false;
+              private int irctcFillCount = 0;
+              private long irctcFillWindowStart = 0;
+              private final Runnable irctcRunnable = () -> irctcTick();
+
+              private static boolean isIrctcUrl(String u) {
+                  if (u == null) return false;
+                  try {
+                      String h = android.net.Uri.parse(u).getHost();
+                      return h != null && (h.equals("irctc.co.in") || h.endsWith(".irctc.co.in"));
+                  } catch (Exception e) { return false; }
+              }
+
+              private boolean irctcActive() {
+                  return portalWebView != null && isIrctcUrl(portalWebView.getUrl());
+              }
+
+              private javax.crypto.SecretKey credKey() throws Exception {
+                  java.security.KeyStore ks = java.security.KeyStore.getInstance("AndroidKeyStore");
+                  ks.load(null);
+                  if (!ks.containsAlias(KS_ALIAS)) {
+                      javax.crypto.KeyGenerator kg = javax.crypto.KeyGenerator.getInstance("AES", "AndroidKeyStore");
+                      kg.init(new android.security.keystore.KeyGenParameterSpec.Builder(
+                              KS_ALIAS,
+                              android.security.keystore.KeyProperties.PURPOSE_ENCRYPT | android.security.keystore.KeyProperties.PURPOSE_DECRYPT)
+                          .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                          .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                          .setKeySize(256)
+                          .build());
+                      return kg.generateKey();
+                  }
+                  return ((java.security.KeyStore.SecretKeyEntry) ks.getEntry(KS_ALIAS, null)).getSecretKey();
+              }
+
+              private void saveIrctcCred(String user, String pass) {
+                  try {
+                      JSONObject o = new JSONObject();
+                      o.put("u", user);
+                      o.put("p", pass);
+                      javax.crypto.Cipher c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+                      c.init(javax.crypto.Cipher.ENCRYPT_MODE, credKey());
+                      byte[] iv = c.getIV();
+                      byte[] ct = c.doFinal(o.toString().getBytes("UTF-8"));
+                      String blob = Base64.encodeToString(iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(ct, Base64.NO_WRAP);
+                      getSharedPreferences("sarthi_cred", MODE_PRIVATE).edit().putString("irctc", blob).apply();
+                  } catch (Exception ignored) {}
+              }
+
+              private String[] loadIrctcCred() {
+                  try {
+                      String blob = getSharedPreferences("sarthi_cred", MODE_PRIVATE).getString("irctc", null);
+                      if (blob == null) return null;
+                      String[] parts = blob.split(":");
+                      javax.crypto.Cipher c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+                      c.init(javax.crypto.Cipher.DECRYPT_MODE, credKey(),
+                          new javax.crypto.spec.GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
+                      JSONObject o = new JSONObject(new String(c.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), "UTF-8"));
+                      return new String[]{o.getString("u"), o.getString("p")};
+                  } catch (Exception e) { return null; }
+              }
+
+              private void clearIrctcCred() {
+                  try { getSharedPreferences("sarthi_cred", MODE_PRIVATE).edit().remove("irctc").apply(); } catch (Exception ignored) {}
+              }
+
+              private String loadAssetText(String path) {
+                  try {
+                      java.io.InputStream is = getAssets().open(path);
+                      java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                      byte[] buf = new byte[8192];
+                      int n;
+                      while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+                      is.close();
+                      return bos.toString("UTF-8");
+                  } catch (Exception e) { return null; }
+              }
+
+              private void startIrctcWatch() {
+                  tickHandler.removeCallbacks(irctcRunnable);
+                  tickHandler.postDelayed(irctcRunnable, 800);
+              }
+
+              private void irctcTick() {
+                  try {
+                      if (portalWebView == null) return;
+                      String cu = portalWebView.getUrl();
+                      currentPortalUrl = cu == null ? "" : cu;
+                      if (!isIrctcUrl(cu)) return;                       // IRCTC se bahar gaye -> watch band
+                      final String helper = loadAssetText("public/irctc-helper.js");
+                      if (helper != null) {
+                          portalWebView.evaluateJavascript(helper + "\n;SarthiIrctc.status();", raw -> {
+                              String st = "";
+                              try { st = decodeJsResult(raw); } catch (Exception ignored) {}
+                              if ("ready".equals(st)) {
+                                  portalWebView.evaluateJavascript("SarthiIrctc.hook();", null);
+                                  if (!irctcFilledThisModal) {
+                                      long now = System.currentTimeMillis();
+                                      if (now - irctcFillWindowStart > 600000) { irctcFillWindowStart = now; irctcFillCount = 0; }
+                                      String[] c = loadIrctcCred();
+                                      if (c != null && irctcFillCount < 1) {      // sirf 1 koshish - account lock se bachne ke liye
+                                          irctcFilledThisModal = true;
+                                          irctcFillCount++;
+                                          portalWebView.evaluateJavascript(
+                                              "SarthiIrctc.fill(" + JSONObject.quote(c[0]) + "," + JSONObject.quote(c[1]) + ");", null);
+                                          emitPortalEvent("IRCTC: saved user id/password bhar diya - CAPTCHA aap daalo aur SIGN IN dabao", currentPortalUrl);
+                                      }
+                                  }
+                              } else if ("error".equals(st)) {
+                                  if (irctcFilledThisModal) {
+                                      clearIrctcCred();                         // galat save tha -> hata diya, dobara auto-try nahi
+                                      emitPortalEvent("IRCTC: user id/password galat. Purana save hata diya - sahi wala khud daalo, login ke baad apne aap save hoga", currentPortalUrl);
+                                  }
+                                  irctcFilledThisModal = true;                  // error ke baad refill nahi
+                              } else if ("loggedin".equals(st)) {
+                                  if (irctcStaged != null) {
+                                      saveIrctcCred(irctcStaged[0], irctcStaged[1]);
+                                      irctcStaged = null;
+                                      emitPortalEvent("IRCTC login safal - user id/password hamesha ke liye save ho gaya", currentPortalUrl);
+                                  }
+                                  irctcFilledThisModal = false;
+                                  irctcFillCount = 0;
+                              } else {
+                                  irctcFilledThisModal = false;
+                              }
+                          });
+                      }
+                      tickHandler.postDelayed(irctcRunnable, 1500);
+                  } catch (Exception ignored) {}
+              }
+
+              public class IrctcCredBridge {
+                  @JavascriptInterface
+                  public void stage(String u, String p) {              // sirf likhta hai, padhne ka koi tareeka nahi
+                      if (!isIrctcUrl(currentPortalUrl)) return;
+                      if (u == null || p == null || u.isEmpty() || p.isEmpty()) return;
+                      irctcStaged = new String[]{u, p};
+                  }
               }
 
               private void ensurePortalOverlay() {
@@ -260,7 +412,10 @@ jobs:
                   backBtn.setTextColor(Color.WHITE);
                   backBtn.setBackgroundColor(Color.parseColor("#1E293B"));
                   backBtn.setOnClickListener(v -> {
-                      if (portalWebView != null && portalWebView.canGoBack()) {
+                      if (irctcActive()) {
+                          // IRCTC me Back = "Sorry! Please try again". Isliye sirf app screen par wapas, session zinda rehta hai
+                          portalOverlay.setVisibility(View.GONE);
+                      } else if (portalWebView != null && portalWebView.canGoBack()) {
                           portalWebView.goBack();
                       } else {
                           portalOverlay.setVisibility(View.GONE);
@@ -296,7 +451,7 @@ jobs:
                   closeParams.setMargins(pad / 2, 0, 0, 0);
                   closeBtn.setLayoutParams(closeParams);
                   closeBtn.setOnClickListener(v -> {
-                      if (formDone) {
+                      if (formDone && !irctcActive()) {
                           formDone = false;
                           reqShown.clear();
                           uploadHandled.clear();
@@ -343,6 +498,10 @@ jobs:
                   ps.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
                   ps.setUserAgentString(DESKTOP_UA);
                   ps.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+                  ps.setCacheMode(WebSettings.LOAD_DEFAULT);          // cache use = tez khulna
+                  ps.setLoadsImagesAutomatically(true);
+                  portalWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                  portalWebView.addJavascriptInterface(new IrctcCredBridge(), "SarthiCred");
 
                   CookieManager cm = CookieManager.getInstance();
                   cm.setAcceptCookie(true);
@@ -406,12 +565,16 @@ jobs:
                           waitTicks = 0;
                           uploadHandled.clear();
                           tickHandler.removeCallbacks(tickRunnable);
+                          currentPortalUrl = url == null ? "" : url;
                           forceDesktopView(view);
                       }
 
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
+                          CookieManager.getInstance().flush();          // session disk par save
+                          currentPortalUrl = url == null ? "" : url;
+                          if (isIrctcUrl(url)) startIrctcWatch();
                           forceDesktopView(view);
                           if (handleAccessDenied(view, url)) return;
                           maybeShowRequirements(url);
@@ -442,8 +605,10 @@ jobs:
                       deniedTries.put(host, tries + 1);
                       uaMode = (uaMode + 1) % UA_LIST.length;
                       view.getSettings().setUserAgentString(UA_LIST[uaMode]);
-                      CookieManager.getInstance().removeAllCookies(null);
-                      view.clearCache(true);
+                      if (!isIrctcUrl(url)) {
+                          CookieManager.getInstance().removeAllCookies(null);
+                          view.clearCache(true);
+                      }
                       emitPortalEvent("Access Denied aaya - dobara koshish " + (tries + 1) + "/3", url);
                       final String target = lastPortalUrl;
                       view.postDelayed(() -> view.loadUrl(target), 2000 + tries * 1500);
@@ -1019,7 +1184,26 @@ jobs:
                           ensurePortalOverlay();
                           portalOverlay.setVisibility(View.VISIBLE);
                           portalOverlay.bringToFront();
+                          if (isIrctcUrl(url) && isIrctcUrl(portalWebView.getUrl())) {
+                              portalStatusView.setText("IRCTC pehle se khula hai - wahi session (reload nahi kiya)");
+                              startIrctcWatch();
+                              return;
+                          }
                           portalStatusView.setText("Opening: " + url);
+                          portalWebView.getSettings().setUserAgentString(UA_LIST[uaMode]);
+                          portalWebView.loadUrl(url);
+                      });
+                  }
+
+                  // Tatkal se pehle (jaise 9:50) IRCTC piche se load + login kara lo; baad me openPortal sirf dikha dega
+                  @JavascriptInterface
+                  public void preloadPortal(String url0) {
+                      final String url = (url0 != null && url0.startsWith("http://")) ? "https://" + url0.substring(7) : url0;
+                      if (url == null || url.isEmpty()) return;
+                      lastPortalUrl = url;
+                      runOnUiThread(() -> {
+                          ensurePortalOverlay();
+                          if (isIrctcUrl(url) && isIrctcUrl(portalWebView.getUrl())) return;
                           portalWebView.getSettings().setUserAgentString(UA_LIST[uaMode]);
                           portalWebView.loadUrl(url);
                       });
@@ -1068,6 +1252,7 @@ jobs:
                       ramDocs.clear();
                       reqShown.clear();
                       runOnUiThread(() -> {
+                          if (irctcActive()) return;     // IRCTC login/session bacha ke rakho
                           if (portalWebView != null) {
                               portalWebView.clearCache(true);
                               portalWebView.clearHistory();
@@ -1129,6 +1314,12 @@ jobs:
               }
 
               @Override
+              public void onPause() {
+                  CookieManager.getInstance().flush();
+                  super.onPause();
+              }
+
+              @Override
               public void onResume() {
                   super.onResume();
                   applySystemBars();
@@ -1137,7 +1328,9 @@ jobs:
               @Override
               public void onBackPressed() {
                   if (portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE) {
-                      if (portalWebView != null && portalWebView.canGoBack()) {
+                      if (irctcActive()) {
+                          portalOverlay.setVisibility(View.GONE);   // IRCTC: Back se session kharab hota hai
+                      } else if (portalWebView != null && portalWebView.canGoBack()) {
                           portalWebView.goBack();
                       } else {
                           portalOverlay.setVisibility(View.GONE);
