@@ -146,6 +146,16 @@ jobs:
                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   + "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
+              // Access Denied (Akamai) aaye to ye UA ek-ek karke try hote hain
+              private static final String[] UA_LIST = {
+                  DESKTOP_UA,
+                  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+              };
+              private int uaMode = 0;
+              private String lastPortalUrl = "";
+              private final java.util.HashMap<String, Integer> deniedTries = new java.util.HashMap<>();
+
               private LinearLayout portalOverlay;
               private WebView portalWebView;
               private int tickCount = 0;
@@ -183,6 +193,7 @@ jobs:
                   tickHandler.postDelayed(tickRunnable, delayMs);
               }
               private TextView portalStatusView;
+              private volatile long lastPortalTouchAt = 0;   // user ne portal ko akhri baar kab chhua (keyboard sirf tab khule)
               private String activePayloadJson = "{}";
               private TextRecognizer textRecognizer;
 
@@ -305,7 +316,17 @@ jobs:
                   bar.addView(fillBtn);
                   bar.addView(closeBtn);
 
-                  portalWebView = new WebView(this);
+                  // Keyboard sirf tab khule jab USER ne khud field chhua ho (CAPTCHA/OTP/password). AI fill me keyboard nahi khulega.
+                  portalWebView = new WebView(this) {
+                      @Override
+                      public boolean onCheckIsTextEditor() {
+                          return System.currentTimeMillis() - lastPortalTouchAt < 20000;
+                      }
+                  };
+                  portalWebView.setOnTouchListener((v, ev) -> {
+                      if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN) lastPortalTouchAt = System.currentTimeMillis();
+                      return false;
+                  });
                   portalWebView.setLayoutParams(new LinearLayout.LayoutParams(
                       ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
                   ));
@@ -315,9 +336,11 @@ jobs:
                   ps.setDatabaseEnabled(true);
                   ps.setUseWideViewPort(true);
                   ps.setLoadWithOverviewMode(true);
-                  ps.setSupportZoom(true);
-                  ps.setBuiltInZoomControls(true);
+                  ps.setSupportZoom(false);              // phone zoom band: hamesha desktop size
+                  ps.setBuiltInZoomControls(false);
                   ps.setDisplayZoomControls(false);
+                  ps.setTextZoom(100);
+                  ps.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
                   ps.setUserAgentString(DESKTOP_UA);
                   ps.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
 
@@ -349,6 +372,34 @@ jobs:
                       }
 
                       @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          try {
+                              String u = request.getUrl().toString();
+                              if (request.isForMainFrame() && u.startsWith("http://")) {
+                                  view.loadUrl("https://" + u.substring(7));
+                                  return true;
+                              }
+                          } catch (Exception ignored) {}
+                          return false;
+                      }
+
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                          super.onReceivedError(view, request, error);
+                          try {
+                              if (request.isForMainFrame()) {
+                                  emitPortalEvent("Page khula nahi: " + error.getDescription() + " - internet check karke AI FILL ke baju me Back/dobara kholo", request.getUrl().toString());
+                              }
+                          } catch (Exception ignored) {}
+                      }
+
+                      @Override
+                      public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) {
+                          handler.cancel();   // security: certificate galat ho to kholna nahi
+                          emitPortalEvent("Site ka SSL certificate galat hai - phone ki date/time sahi karo ya baad me try karo", null);
+                      }
+
+                      @Override
                       public void onPageStarted(WebView view, String url, Bitmap favicon) {
                           super.onPageStarted(view, url, favicon);
                           tickCount = 0;
@@ -362,6 +413,7 @@ jobs:
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
                           forceDesktopView(view);
+                          if (handleAccessDenied(view, url)) return;
                           maybeShowRequirements(url);
                           emitPortalEvent("Loaded: " + url, url);
                           scheduleTick(900);
@@ -371,6 +423,44 @@ jobs:
                   portalOverlay.addView(bar);
                   portalOverlay.addView(portalWebView);
                   root.addView(portalOverlay);
+              }
+
+              // "Access Denied" (Akamai) page aaye to: cookies saaf + UA badal ke 3 baar apne aap dobara kholo
+              private boolean handleAccessDenied(final WebView view, String url) {
+                  try {
+                      String t = view.getTitle();
+                      if (t == null || !t.toLowerCase().contains("access denied")) return false;
+                      String host = "site";
+                      try { host = android.net.Uri.parse(url).getHost(); } catch (Exception ignored) {}
+                      if (host == null) host = "site";
+                      Integer n = deniedTries.get(host);
+                      int tries = n == null ? 0 : n;
+                      if (tries >= 3 || lastPortalUrl.isEmpty()) {
+                          emitPortalEvent("Site ne block kiya (Access Denied). 10-15 min ruko ya Wi-Fi / mobile data badlo, phir dobara kholo", url);
+                          return true;
+                      }
+                      deniedTries.put(host, tries + 1);
+                      uaMode = (uaMode + 1) % UA_LIST.length;
+                      view.getSettings().setUserAgentString(UA_LIST[uaMode]);
+                      CookieManager.getInstance().removeAllCookies(null);
+                      view.clearCache(true);
+                      emitPortalEvent("Access Denied aaya - dobara koshish " + (tries + 1) + "/3", url);
+                      final String target = lastPortalUrl;
+                      view.postDelayed(() -> view.loadUrl(target), 2000 + tries * 1500);
+                      return true;
+                  } catch (Exception e) {
+                      return false;
+                  }
+              }
+
+              private void hideImeIfIdle() {
+                  try {
+                      if (portalWebView == null) return;
+                      if (System.currentTimeMillis() - lastPortalTouchAt < 20000) return;   // user type kar raha hai
+                      android.view.inputmethod.InputMethodManager imm =
+                          (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                      if (imm != null) imm.hideSoftInputFromWindow(portalWebView.getWindowToken(), 0);
+                  } catch (Exception ignored) {}
               }
 
               private String loadFillEngine() {
@@ -415,9 +505,12 @@ jobs:
               // Har website desktop-size layout me (viewport 1280px force)
               private void forceDesktopView(WebView view) {
                   if (view == null) return;
+                  android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                  float sc = Math.min(1f, (dm.widthPixels / dm.density) / 1280f);
+                  String scs = String.format(java.util.Locale.US, "%.4f", sc);
                   final String js = "(function(){try{var m=document.querySelector('meta[name=viewport]');"
                       + "if(!m){m=document.createElement('meta');m.name='viewport';(document.head||document.documentElement).appendChild(m);}"
-                      + "m.setAttribute('content','width=1280');}catch(e){}})();";
+                      + "m.setAttribute('content','width=1280, initial-scale=" + scs + ", minimum-scale=" + scs + ", maximum-scale=" + scs + ", user-scalable=no');}catch(e){}})();";
                   view.evaluateJavascript(js, null);
               }
 
@@ -695,6 +788,7 @@ jobs:
                       + "}catch(e){return JSON.stringify({error:String(e)});}})();";
 
                   runOnUiThread(() -> portalWebView.evaluateJavascript(js, raw -> {
+                      hideImeIfIdle();
                       try {
                           JSONObject res = new JSONObject(decodeJsResult(raw));
                           if (res.has("error")) {
@@ -915,13 +1009,18 @@ jobs:
                   }
 
                   @JavascriptInterface
-                  public void openPortal(String url, String payloadJson) {
+                  public void openPortal(String url0, String payloadJson) {
                       activePayloadJson = payloadJson != null ? payloadJson : "{}";
+                      // http:// se kholne par IRCTC/Passport "Access Denied" dete hain -> hamesha https
+                      final String url = (url0 != null && url0.startsWith("http://")) ? "https://" + url0.substring(7) : url0;
+                      lastPortalUrl = url == null ? "" : url;
+                      deniedTries.clear();
                       runOnUiThread(() -> {
                           ensurePortalOverlay();
                           portalOverlay.setVisibility(View.VISIBLE);
                           portalOverlay.bringToFront();
                           portalStatusView.setText("Opening: " + url);
+                          portalWebView.getSettings().setUserAgentString(UA_LIST[uaMode]);
                           portalWebView.loadUrl(url);
                       });
                   }
