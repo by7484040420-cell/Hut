@@ -1694,7 +1694,40 @@
     } catch (e) { return false; }
   }
 
+  // IRCTC: pehle LOGIN, phir Search. Login nahi hai to LOGIN popup kholo aur user ke CAPTCHA/Sign-in ka intezaar karo.
+  var irWaitMsg = '', irLoginOpenAt = 0;
+  function irIsLoggedIn() {
+    try { return /\blogout\b/i.test((document.body && document.body.innerText) || ''); } catch (e) { return false; }
+  }
+  function irLoginGate() {
+    try {
+      if (!/irctc\.co\.in/i.test(location.hostname)) return '';
+      if (/register|signup/.test(String(location.href || '').toLowerCase())) return '';
+      if (irIsLoggedIn()) return '';
+      var now = Date.now();
+      var bodyTxt = (document.body && document.body.innerText) || '';
+      // "Sorry! Please try again" page: IRCTC ka "Click here to login" dabao (throttled)
+      if (/please try again/i.test(bodyTxt)) {
+        var rb = irFindBtn(/click here to login/i);
+        if (rb && now - irLoginOpenAt > 8000) { irLoginOpenAt = now; clickLikeUser(rb); }
+        irWaitMsg = 'IRCTC session reset - dobara login karo';
+        return '__wait__';
+      }
+      if (Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).some(isVisible)) {
+        irWaitMsg = 'IRCTC login: CAPTCHA daalo aur SIGN IN dabao (phir search apne aap hoga)';
+        return '__wait__';
+      }
+      var lb = irFindBtn(/^login$/i);
+      if (lb && now - irLoginOpenAt > 8000) { irLoginOpenAt = now; clickLikeUser(lb); }
+      irWaitMsg = 'Pehle IRCTC login karo - LOGIN popup khol raha hu';
+      return '__wait__';
+    } catch (e) { return ''; }
+  }
+
   function clickNext() {
+    irWaitMsg = '';
+    var gate = irLoginGate();
+    if (gate) return gate;
     if (irNextLocked()) return '__wait__';
     var els = Array.prototype.slice.call(document.querySelectorAll('button,a,input[type="button"],input[type="submit"],[role="button"]'));
     for (var i = 0; i < els.length; i++) {
@@ -2981,7 +3014,7 @@
     var sig = pageSig();
     if (sig === lastNextSig && Date.now() - lastNextAt < 10000) { s.state = 'waiting'; return s; }
     var t = clickNext();
-    if (t === '__wait__') { s.state = 'waiting'; return s; }
+    if (t === '__wait__') { s.state = 'waiting'; if (irWaitMsg) s.pending = [irWaitMsg]; return s; }
     if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; }
     else { s.state = 'final'; }
     return s;
