@@ -619,7 +619,7 @@
 
   function setNativeValue(el, val, opts) {
     opts = opts || {};
-    el.focus && el.focus();
+    try { el.focus && el.focus({ preventScroll: true }); } catch (eF) { /* ignore */ }
     var proto = el.tagName === 'TEXTAREA' ? root.HTMLTextAreaElement.prototype : root.HTMLInputElement.prototype;
     var desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) desc.set.call(el, val); else el.value = val;
@@ -646,7 +646,7 @@
   function typeDigitsIncrementally(el, digits) {
     var s = String(digits || '').replace(/\D/g, '');
     if (!s) return;
-    el.focus && el.focus();
+    try { el.focus && el.focus({ preventScroll: true }); } catch (eF) { /* ignore */ }
     var desc = Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, 'value');
     if (desc && desc.set) desc.set.call(el, ''); else el.value = '';
     try { el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '', inputType: 'deleteContentBackward' })); } catch (e) { fire(el, ['input']); }
@@ -679,7 +679,7 @@
   // Natural character-by-character typing for Angular/PrimeNG autocomplete (IRCTC From/To station, etc.)
   function typeTextIncrementally(el, text, done) {
     var s = String(text || '');
-    el.focus && el.focus();
+    try { el.focus && el.focus({ preventScroll: true }); } catch (eF) { /* ignore */ }
     var desc = Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, 'value');
     if (desc && desc.set) desc.set.call(el, ''); else el.value = '';
     try { el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '', inputType: 'deleteContentBackward' })); } catch (e) { fire(el, ['input']); }
@@ -2588,8 +2588,21 @@
         irAcctAt = now; mark(sb, GREEN); clickLikeUser(sb);
         return { state: 'next', clicked: 'sign in', note: 'IRCTC login ho raha hai' };
       }
-      var rg = irFindBtn(/register|sign ?up|new user/);
+      // Login popup: pehle user ko apna ID/password dalne ka mauka do (25 sec). Tab tak kuch nahi, sirf ek baar Register dabega.
+      if (data.autoRegister === false) return null;
+      var typed = Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type])')).some(function (el) {
+        return isVisible(el) && String(el.value || '').trim() && !/captcha/.test(hintOf(el));
+      });
+      if (typed) return null;                                         // user khud ID likh raha hai
+      var seen = parseInt(root.sessionStorage ? (root.sessionStorage.getItem('sarthi_ir_login_seen') || '0') : '0', 10);
+      if (!seen) { seen = now; try { root.sessionStorage.setItem('sarthi_ir_login_seen', String(now)); } catch (e) { /* ignore */ } }
+      var already = false;
+      try { already = root.sessionStorage.getItem('sarthi_ir_reg_clicked') === '1'; } catch (e) { /* ignore */ }
+      if (already) return null;
+      if (now - seen < 25000) return { state: 'waiting', note: 'IRCTC ID/password dalo. 25 sec me kuch nahi dala to naya account bana dunga' };
+      var rg = irFindBtn(/^(register|sign ?up|new user.*)$/);
       if (!rg) return null;
+      try { root.sessionStorage.setItem('sarthi_ir_reg_clicked', '1'); } catch (e) { /* ignore */ }
       irAcctAt = now; mark(rg, GREEN); clickLikeUser(rg);
       return { state: 'next', clicked: 'register', note: 'ID/password nahi diya - naya IRCTC account bana raha hoon' };
     } catch (e) { return null; }
