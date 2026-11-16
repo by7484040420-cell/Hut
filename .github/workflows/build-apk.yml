@@ -183,8 +183,6 @@ jobs:
                   tickHandler.postDelayed(tickRunnable, delayMs);
               }
               private TextView portalStatusView;
-              private String lastStatusFull = "";      // status line ka poora text (tap par popup me dikhta hai)
-              private String lastPendingMsg = "";     // jo details AI ke paas nahi thi - agle ticks me bhi dikhti rahe
               private String activePayloadJson = "{}";
               private TextRecognizer textRecognizer;
 
@@ -215,7 +213,6 @@ jobs:
                           "window.onSarthiNativePortalEvent && window.onSarthiNativePortalEvent("
                           + JSONObject.quote(obj.toString()) + ");";
                       runOnUiThread(() -> {
-                          lastStatusFull = message == null ? "" : message;
                           if (portalStatusView != null) {
                               portalStatusView.setText(message);
                           }
@@ -263,14 +260,7 @@ jobs:
                   portalStatusView.setText("SarthiAI WebView Ready");
                   portalStatusView.setTextColor(Color.parseColor("#E2E8F0"));
                   portalStatusView.setTextSize(11f);
-                  portalStatusView.setSingleLine(false);
-                  portalStatusView.setMaxLines(3);
-                  portalStatusView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                  portalStatusView.setOnClickListener(v -> new AlertDialog.Builder(this)
-                      .setTitle("AI status")
-                      .setMessage(lastStatusFull.isEmpty() ? "Abhi koi status nahi" : lastStatusFull)
-                      .setPositiveButton("Theek hai", null)
-                      .show());
+                  portalStatusView.setSingleLine(true);
                   LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
                       0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
                   );
@@ -282,7 +272,7 @@ jobs:
                   fillBtn.setTextSize(11f);
                   fillBtn.setTextColor(Color.WHITE);
                   fillBtn.setBackgroundColor(Color.parseColor("#059669"));
-                  fillBtn.setOnClickListener(v -> { tickCount = 0; waitTicks = 0; resetAsk = true; lastPendingMsg = ""; runAutoFillOnPortal(); });
+                  fillBtn.setOnClickListener(v -> { tickCount = 0; waitTicks = 0; resetAsk = true; runAutoFillOnPortal(); });
 
                   Button closeBtn = new Button(this);
                   closeBtn.setText("Close");
@@ -713,8 +703,6 @@ jobs:
                           }
                           int filled = res.optInt("filled", 0);
                           String url = res.optString("url", "");
-                          JSONArray pendNow = res.optJSONArray("pending");
-                          if (pendNow != null) lastPendingMsg = pendNow.length() > 0 ? pendNow.join(", ").replace("\"", "") : "";
                           StringBuilder msg = new StringBuilder("AI Auto-Fill: " + filled + " fields bhare");
                           if (res.optBoolean("hasCaptcha", false)) msg.append(" | CAPTCHA aap dalein");
                           if (res.optBoolean("hasOtp", false)) msg.append(" | OTP aap dalein");
@@ -741,11 +729,13 @@ jobs:
                               handleFormDone();
                               return;
                           }
-                          if (!lastPendingMsg.isEmpty()) msg.append(" | KHALI (details nahi mili): " + lastPendingMsg);
                           emitPortalEvent(msg.toString(), url);
                           JSONArray asks = res.optJSONArray("asks");
                           String note = res.optString("note", "");
                           JSONArray pend = res.optJSONArray("pending");
+                          if (pend != null && pend.length() > 0) {
+                              emitPortalEvent("Ye details AI ke paas nahi thi (popup band hai), ye fields khali/highlight rahenge: " + pend.join(", ").replace("\"", ""), url);
+                          }
                           if (!SILENT_FILL && asks != null && asks.length() > 0) showAskDialog(asks, note);
                           else if (!note.isEmpty()) emitPortalEvent(note, url);
                           JSONObject stuckObj = res.optJSONObject("stuck");
