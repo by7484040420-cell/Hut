@@ -434,11 +434,6 @@
   // ---------------------------------------------------------------
   var uid = 0;
 
-  // har item alag try/catch me: ek kharab field/dropdown poore page ka fill nahi rokega
-  function safeEach(arr, fn) {
-    for (var i = 0; i < arr.length; i++) { try { fn(arr[i], i); } catch (e) { /* ignore */ } }
-  }
-
   function isVisible(el) {
     if (!el || el.disabled) return false;
     try { if (el.matches && el.matches(':disabled')) return false; } catch (e) { /* ignore */ }
@@ -856,7 +851,6 @@
 
   var ddQueue = [];
   var ddBusy = false;
-  var ddBusySince = 0;   // watchdog: busy 15s se zyada ho to chhod do (warna poora form atak jaata tha)
   var ddStartTimer = null;
 
   function customDropdownLabelText(dd) {
@@ -1021,39 +1015,9 @@
 
   var lastAcAttemptAt = 0;
 
-  // IRCTC station "SIWAN JN - SV" / "DELHI JN. - DLI (NEW DELHI)" jaisi value = sach me select hui (sirf typed text nahi)
-  function stationValueOk(v) {
-    v = String(v || '').trim();
-    return /\s-\s[A-Za-z0-9]{1,8}(\s*\([^)]+\))?$|\([A-Z]{2,5}\)$/.test(v);
-  }
-  function bumpAcFail(el) {
-    try { el.setAttribute('data-sarthi-ac-fail', String(parseInt(el.getAttribute('data-sarthi-ac-fail') || '0', 10) + 1)); } catch (e) { /* ignore */ }
-  }
-  // Mouse-click se option commit na ho to keyboard se: ArrowDown + Enter (PrimeNG autocomplete ye support karta hai)
-  function runKeyboardCommit(el, key, done) {
-    function kd(k, c) {
-      ['keydown', 'keyup'].forEach(function (t) {
-        try { el.dispatchEvent(new root.KeyboardEvent(t, { key: k, code: k, keyCode: c, which: c, bubbles: true, cancelable: true })); } catch (e) { /* ignore */ }
-      });
-    }
-    try { el.focus && el.focus(); } catch (e) { /* ignore */ }
-    kd('ArrowDown', 40);
-    setTimeout(function () {
-      kd('Enter', 13);
-      setTimeout(function () {
-        if (stationValueOk(el.value)) { el.setAttribute('data-sarthi-ac-done', '1'); mark(el, GREEN); }
-        else bumpAcFail(el);
-        fire(el, ['change', 'blur']);
-        done();
-      }, 700);
-    }, 250);
-  }
-
   function processDdQueue() {
-    if (ddBusy && Date.now() - ddBusySince > 15000) { ddBusy = false; }
     if (ddBusy || ddQueue.length === 0) return;
     ddBusy = true;
-    ddBusySince = Date.now();
     var job = ddQueue.shift();
     var el = job.el;
     var wanted = job.wanted;
@@ -1072,7 +1036,7 @@
       }
 
       var pollAttempts = 0;
-      var maxPollAttempts = job.isAutocomplete ? 30 : 8;
+      var maxPollAttempts = job.isAutocomplete ? 18 : 8;
       function pollOptions() {
         pollAttempts++;
         try {
@@ -1106,27 +1070,16 @@
             setTimeout(pollOptions, 240);
             return;
           }
-          if (job.keyboard && job.isAutocomplete) { runKeyboardCommit(el, key, finishJob); return; }
           var best = pickBestOverlayOption(opts, wanted, key, job.isAutocomplete);
           if (best) {
             clickLikeUser(best);
-            if (job.isAutocomplete) {
-              if (key === 'fromStation' || key === 'toStation') {
-                // click ke baad sach me station select hui ya nahi - 700ms baad check
-                setTimeout(function () {
-                  if (stationValueOk(el.value)) { el.setAttribute('data-sarthi-ac-done', '1'); mark(el, GREEN); }
-                  else bumpAcFail(el);
-                }, 700);
-              } else {
-                el.setAttribute('data-sarthi-ac-done', '1');
-              }
-            } else el.setAttribute('data-sarthi-dd-done', norm(wanted));
+            if (job.isAutocomplete) el.setAttribute('data-sarthi-ac-done', '1');
+            else el.setAttribute('data-sarthi-dd-done', norm(wanted));
             el.removeAttribute && el.removeAttribute('data-sarthi-dd-fail');
             mark(el, GREEN);
             fire(el, ['change', 'blur']);
           } else {
             if (job.isAutocomplete) {
-              bumpAcFail(el);
               el.blur && el.blur();
             } else {
               var fails = parseInt((el.getAttribute && el.getAttribute('data-sarthi-dd-fail')) || '0', 10) + 1;
@@ -1191,7 +1144,6 @@
     var checks = [];
 
     controls.forEach(function (el) {
-     try { (function () {
       var type = (el.type || el.tagName).toLowerCase();
       if (/^(hidden|submit|button|reset|image|range|color)$/.test(type)) return;
       if (!isVisible(el)) return;
@@ -1309,17 +1261,9 @@
             finalVal = (el.options[el.selectedIndex].text || val).trim();
           }
         } else if (isAcInput) {
-          var acFails = parseInt(el.getAttribute('data-sarthi-ac-fail') || '0', 10);
-          var isStn = (key === 'fromStation' || key === 'toStation');
-          if (isStn && acFails >= 7) {
-            // 7 koshish ke baad bhi select nahi hui: ab form ko mat rokho (Search dabega, IRCTC khud error dikhayega)
-            el.setAttribute('data-sarthi-ac-done', '1');
-            summary.stationGaveUp = key;
-          } else {
-            enqueueCustomDropdown({ el: el, wanted: String(val), key: key, isAutocomplete: true, keyboard: isStn && acFails >= 3, overwrite: opts.overwrite || acPending });
-            summary.customQueued = (summary.customQueued || 0) + 1;
-          }
+          enqueueCustomDropdown({ el: el, wanted: String(val), key: key, isAutocomplete: true, overwrite: opts.overwrite || acPending });
           ok = true;
+          summary.customQueued = (summary.customQueued || 0) + 1;
         } else {
           if (key === 'dob' || key === 'journeyDate') finalVal = formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
           if (key === 'mobile' || key === 'alternateMobile') finalVal = String(val).replace(/\D/g, '').slice(-10);
@@ -1383,11 +1327,10 @@
           required: isRequiredEl(el)
         });
       }
-     })(); } catch (eField) { summary.fieldErrors = (summary.fieldErrors || 0) + 1; }   // ek ajeeb field poore page ka fill na roke
     });
 
     // Custom non-native dropdowns (SSC OTR mat-select / ng-select, IRCTC p-dropdown/ui-dropdown, Bootstrap/React dropdowns)
-    safeEach(findCustomDropdownTriggers(), function (dd) {
+    findCustomDropdownTriggers().forEach(function (dd) {
       var curTxt = customDropdownLabelText(dd);
       var hint = norm(hintOf(dd) + ' ' + curTxt);
       if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
@@ -1411,7 +1354,7 @@
 
     // radios
     var groups = groupRadios(radios);
-    safeEach(Object.keys(groups), function (gk) {
+    Object.keys(groups).forEach(function (gk) {
       var grp = groups[gk];
       if (grp.some(function (r) { return r.checked; }) && !opts.overwrite) return;
       var gh = norm(gk + ' ' + grp.map(function (r) { return labelTextOf(r.closest ? (r.closest('fieldset,.form-group,div') || r) : r); }).join(' ').slice(0, 200));
@@ -1487,7 +1430,7 @@
     });
 
     // checkboxes: only "same as" is auto-ticked; declarations are NEVER auto-ticked
-    safeEach(checks, function (cb) {
+    checks.forEach(function (cb) {
       var h = hintOf(cb);
       if (RE_ROBOT.test(h) || RE_CAPTCHA.test(h)) { summary.hasCaptcha = true; mark(cb.parentElement || cb, AMBER); return; }
       if (/same as|permanent same|correspondence same|same address|दोनों पते/.test(h)) {
@@ -1606,7 +1549,7 @@
   // Khali required fields ki list (AI ko user se poochna ho ya upload karwana ho)
   function emptyRequiredList() {
     var out = [], radios = {};
-    safeEach(Array.prototype.slice.call(document.querySelectorAll('input,select,textarea')), function (el) {
+    Array.prototype.slice.call(document.querySelectorAll('input,select,textarea')).forEach(function (el) {
       var type = (el.type || el.tagName).toLowerCase();
       if (/^(hidden|submit|button|reset|image|range|color|search|password)$/.test(type)) return;
       if (el.disabled || (type !== 'file' && !isVisible(el))) return;
@@ -1658,7 +1601,7 @@
       }
     });
     // Also detect required custom dropdowns that still say "Select"
-    safeEach(findCustomDropdownTriggers(), function (dd) {
+    findCustomDropdownTriggers().forEach(function (dd) {
       var curTxt = customDropdownLabelText(dd);
       if (!isCustomPlaceholderText(curTxt)) return;
       var hint = hintOf(dd);
@@ -2109,8 +2052,8 @@
 
   function smartDefaults(data) {
     var out = { filled: 0, missing: [], unlockedSection: false };
-    var isFemale = /female|mahila|woman|stri|\bf\b/i.test(String((data && data.gender) || ''));
     try {
+      var isFemale = /female|mahila|woman|stri|\bf\b/i.test(String((data && data.gender) || ''));
       // radios (match both ancestor context AND the radio group's option labels directly)
       var radios = Array.prototype.slice.call(document.querySelectorAll('input[type="radio"]')).filter(function (r) { return !r.disabled && isVisible(r); });
       var gs = groupRadios(radios);
@@ -2156,8 +2099,6 @@
           if (/residence|residential/.test(radioLabel(pickedRadio))) out.unlockedSection = true;
         }
       });
-    } catch (eS1) { /* ignore */ }
-    try {
       // dropdowns (Proof of ID/Address/DOB, Title, Country, Declaration Capacity)
       Array.prototype.slice.call(document.querySelectorAll('select')).forEach(function (sel) {
         if (sel.disabled || !isVisible(sel)) return;
@@ -2181,8 +2122,6 @@
           }
         }
       });
-    } catch (eS2) { /* ignore */ }
-    try {
       // designation & verifying place (declaration)
       Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type])')).forEach(function (el) {
         if (el.disabled || el.readOnly || !isVisible(el) || String(el.value || '').trim()) return;
@@ -2195,8 +2134,6 @@
           if (pv) { setNativeValue(el, pv); mark(el, BLUE); out.filled++; }
         }
       });
-    } catch (eS3) { /* ignore */ }
-    try {
       // PAN Step 4 AO Code auto-Fetch: ONLY when Area code/Range code/AO No are STILL empty! (If Pin Code already filled PTN/W/27/92, don't touch!)
       var aoEmpty = Array.prototype.slice.call(document.querySelectorAll('input')).some(function (el) {
         return isVisible(el) && !el.disabled && !String(el.value || '').trim() && /area ?code|range ?code|ao ?no|ao ?type/.test(hintOf(el));
@@ -2216,8 +2153,6 @@
           }
         }
       }
-    } catch (eS4) { /* ignore */ }
-    try {
       // source of income (checkbox group on PAN Step 3) -> use adjacentControlLabel so right-side labels like "<input> No income" never miss!
       var boxes = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"]')).filter(function (c) { return !c.disabled && isVisible(c); });
       var inc = boxes.filter(function (c) {
@@ -2567,64 +2502,101 @@
 
 
   // ---------------------------------------------------------------
-  // IRCTC SEARCH PAGE: From/To/Date/Class/Quota bharne ke baad "Search Trains" KHUD dabao.
-  // Pehle ye click tab hota tha jab koi bhi 'pending' field na ho - ek field atka to Search kabhi nahi dabta tha.
+  // IRCTC ACCOUNT: ID/password diya ho to login; na ho to naya account (Register) khud banao.
+  // CAPTCHA / OTP hamesha user dalta hai. Naya ID+password status line me dikhta hai (note kar lo).
   // ---------------------------------------------------------------
-  var irctcSearchAt = 0, irctcSearchTries = 0, irctcSearchPageSig = '';
+  var irAcctAt = 0;
 
-  function irctcSearchButton() {
-    var els = Array.prototype.slice.call(document.querySelectorAll('button, input[type="submit"], input[type="button"], a[role="button"]'));
+  function irHref() { return String((root.location ? root.location.href : '') || '').toLowerCase(); }
+
+  function irPwInputs() {
+    return Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).filter(isVisible);
+  }
+
+  function irGenCreds(data) {
+    var saved = null;
+    try { saved = JSON.parse(root.sessionStorage.getItem('sarthi_irctc_gen') || 'null'); } catch (e) { /* ignore */ }
+    if (!saved && root.__sarthiIrGen) saved = root.__sarthiIrGen;
+    if (!saved) {
+      var base = String((data && data.fullName) || 'user').toLowerCase().replace(/[^a-z]/g, '').slice(0, 8) || 'user';
+      var alnum = 'abcdefghjkmnpqrstuvwxyz23456789', r = '';
+      for (var i = 0; i < 8; i++) r += alnum.charAt(Math.floor(Math.random() * alnum.length));
+      saved = { id: base + String(Math.floor(1000 + Math.random() * 9000)), pw: 'Tr@' + r + '9' };
+      root.__sarthiIrGen = saved;
+      try { root.sessionStorage.setItem('sarthi_irctc_gen', JSON.stringify(saved)); } catch (e) { /* ignore */ }
+    }
+    return saved;
+  }
+
+  // run() se PEHLE: register page ho aur user ne ID/password na diya ho to khud ka ID/password payload me daalo
+  function irctcAccountPre(data) {
+    try {
+      if (!/irctc/.test(irHref()) || !data) return null;
+      var pw = irPwInputs();
+      var isReg = pw.length >= 2 || /register|signup/.test(irHref());
+      if (!isReg || !pw.length) return null;
+      if (String(data.loginUserId || '').trim() && String(data.loginPassword || '').trim()) return null;
+      var g = irGenCreds(data);
+      data.loginUserId = g.id;
+      data.loginPassword = g.pw;
+      return { note: 'Naya IRCTC account: ID = ' + g.id + ' | Password = ' + g.pw + ' (note kar lo)' };
+    } catch (e) { return null; }
+  }
+
+  function irCaptchaFilled() {
+    var any = false, ok = true;
+    Array.prototype.slice.call(document.querySelectorAll('input')).filter(isVisible).forEach(function (el) {
+      if (classifySecurity(hintOf(el)) === 'captcha') { any = true; if (String(el.value || '').trim().length < 4) ok = false; }
+    });
+    return !any || ok;
+  }
+
+  function irFindBtn(re, scope) {
+    var els = Array.prototype.slice.call((scope || document).querySelectorAll('button, a, input[type="button"], input[type="submit"], [role="button"]'));
     for (var i = 0; i < els.length; i++) {
-      var el = els[i];
-      if (!isVisible(el)) continue;
-      if (el.closest && el.closest('header, nav, app-header, .ui-dialog, .p-dialog, [role="dialog"]')) continue;
-      var txt = norm(el.innerText || el.textContent || el.value || '');
-      var cls = String(el.className || '');
-      var lbl = String((el.getAttribute && el.getAttribute('label')) || '');
-      if (RE_NO_CLICK.test(txt)) continue;
-      if (/^(search trains?|search|find trains?)$/.test(txt) || /search_btn|train_search/i.test(cls) || /find trains?/i.test(lbl)) return el;
+      if (!isVisible(els[i])) continue;
+      var t = norm(els[i].innerText || els[i].textContent || els[i].value || '');
+      if (t && t.length < 30 && re.test(t)) return els[i];
     }
     return null;
   }
 
-  function irctcSearchStep(data) {
+  // run() ke BAAD (jab saari fields bhar chuki): Sign In / Register link / Register submit dabao
+  function irctcAccountPost(data) {
     try {
-      if (!/irctc/.test(String((root.location ? root.location.href : '') || '').toLowerCase())) return null;
-      if (!data || !data.fromStation || !data.toStation) return null;
-      var dlg = Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show')).filter(isVisible);
-      if (dlg.length) return null;                                   // login / popup khula hai - pehle wo
-      var fromEl = null, toEl = null, dateEl = null;
-      Array.prototype.slice.call(document.querySelectorAll('input')).filter(isVisible).forEach(function (el) {
-        var k = matchKey(hintOf(el), { type: (el.type || 'text').toLowerCase() });
-        if (k === 'fromStation' && !fromEl) fromEl = el;
-        else if (k === 'toStation' && !toEl) toEl = el;
-        else if (k === 'journeyDate' && !dateEl) dateEl = el;
-      });
-      if (!fromEl || !toEl) return null;                             // search form is page par nahi hai
-      var btn = irctcSearchButton();
-      if (!btn) return null;
-      if (data.journeyDate && dateEl && !String(dateEl.value || '').trim()) return null;   // date abhi bhari nahi - normal flow bharega
-
-      var sig = String(root.location.href);
-      if (sig !== irctcSearchPageSig) { irctcSearchPageSig = sig; irctcSearchTries = 0; irctcSearchAt = 0; }
+      if (!/irctc/.test(irHref())) return null;
+      var pw = irPwInputs();
+      if (!pw.length) return null;
       var now = Date.now();
-      if (now - irctcSearchAt < 6000) return { state: 'waiting', note: '' };
-      if (irctcSearchTries >= 5) return null;                        // 5 baar dabane par bhi page nahi badla - ab user dekhe
-
-      var okFrom = stationValueOk(fromEl.value), okTo = stationValueOk(toEl.value);
-      irctcSearchTries++;
-      irctcSearchAt = now;
-      mark(btn, GREEN);
-      clickLikeUser(btn);
-      var note = (okFrom && okTo) ? '' : 'Station poori select nahi hui - Search dabaya; error aaye to ' + (okFrom ? 'To' : 'From') + ' station list se khud chuno';
-      return { state: 'next', clicked: 'search trains', note: note };
+      if (now - irAcctAt < 6000) return { state: 'waiting', note: '' };
+      var hasCreds = !!(String(data.loginUserId || '').trim() && String(data.loginPassword || '').trim());
+      var isReg = pw.length >= 2 || /register|signup/.test(irHref());
+      if (isReg) {
+        if (!irCaptchaFilled()) return { state: 'user', note: 'CAPTCHA aap dalein, phir Register main dabaunga' };
+        var rb = irFindBtn(/^(register|sign ?up|submit|create account)$/);
+        if (!rb) return null;
+        irAcctAt = now; mark(rb, GREEN); clickLikeUser(rb);
+        return { state: 'next', clicked: 'register', note: 'Account register ho raha hai - OTP aaye to aap dalein' };
+      }
+      // login popup / page
+      if (hasCreds) {
+        var filled = pw.some(function (p) { return String(p.value || '').trim(); });
+        if (!filled) return null;
+        if (!irCaptchaFilled()) return { state: 'user', note: 'CAPTCHA aap dalein, phir Sign In main dabaunga' };
+        var sb = irFindBtn(/^(sign ?in|login|log in)$/);
+        if (!sb) return null;
+        irAcctAt = now; mark(sb, GREEN); clickLikeUser(sb);
+        return { state: 'next', clicked: 'sign in', note: 'IRCTC login ho raha hai' };
+      }
+      var rg = irFindBtn(/register|sign ?up|new user/);
+      if (!rg) return null;
+      irAcctAt = now; mark(rg, GREEN); clickLikeUser(rg);
+      return { state: 'next', clicked: 'register', note: 'ID/password nahi diya - naya IRCTC account bana raha hoon' };
     } catch (e) { return null; }
   }
 
   function autopilotCore(payload, opts) {
     opts = opts || {};
-    if (ddBusy && Date.now() - ddBusySince > 15000) { ddBusy = false; }
-    if (!ddBusy && ddQueue.length > 0) { clearTimeout(ddStartTimer); ddStartTimer = setTimeout(processDdQueue, 100); }
     if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; }
 
     // On IRCTC /train-list or confirmation popups: handle train cards FIRST so top "Modify Search" header bar NEVER loops!
@@ -2641,6 +2613,7 @@
       };
     }
 
+    var acctPre = irctcAccountPre(payload);
     var s = run(payload, {});
     var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
     s.filled += sd.filled;
@@ -2668,15 +2641,14 @@
       return s;
     }
 
-    // IRCTC: form bhar chuka -> seedha Search Trains dabao (pending list ka intezaar mat karo)
-    var irs = irctcSearchStep(payload || {});
-    if (irs) {
-      s.state = irs.state;
-      s.clicked = irs.clicked || '';
-      s.note = irs.note || '';
+    // IRCTC login / naya account
+    var acct = irctcAccountPost(payload || {});
+    if (acct) {
+      s.state = acct.state; s.clicked = acct.clicked || ''; s.note = (acct.note || '') + (acctPre ? (acct.note ? ' | ' : '') + acctPre.note : '');
       s.profile = 'IRCTC Ticket Booking';
       return s;
     }
+    if (acctPre) s.note = acctPre.note;
 
     // OTP: number bharte hi Send OTP khud dabao; OTP user dalega, phir Verify khud dabao
     var oa = otpAssist();
