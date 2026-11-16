@@ -1179,7 +1179,7 @@
       }
       if (sec) {
         // If user explicitly supplied loginPassword in pre-flight for this session, fill login password safely
-        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim()) {
+        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim() && !/irctc\.co\.in/i.test(location.hostname)) {
           if (!String(el.value || '').trim()) {
             setNativeValue(el, String(data.loginPassword));
             mark(el, GREEN);
@@ -1229,6 +1229,7 @@
         val = pp;
       }
       if (key === 'middleName' && !val) return;
+      if ((key === 'loginUserId' || key === 'loginPassword') && /irctc\.co\.in/i.test(location.hostname)) return;   // IRCTC login native saved-login se hota hai
       if ((key === 'loginUserId' || key === 'loginPassword') && !val) return;
 
       if (key && !val) {
