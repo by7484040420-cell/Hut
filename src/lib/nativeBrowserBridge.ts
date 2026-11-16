@@ -4,6 +4,7 @@ import { resolveIndianState } from './indianStates';
 export interface SarthiNativeInterface {
   isNativeApk?: () => boolean;
   openPortal?: (url: string, payloadJson: string) => void;
+  preloadPortal?: (url: string) => void;
   autoFillPortal?: (payloadJson: string) => void;
   applyAiFieldMap?: (mapJson: string) => void;
   applyAiPlan?: (planJson: string) => void;
@@ -249,6 +250,13 @@ export function launchNativeControlledPortal(params: {
   }
   const payload = buildAutoFillPayload(params);
   window.SarthiNative.openPortal(params.url, JSON.stringify(payload));
+  return true;
+}
+
+// Tatkal se pehle (9:50) IRCTC piche se load karne ke liye
+export function preloadNativePortal(url: string): boolean {
+  if (!hasNativePortalBridge() || !window.SarthiNative?.preloadPortal) return false;
+  window.SarthiNative.preloadPortal(url);
   return true;
 }
 
