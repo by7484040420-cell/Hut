@@ -1179,7 +1179,7 @@
       }
       if (sec) {
         // If user explicitly supplied loginPassword in pre-flight for this session, fill login password safely
-        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim() && !/irctc\.co\.in/i.test(location.hostname)) {
+        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim() && !irSkipSavedLogin()) {
           if (!String(el.value || '').trim()) {
             setNativeValue(el, String(data.loginPassword));
             mark(el, GREEN);
@@ -1229,7 +1229,7 @@
         val = pp;
       }
       if (key === 'middleName' && !val) return;
-      if ((key === 'loginUserId' || key === 'loginPassword') && /irctc\.co\.in/i.test(location.hostname)) return;   // IRCTC login native saved-login se hota hai
+      if ((key === 'loginUserId' || key === 'loginPassword') && irSkipSavedLogin()) return;   // IRCTC login native saved-login se hota hai
       if ((key === 'loginUserId' || key === 'loginPassword') && !val) return;
 
       if (key && !val) {
@@ -1674,7 +1674,28 @@
     return /application (has been |is )?(successfully )?(submitted|registered)|successfully (submitted|registered|completed|booked)|acknowledg(e)?ment (number|no|receipt)|transaction (is )?successful|booking (is )?confirmed|आवेदन सफलतापूर्वक|सफलतापूर्वक जमा/.test(t);
   }
 
+  // IRCTC LOGIN popup (native saved-login bharta hai) -> engine na bhare. REGISTER page par engine bharega.
+  function irSkipSavedLogin() {
+    try {
+      if (!/irctc\.co\.in/i.test(location.hostname)) return false;
+      var h = String(location.href || '').toLowerCase();
+      if (/register|signup/.test(h)) return false;
+      var pw = Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).filter(isVisible);
+      return pw.length < 2;
+    } catch (e) { return false; }
+  }
+
+  // IRCTC: ek click ke baad 20 sec koi dusra Next/Search click nahi (double click = "Sorry! Please try again")
+  function irNextLocked() {
+    try {
+      if (!/irctc\.co\.in/i.test(location.hostname)) return false;
+      var t = parseInt(root.sessionStorage.getItem('sarthi_ir_next_at') || '0', 10);
+      return t > 0 && Date.now() - t < 20000;
+    } catch (e) { return false; }
+  }
+
   function clickNext() {
+    if (irNextLocked()) return '__wait__';
     var els = Array.prototype.slice.call(document.querySelectorAll('button,a,input[type="button"],input[type="submit"],[role="button"]'));
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
@@ -1685,6 +1706,7 @@
       if (RE_NEXT.test(txt)) {
         try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* ignore */ }
         clickLikeUser(el);
+        try { if (/irctc\.co\.in/i.test(location.hostname)) root.sessionStorage.setItem('sarthi_ir_next_at', String(Date.now())); } catch (e) { /* ignore */ }
         return txt;
       }
     }
@@ -2959,6 +2981,7 @@
     var sig = pageSig();
     if (sig === lastNextSig && Date.now() - lastNextAt < 10000) { s.state = 'waiting'; return s; }
     var t = clickNext();
+    if (t === '__wait__') { s.state = 'waiting'; return s; }
     if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; }
     else { s.state = 'final'; }
     return s;
