@@ -2452,8 +2452,9 @@
           }
           return { state: 'filling', note: 'Date slot active hone ka wait...' };
         }
-        if (chosenBookBtn && now - irctcLastActAt >= 600 && now - irctcBookAt >= 4000) {
+        if (chosenBookBtn && now - irctcLastActAt >= 600 && now - irctcBookAt >= 15000) {
           irctcBookAt = now;
+          try { root.sessionStorage.setItem('sarthi_ir_book_at', String(now)); } catch (eB) { /* ignore */ }
           irctcLastActAt = now;
           mark(chosenBookBtn, GREEN);
           clickLikeUser(chosenBookBtn);
@@ -2507,6 +2508,14 @@
   // ---------------------------------------------------------------
   var irAcctAt = 0;
 
+  // Login/Register tabhi jab "Book Now" dab chuka ho (pehle date/train/class sab confirm hone do)
+  function irBookRecent() {
+    try {
+      var t = parseInt(root.sessionStorage.getItem('sarthi_ir_book_at') || '0', 10);
+      return t > 0 && Date.now() - t < 20 * 60 * 1000;
+    } catch (e) { return false; }
+  }
+
   function irHref() { return String((root.location ? root.location.href : '') || '').toLowerCase(); }
 
   function irPwInputs() {
@@ -2532,6 +2541,7 @@
   function irctcAccountPre(data) {
     try {
       if (!/irctc/.test(irHref()) || !data) return null;
+      if (!irBookRecent()) return null;
       var pw = irPwInputs();
       var isReg = pw.length >= 2 || /register|signup/.test(irHref());
       if (!isReg || !pw.length) return null;
@@ -2565,6 +2575,7 @@
   function irctcAccountPost(data) {
     try {
       if (!/irctc/.test(irHref())) return null;
+      if (!irBookRecent()) return null;
       var pw = irPwInputs();
       if (!pw.length) return null;
       var now = Date.now();
@@ -2599,7 +2610,7 @@
       var already = false;
       try { already = root.sessionStorage.getItem('sarthi_ir_reg_clicked') === '1'; } catch (e) { /* ignore */ }
       if (already) return null;
-      if (now - seen < 25000) return { state: 'waiting', note: 'IRCTC ID/password dalo. 25 sec me kuch nahi dala to naya account bana dunga' };
+      if (now - seen < 4000) return { state: 'waiting', note: 'IRCTC ID/password nahi mila - naya account banata hoon' };
       var rg = irFindBtn(/^(register|sign ?up|new user.*)$/);
       if (!rg) return null;
       try { root.sessionStorage.setItem('sarthi_ir_reg_clicked', '1'); } catch (e) { /* ignore */ }
@@ -2608,8 +2619,30 @@
     } catch (e) { return null; }
   }
 
+  var irSorryAt = 0, irSorryN = 0;
+  function irctcSorryPage() {
+    try {
+      if (!/irctc/.test(irHref())) return null;
+      var t = norm(((document.body && document.body.innerText) || '').slice(0, 600));
+      if (!/sorry.{0,6}please try again/.test(t)) return null;
+      var now = Date.now();
+      if (irSorryN >= 3 || now - irSorryAt < 15000) return { state: 'waiting', note: 'IRCTC ne "Sorry Please try again" dikhaya - wait' };
+      var b = irFindBtn(/click here to login|click here/);
+      if (!b) return null;
+      irSorryAt = now; irSorryN++;
+      clickLikeUser(b);
+      return { state: 'next', clicked: 'click here to login', note: 'IRCTC session error - home par wapas (' + irSorryN + '/3). Ab Search dobara chalega' };
+    } catch (e) { return null; }
+  }
+
   function autopilotCore(payload, opts) {
     opts = opts || {};
+    var sorry = irctcSorryPage();
+    if (sorry) {
+      return { filled: 0, url: root.location ? root.location.href : '', title: document.title || '', hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
+               isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sorry.state, clicked: sorry.clicked || '',
+               asks: [], uploads: [], uploadFields: [], done: false, note: sorry.note, profile: 'IRCTC', emptyRequired: 0 };
+    }
     if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; }
 
     // On IRCTC /train-list or confirmation popups: handle train cards FIRST so top "Modify Search" header bar NEVER loops!
