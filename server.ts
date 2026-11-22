@@ -25,6 +25,7 @@ import {
   planPageWithAI,
   formRecipeWithAI,
   runLiveAgentChat,
+  searchWebWithAI,
 } from './server/geminiAgent.ts';
 import { LiveBrowserController } from './server/liveBrowser.ts';
 
@@ -649,6 +650,23 @@ app.post('/api/service/brief', async (req, res) => {
   res.json({ brief });
 });
 
+// ---- Google-Like Live Web Search (AI + Google Search Grounding) ----
+
+app.post('/api/search', async (req, res) => {
+  const query = String(req.body?.query || '').trim();
+  if (!query) {
+    res.status(400).json({ error: 'Search query is required' });
+    return;
+  }
+  try {
+    const result = await searchWebWithAI({ query });
+    res.json(result);
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
 // ---- Real Live Chromium Browser + Ad-Blocker + OCR+AI Vision Copilot ----
 
 app.get('/api/live-browser/status', (_req, res) => {
@@ -747,6 +765,41 @@ app.post('/api/live-browser/adblock', (req, res) => {
   const enabled = Boolean(req.body?.enabled);
   const status = liveBrowser.setAdBlock(enabled);
   res.json({ status });
+});
+
+app.post('/api/live-browser/tatkal-mode', (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  const status = liveBrowser.setTatkalMode(enabled);
+  res.json({ status });
+});
+
+app.post('/api/live-browser/tatkal-prewarm', async (_req, res) => {
+  try {
+    const status = await liveBrowser.prewarmIrctc();
+    res.json({ status });
+  } catch (err) {
+    res.status(503).json({
+      error: err instanceof Error ? err.message : 'Unable to pre-warm IRCTC session.',
+    });
+  }
+});
+
+app.post('/api/live-browser/analyze-form', async (req, res) => {
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+  try {
+    const result = await liveBrowser.analyzeCurrentPageForm({
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+      zeroSave,
+    });
+    res.json(result);
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
 });
 
 app.post('/api/live-browser/viewport', async (req, res) => {

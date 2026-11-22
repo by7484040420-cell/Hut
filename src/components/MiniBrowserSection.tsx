@@ -7,10 +7,14 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  Clock,
   Compass,
   Copy,
   Eraser,
   ExternalLink,
+  Eye,
+  EyeOff,
+  FileSearch,
   Keyboard,
   Loader2,
   Lock,
@@ -34,6 +38,7 @@ import {
 import type {
   ApplicationDraft,
   EphemeralDocumentExtract,
+  FormPageAnalysis,
   LiveBrowserStatus,
   MissingFormField,
   PortalBookmark,
@@ -168,12 +173,21 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [switchingViewport, setSwitchingViewport] = useState(false);
   const [dismissedBlockedBanner, setDismissedBlockedBanner] = useState(false);
 
-  // AI Task ("Kya Karna Hai?") + Missing-Details AI Popup state
+  // AI Task ("Kya Karna Hai?") + Missing-Details AI Popup + Form Guide + Tatkal state
   const [missingPopupOpen, setMissingPopupOpen] = useState(false);
   const [intentModalOpen, setIntentModalOpen] = useState(false);
   const [missingValues, setMissingValues] = useState<Record<string, string>>({});
+  const [showPwMap, setShowPwMap] = useState<Record<string, boolean>>({});
   const [submittingMissing, setSubmittingMissing] = useState(false);
   const [popupUploadingOcr, setPopupUploadingOcr] = useState(false);
+  const [analyzingForm, setAnalyzingForm] = useState(false);
+  const [formGuideOpen, setFormGuideOpen] = useState(false);
+  const [localFormAnalysis, setLocalFormAnalysis] = useState<FormPageAnalysis | null>(null);
+  const [prewarmingIrctc, setPrewarmingIrctc] = useState(false);
+  const [showTatkalBar, setShowTatkalBar] = useState(false);
+  const [sessionLoginId, setSessionLoginId] = useState('');
+  const [sessionLoginPw, setSessionLoginPw] = useState('');
+  const [istNow, setIstNow] = useState(() => new Date());
   const lastPopupSigRef = useRef<string>('');
 
   const nativeApkMode = hasNativePortalBridge();
@@ -193,6 +207,52 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const portalLaunchedAtRef = useRef<number>(0);
 
   const missingFields = useMemo(() => status.missingFields || [], [status.missingFields]);
+  const activeAnalysis = status.formAnalysis || localFormAnalysis;
+  const isIrctcActive = /irctc/i.test(status.url || '') || /irctc/i.test(addressInput || '') || Boolean(status.tatkalMode) || showTatkalBar;
+
+  // Live IST clock for 10:00 AM AC / 11:00 AM Non-AC Tatkal timing
+  useEffect(() => {
+    if (!isIrctcActive) return;
+    const t = window.setInterval(() => setIstNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, [isIrctcActive]);
+
+  const istInfo = useMemo(() => {
+    try {
+      const istStr = istNow.toLocaleTimeString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour12: true,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(istNow);
+      const getNum = (t: string) => Number(parts.find((p) => p.type === t)?.value || '0');
+      const secNow = getNum('hour') * 3600 + getNum('minute') * 60 + getNum('second');
+      const fmtCountdown = (targetSec: number) => {
+        let diff = targetSec - secNow;
+        if (diff <= 0 && diff > -1800) return 'LIVE NOW';
+        if (diff <= -1800) diff += 86400;
+        const h = Math.floor(diff / 3600);
+        const m = Math.floor((diff % 3600) / 60);
+        const s = diff % 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      };
+      return {
+        clock: istStr,
+        acCountdown: fmtCountdown(10 * 3600),
+        slCountdown: fmtCountdown(11 * 3600),
+      };
+    } catch {
+      return { clock: '--:--:--', acCountdown: '--:--', slCountdown: '--:--' };
+    }
+  }, [istNow]);
 
   // Automatically pop open the AI Details Modal whenever a form has unfilled missing details
   useEffect(() => {
@@ -782,12 +842,96 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     }
   };
 
+  const toggleTatkalMode = async () => {
+    try {
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/tatkal-mode',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !status.tatkalMode }),
+        }
+      );
+      if (data.status) setStatus(data.status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not toggle Tatkal Turbo Mode');
+    }
+  };
+
+  const handlePrewarmIrctc = async () => {
+    if (prewarmingIrctc) return;
+    setPrewarmingIrctc(true);
+    setError(null);
+    setAddressInput('https://www.irctc.co.in/nget/train-search');
+    try {
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/tatkal-prewarm',
+        { method: 'POST' }
+      );
+      if (data.status) setStatus(data.status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'IRCTC pre-warm failed');
+    } finally {
+      setPrewarmingIrctc(false);
+    }
+  };
+
+  const handleAnalyzeForm = async () => {
+    if (analyzingForm) return;
+    setAnalyzingForm(true);
+    setError(null);
+    try {
+      const data = await apiFetchJson<{
+        status?: LiveBrowserStatus;
+        analysis?: FormPageAnalysis | null;
+      }>('/api/live-browser/analyze-form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zeroSave, ephemeralDocs }),
+      });
+      if (data.status) setStatus(data.status);
+      if (data.analysis) {
+        setLocalFormAnalysis(data.analysis);
+        setFormGuideOpen(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI Form analysis failed');
+    } finally {
+      setAnalyzingForm(false);
+    }
+  };
+
+  const applySessionCredentialsAndFill = async () => {
+    const uid = sessionLoginId.trim();
+    const pw = sessionLoginPw.trim();
+    if (!uid && !pw) return;
+    const fields: Array<{ key: string; label: string; value: string }> = [];
+    if (uid) fields.push({ key: 'loginUserId', label: 'Portal User ID', value: uid });
+    if (pw) fields.push({ key: 'loginPassword', label: 'Portal Password', value: pw });
+    const credDoc: EphemeralDocumentExtract = {
+      id: `cred-${Date.now()}`,
+      fileName: 'Session Login (RAM)',
+      documentType: 'Session Login Credentials',
+      summary: 'Temporary session credentials (never persisted)',
+      fields,
+      extractedAt: new Date().toISOString(),
+    };
+    onAddEphemeralDoc(credDoc);
+    const nextDocs = [credDoc, ...ephemeralDocs];
+    await runInstantAutoFill(undefined, nextDocs);
+  };
+
   const handleWipeBrowser = async () => {
     portalLaunchedAtRef.current = 0;
     setFrameSrc(null);
     setNativePortalLogs([]);
     setMissingPopupOpen(false);
     setMissingValues({});
+    setShowPwMap({});
+    setLocalFormAnalysis(null);
+    setFormGuideOpen(false);
+    setSessionLoginId('');
+    setSessionLoginPw('');
     setUploadedReqMap({});
     setAgentGoal('');
     setTypeBox('');
@@ -987,7 +1131,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   type="text"
                   value={addressInput}
                   onChange={(e) => setAddressInput(e.target.value)}
-                  placeholder="https://... direct form URL"
+                  placeholder="Website URL ya Google jaisa kuch bhi search karein..."
                   className="w-full min-h-[36px] pl-8 pr-2.5 rounded-lg bg-slate-900 border border-slate-700/90 focus:border-sky-400 focus:outline-none text-xs font-mono text-slate-100 placeholder:text-slate-500"
                 />
               </div>
@@ -999,13 +1143,28 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
               </button>
             </form>
 
-            {/* Streamlined Action Buttons: Auto-Fill, AI Apply, AI Task & Tools Menu */}
+            {/* Streamlined Action Buttons: Form Guide, Auto-Fill, AI Apply, AI Task & Tools Menu */}
             <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={analyzingForm || !status.active || status.url === 'about:blank'}
+                onClick={() => void handleAnalyzeForm()}
+                title="AI is form ko padh kar batayega: kaise bharna hai aur kya document + size lagega"
+                className="min-h-[36px] px-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-45 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                {analyzingForm ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileSearch className="w-3.5 h-3.5" />
+                )}
+                <span className="hidden md:inline">Form Guide</span>
+              </button>
+
               <button
                 type="button"
                 disabled={instantFilling || status.agentRunning}
                 onClick={() => void runInstantAutoFill()}
-                title="Apply button click karke form fill karein (missing details AI Popup me puchhega)"
+                title="Apply button click karke form fill karein (password aur missing details AI Popup me puchhega)"
                 className="min-h-[36px] px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
               >
                 {instantFilling ? (
@@ -1142,7 +1301,24 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                         Ad-Blocker ({status.adBlockEnabled ? 'ON' : 'OFF'})
                       </span>
                       <span className="text-[11px] font-mono text-slate-400">
-                        {status.blockedAdsCount}
+                        {status.blockedAdsCount} blocked
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTatkalBar((v) => !v);
+                        setShowToolsMenu(false);
+                      }}
+                      className="w-full min-h-[36px] px-2.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center justify-between"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        IRCTC Tatkal Bar
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {status.tatkalMode ? 'Turbo' : 'Ready'}
                       </span>
                     </button>
 
@@ -1229,6 +1405,157 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                     </button>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* IRCTC Tatkal 10:00 AM AC / 11:00 AM Non-AC Command Bar */}
+          {isIrctcActive && (
+            <div className="px-3.5 py-2 bg-amber-950 text-amber-50 border-b border-amber-800/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="inline-flex items-center gap-1.5 font-bold text-amber-300">
+                  <Clock className="w-3.5 h-3.5" />
+                  IST {istInfo.clock}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-900/90 border border-amber-700/80 font-mono text-[11px]">
+                  AC 10:00 AM: <strong>{istInfo.acCountdown}</strong>
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-900/90 border border-amber-700/80 font-mono text-[11px]">
+                  SL 11:00 AM: <strong>{istInfo.slCountdown}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void toggleTatkalMode()}
+                  className={`min-h-[28px] px-2.5 rounded-lg font-semibold text-[11px] transition-colors ${
+                    status.tatkalMode
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-amber-900 hover:bg-amber-800 text-amber-100 border border-amber-700'
+                  }`}
+                >
+                  Tatkal Turbo: {status.tatkalMode ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  type="button"
+                  disabled={prewarmingIrctc}
+                  onClick={() => void handlePrewarmIrctc()}
+                  className="min-h-[28px] px-2.5 rounded-lg bg-white hover:bg-amber-50 text-slate-950 font-bold text-[11px] inline-flex items-center gap-1 disabled:opacity-60"
+                >
+                  {prewarmingIrctc ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Zap className="w-3 h-3 text-amber-600" />
+                  )}
+                  Pre-Warm IRCTC
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Ultra-Intelligent AI Form Guide & Document Inspector Panel */}
+          {formGuideOpen && activeAnalysis && (
+            <div className="p-4 bg-violet-50/95 border-b border-violet-200 space-y-3 text-slate-900 max-h-[340px] overflow-y-auto">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-violet-700 inline-flex items-center gap-1.5">
+                    <FileSearch className="w-3.5 h-3.5" />
+                    AI Form Guide · Live Screen Analyzed
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 mt-0.5">
+                    {activeAnalysis.formTitle}
+                  </h3>
+                  <p className="text-xs text-slate-700 mt-0.5">{activeAnalysis.summary}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={instantFilling}
+                    onClick={() => void runInstantAutoFill()}
+                    className="min-h-[32px] px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Auto-Fill Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormGuideOpen(false)}
+                    aria-label="Close AI Form Guide"
+                    className="min-h-[32px] min-w-[32px] rounded-lg bg-white border border-violet-200 text-slate-600 hover:text-slate-900 flex items-center justify-center"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-white border border-violet-200/80 space-y-1.5">
+                  <div className="font-bold text-slate-900">
+                    Kaise Bharna Hai (Step-by-Step Guide)
+                  </div>
+                  <ol className="list-decimal pl-4 space-y-1 text-slate-700">
+                    {activeAnalysis.howToFillSteps.map((step, idx) => (
+                      <li key={idx}>{step}</li>
+                    ))}
+                  </ol>
+                  <div className="pt-1.5 border-t border-slate-100 text-[11px] text-amber-900 font-medium">
+                    Fee &amp; Timing: {activeAnalysis.feeAndDeadline}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white border border-violet-200/80 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-slate-900">
+                      Kya Document &amp; Size Lagega
+                    </span>
+                    <button
+                      type="button"
+                      disabled={popupUploadingOcr}
+                      onClick={() => popupOcrRef.current?.click()}
+                      className="px-2.5 py-1 rounded-lg bg-[#0B1120] text-white text-[11px] font-semibold inline-flex items-center gap-1"
+                    >
+                      <Upload className="w-3 h-3" />
+                      Scan Doc (OCR)
+                    </button>
+                  </div>
+                  {activeAnalysis.requiredDocuments.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {activeAnalysis.requiredDocuments.map((doc, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2 rounded-lg bg-slate-50 border border-slate-200/80"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-900">{doc.name}</span>
+                            <span className="text-[10px] font-mono text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">
+                              {doc.spec}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-600 mt-0.5">{doc.whyNeeded}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      Is screen par abhi koi file upload document list nahi dikha.
+                    </p>
+                  )}
+
+                  {(activeAnalysis.missingFromUser.length > 0 || activeAnalysis.humanOnlySteps.length > 0) && (
+                    <div className="pt-1 border-t border-slate-100 space-y-1 text-[11px]">
+                      {activeAnalysis.missingFromUser.length > 0 && (
+                        <div className="text-rose-700">
+                          <strong>Missing Details:</strong> {activeAnalysis.missingFromUser.join(', ')}
+                        </div>
+                      )}
+                      {activeAnalysis.humanOnlySteps.length > 0 && (
+                        <div className="text-amber-800">
+                          <strong>Aapko Khud Karna Hoga:</strong> {activeAnalysis.humanOnlySteps.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1614,6 +1941,38 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   {status.waitingForHuman ? 'Resume AI' : 'Run AI Apply & Fill'}
                 </button>
               </form>
+
+              {/* Quick RAM-Only Session Login ID & Password so AI fills passwords automatically */}
+              <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                <div className="text-[11px] font-bold text-slate-800">
+                  Session Login Credentials (RAM-Only · Auto-Fill Password)
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input
+                    type="text"
+                    value={sessionLoginId}
+                    onChange={(e) => setSessionLoginId(e.target.value)}
+                    placeholder="User ID / Username"
+                    className="min-h-[34px] px-2.5 rounded-lg bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs text-slate-900"
+                  />
+                  <input
+                    type="password"
+                    value={sessionLoginPw}
+                    onChange={(e) => setSessionLoginPw(e.target.value)}
+                    placeholder="Password"
+                    className="min-h-[34px] px-2.5 rounded-lg bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-xs text-slate-900"
+                  />
+                </div>
+                {(sessionLoginId.trim() || sessionLoginPw.trim()) && (
+                  <button
+                    type="button"
+                    onClick={() => void applySessionCredentialsAndFill()}
+                    className="w-full min-h-[32px] px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                  >
+                    Type Login ID &amp; Password into Page
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* 1-Tap Quick Fill Values */}
@@ -1939,25 +2298,47 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                         ))}
                       </select>
                     ) : (
-                      <input
-                        type={
-                          field.type === 'email'
-                            ? 'email'
-                            : field.type === 'tel'
-                            ? 'tel'
-                            : 'text'
-                        }
-                        value={missingValues[field.id] || ''}
-                        onChange={(e) =>
-                          setMissingValues((prev) => ({ ...prev, [field.id]: e.target.value }))
-                        }
-                        placeholder={
-                          field.key === 'dob' || field.type === 'date'
-                            ? 'DD/MM/YYYY'
-                            : field.placeholder || `Enter ${field.label}`
-                        }
-                        className="w-full min-h-[42px] px-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900 placeholder:text-slate-400"
-                      />
+                      <div className="relative">
+                        <input
+                          type={
+                            field.type === 'password' || field.key === 'loginPassword'
+                              ? showPwMap[field.id]
+                                ? 'text'
+                                : 'password'
+                              : field.type === 'email'
+                              ? 'email'
+                              : field.type === 'tel'
+                              ? 'tel'
+                              : 'text'
+                          }
+                          value={missingValues[field.id] || ''}
+                          onChange={(e) =>
+                            setMissingValues((prev) => ({ ...prev, [field.id]: e.target.value }))
+                          }
+                          placeholder={
+                            field.key === 'dob' || field.type === 'date'
+                              ? 'DD/MM/YYYY'
+                              : field.placeholder || `Enter ${field.label}`
+                          }
+                          className="w-full min-h-[42px] px-3.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900 placeholder:text-slate-400"
+                        />
+                        {(field.type === 'password' || field.key === 'loginPassword') && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShowPwMap((prev) => ({ ...prev, [field.id]: !prev[field.id] }))
+                            }
+                            aria-label={showPwMap[field.id] ? 'Hide password' : 'Show password'}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-900"
+                          >
+                            {showPwMap[field.id] ? (
+                              <EyeOff className="w-4 h-4" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 );

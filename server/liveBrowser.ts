@@ -4,11 +4,13 @@ import { chromium, type Browser, type BrowserContext, type Frame, type Page } fr
 import type { WebSocket, WebSocketServer } from 'ws';
 import type {
   EphemeralDocumentExtract,
+  FormPageAnalysis,
   LiveBrowserStatus,
   MissingFormField,
   ProfileVault,
 } from '../src/types.js';
 import {
+  analyzeLivePageFormWithAI,
   decideLiveBrowserStep,
   formatGeminiError,
   isGeminiConfigured,
@@ -130,6 +132,18 @@ function buildServerFillPayload(params: {
     if (p.preferredTrainClass?.trim() && !map.trainClass) {
       map.trainClass = p.preferredTrainClass.trim();
     }
+    for (const cf of p.customFields || []) {
+      const lbl = (cf.label || '').trim();
+      const val = (cf.value || '').trim();
+      if (!lbl || !val) continue;
+      map[`custom_${lbl}`] = val;
+      const lowerCf = lbl.toLowerCase();
+      if (/irctc.*user|login.*user|portal.*user|user\s*id|username/.test(lowerCf) && !map.loginUserId) {
+        map.loginUserId = val;
+      } else if (/irctc.*pass|login.*pass|portal.*pass|\bpassword\b/.test(lowerCf) && !map.loginPassword) {
+        map.loginPassword = val;
+      }
+    }
   }
   const EXPLICIT_DIRECT_KEYS = new Set([
     'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'preferredTrain', 'berthPreference',
@@ -138,7 +152,11 @@ function buildServerFillPayload(params: {
     'twelfthBoard', 'twelfthRoll', 'twelfthYear', 'twelfthPercent',
     'aadhaarNumber', 'panNumber', 'passportNumber', 'dlNumber', 'voterId',
   ]);
-  for (const doc of params.ephemeralDocs) {
+  const orderedDocs = [...params.ephemeralDocs].sort((a, b) => {
+    const rank = (id: string) => (id === 'user-details' ? 0 : id.startsWith('popup-') ? 1 : 2);
+    return rank(a.id) - rank(b.id);
+  });
+  for (const doc of orderedDocs) {
     const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
     const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
     const isTwelfthDoc = /12th|inter|hsc|senior\s*secondary|class\s*xii/.test(docTypeLower);
@@ -239,6 +257,9 @@ const AD_HOST_PATTERNS = [
   'googlesyndication.com',
   'googleadservices.com',
   'adservice.google.',
+  'google-analytics.com',
+  'googletagmanager.com',
+  'googletagservices.com',
   'taboola.com',
   'outbrain.com',
   'criteo.com',
@@ -250,8 +271,15 @@ const AD_HOST_PATTERNS = [
   'scorecardresearch.com',
   'amazon-adsystem.com',
   'popads.net',
+  'popcash.net',
   'propellerads.com',
   'adsterra.com',
+  'adsterratech.com',
+  'hilltopads.net',
+  'admaven.com',
+  'exoclick.com',
+  'juicyads.com',
+  'trafficjunky.net',
   'mgid.com',
   'revcontent.com',
   'media.net',
@@ -262,16 +290,84 @@ const AD_HOST_PATTERNS = [
   'zedo.com',
   'adcolony.com',
   'bidswitch.net',
+  'inmobi.com',
+  'yieldmo.com',
+  'sharethrough.com',
+  '33across.com',
+  'smartadserver.com',
+  'adroll.com',
+  'clarity.ms',
+  'hotjar.com',
+  'crazyegg.com',
+  'chartbeat.com',
+  'newrelic.com',
+  'nr-data.net',
+  'onesignal.com',
+  'izooto.com',
+  'pushengage.com',
+  'pushnami.com',
+  'connect.facebook.net',
+  'bat.bing.com',
+  'mc.yandex.ru',
+  'teads.tv',
+  'spotxchange.com',
+  'adform.net',
+  'mathtag.com',
+  'turn.com',
+  'bluekai.com',
+  'demdex.net',
+  'krxd.net',
+  'lijit.com',
+  'sovrn.com',
+  'triplelift.com',
+  'indexexchange.com',
 ];
 
 function isAdUrl(urlStr: string): boolean {
   const lower = urlStr.toLowerCase();
+  // Never block essential captcha / security / login assets
+  if (/captcha|nlpcaptcha|recaptcha|hcaptcha|turnstile/.test(lower)) return false;
   if (AD_HOST_PATTERNS.some((p) => lower.includes(p))) return true;
-  if (lower.includes('/pagead/') || lower.includes('/adsense/') || lower.includes('fbevents.js')) {
+  if (
+    lower.includes('/pagead/') ||
+    lower.includes('/adsense/') ||
+    lower.includes('/popunder') ||
+    lower.includes('/adserver/') ||
+    lower.includes('/prebid') ||
+    lower.includes('fbevents.js') ||
+    /[?&](adurl|ad_type|popunder)=/.test(lower)
+  ) {
     return true;
   }
   return false;
 }
+
+function isIrctcUrl(urlStr: string): boolean {
+  return /irctc\.co\.in/i.test(urlStr);
+}
+
+const COSMETIC_ADBLOCK_CSS = [
+  'ins.adsbygoogle',
+  '[id^="google_ads"]',
+  '[id*="div-gpt-ad"]',
+  '[class*="adsbygoogle"]',
+  'iframe[src*="doubleclick"]',
+  'iframe[src*="googlesyndication"]',
+  'iframe[src*="taboola"]',
+  'iframe[src*="outbrain"]',
+  'iframe[src*="mgid"]',
+  '[id*="taboola"]',
+  '[class*="taboola"]',
+  '[id*="outbrain"]',
+  '[class*="outbrain"]',
+  '[id*="mgid"]',
+  '.ad-banner',
+  '.ad-container',
+  '.ad-wrapper',
+  '.sponsored-ad',
+  '.advertisement',
+  '[aria-label="Advertisement"]',
+].join(', ') + ' { display: none !important; visibility: hidden !important; height: 0 !important; min-height: 0 !important; pointer-events: none !important; }';
 
 export class LiveBrowserController {
   private browser: Browser | null = null;
@@ -281,6 +377,7 @@ export class LiveBrowserController {
   private frameTimer: NodeJS.Timeout | null = null;
   private agentAbort = false;
   private lastFrameBase64 = '';
+  private tatkalManualOverride: boolean | null = null;
 
   private status: LiveBrowserStatus = {
     active: false,
@@ -289,6 +386,7 @@ export class LiveBrowserController {
     loading: false,
     adBlockEnabled: true,
     blockedAdsCount: 0,
+    tatkalMode: false,
     viewportWidth: DESKTOP_WIDTH,
     viewportHeight: DESKTOP_HEIGHT,
     agentRunning: false,
@@ -299,6 +397,7 @@ export class LiveBrowserController {
     filledCount: 0,
     requestedDocuments: [],
     missingFields: [],
+    formAnalysis: null,
     lastStepLogs: [],
   };
 
@@ -400,9 +499,12 @@ export class LiveBrowserController {
         locale: 'en-IN',
         timezoneId: 'Asia/Kolkata',
         userAgent:
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
         extraHTTPHeaders: {
-          'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
+          'Accept-Language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7,hi;q=0.6',
+          'sec-ch-ua': '"Chromium";v="133", "Not(A:Brand";v="99", "Google Chrome";v="133"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"Windows"',
         },
         ignoreHTTPSErrors: true,
       });
@@ -411,18 +513,51 @@ export class LiveBrowserController {
         try {
           Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
           Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en', 'hi'] });
+          // Silence annoying notification permission popups on sarkari/news sites
+          if (typeof Notification !== 'undefined') {
+            Object.defineProperty(Notification, 'permission', { get: () => 'denied' });
+            Notification.requestPermission = () => Promise.resolve('denied');
+          }
+          // Block synthetic popunder/ad windows while preserving legitimate user target=_blank links
+          const origOpen = window.open;
+          window.open = function (url?: string | URL, target?: string, features?: string) {
+            const u = String(url || '').toLowerCase();
+            if (!u || u === 'about:blank' || /doubleclick|adsterra|popads|propeller|popcash|taboola|outbrain|mgid/.test(u)) {
+              return null;
+            }
+            return origOpen.call(window, url, target, features);
+          };
         } catch {
           // ignore
         }
       });
 
       await this.context.route('**/*', async (route) => {
-        const reqUrl = route.request().url();
+        const req = route.request();
+        const reqUrl = req.url();
         if (this.status.adBlockEnabled && isAdUrl(reqUrl)) {
           this.status.blockedAdsCount += 1;
           this.broadcastStatus();
           await route.abort();
           return;
+        }
+        // Tatkal Turbo filter: drop heavy decorative fonts/media/video & third-party promo banners while preserving ALL core API calls, scripts, CSS, and CAPTCHA images
+        if (this.status.tatkalMode) {
+          const rtype = req.resourceType();
+          const lower = reqUrl.toLowerCase();
+          if (rtype === 'media' || rtype === 'font') {
+            await route.abort();
+            return;
+          }
+          if (
+            rtype === 'image' &&
+            !/captcha|nlpcaptcha|qr|barcode/.test(lower) &&
+            (/banner|promo|slider|carousel|dishav|askdisha|youtube|vimeo/.test(lower) ||
+              (!isIrctcUrl(lower) && !lower.startsWith('data:')))
+          ) {
+            await route.abort();
+            return;
+          }
         }
         await route.continue();
       });
@@ -468,19 +603,22 @@ export class LiveBrowserController {
       if (this.page === page && frame === page.mainFrame()) {
         this.status.url = frame.url();
         this.status.title = (await page.title().catch(() => this.status.url)) || this.status.url;
+        this.status.formAnalysis = null;
         this.broadcastStatus();
+      }
+    });
+
+    page.on('domcontentloaded', async () => {
+      if (this.page !== page || page.isClosed()) return;
+      if (this.status.adBlockEnabled) {
+        await page.addStyleTag({ content: COSMETIC_ADBLOCK_CSS }).catch(() => {});
       }
     });
 
     page.on('load', async () => {
       if (this.page !== page || page.isClosed()) return;
       if (this.status.adBlockEnabled) {
-        await page
-          .addStyleTag({
-            content:
-              'ins.adsbygoogle, [id^="google_ads"], iframe[src*="doubleclick"], .ad-banner, .sponsored-ad { display: none !important; }',
-          })
-          .catch(() => {});
+        await page.addStyleTag({ content: COSMETIC_ADBLOCK_CSS }).catch(() => {});
       }
       this.status.loading = false;
       this.status.url = page.url();
@@ -514,59 +652,126 @@ export class LiveBrowserController {
   async navigate(rawUrl: string): Promise<LiveBrowserStatus> {
     const page = await this.ensurePage();
     let target = rawUrl.trim();
+    let isSearchQuery = false;
+    let rawSearchTerm = '';
     if (!target) target = 'https://www.india.gov.in';
     if (!target.startsWith('http://') && !target.startsWith('https://')) {
-      target =
-        target.includes('.') && !target.includes(' ')
-          ? `https://${target}`
-          : `https://www.google.com/search?q=${encodeURIComponent(target)}`;
+      if (target.includes('.') && !target.includes(' ')) {
+        target = `https://${target}`;
+      } else {
+        isSearchQuery = true;
+        rawSearchTerm = target;
+        target = `https://www.google.com/search?q=${encodeURIComponent(target)}`;
+      }
+    }
+
+    // Automatically activate Tatkal Turbo Mode when navigating to IRCTC unless manually turned off
+    if (isIrctcUrl(target) && this.tatkalManualOverride === null) {
+      this.status.tatkalMode = true;
     }
 
     this.status.loading = true;
     this.status.blockedReason = null;
     this.status.missingFields = [];
+    this.status.formAnalysis = null;
     this.status.url = target;
     this.broadcastStatus();
 
+    const candidateUrls = isIrctcUrl(target)
+      ? Array.from(
+          new Set([
+            target,
+            'https://www.irctc.co.in/nget/train-search',
+            'https://www.irctc.co.in/nget/',
+            'https://www.irctc.co.in',
+          ])
+        )
+      : [target];
+
     let navError: string | null = null;
     let httpStatus = 0;
+    const maxAttempts = isIrctcUrl(target) ? 3 : 2;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const tryUrl = candidateUrls[Math.min(attempt - 1, candidateUrls.length - 1)];
+      navError = null;
+      httpStatus = 0;
+      if (attempt > 1) {
+        this.status.agentStatus = `Retry ${attempt}/${maxAttempts}: Connecting (${tryUrl})...`;
+        this.appendLog(`Heavy traffic retry (${attempt}/${maxAttempts}) -> ${tryUrl}`);
+        this.broadcastStatus();
+      }
+      try {
+        const resp = await page.goto(tryUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: isIrctcUrl(tryUrl) ? 16000 : 20000,
+        });
+        httpStatus = resp?.status() || 0;
+        await page.waitForTimeout(isIrctcUrl(tryUrl) ? 650 : 850);
+
+        // If Google blocks Cloud IP with /sorry CAPTCHA wall, automatically fall back to clean DuckDuckGo HTML search
+        if (isSearchQuery && /google\.[^/]+\/sorry/i.test(page.url())) {
+          const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(rawSearchTerm)}`;
+          this.appendLog('Google bot-check detected — switching to Ad-Free Web Search...');
+          const ddgResp = await page.goto(ddgUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+          httpStatus = ddgResp?.status() || 200;
+          navError = null;
+          break;
+        }
+
+        // Strict Akamai 403 block on IRCTC -> break immediately for instant Phone/Native Browser fallback
+        if (httpStatus === 403) break;
+        // Transient gateway errors (502/503/504) during 10-11 AM rush -> retry next URL
+        if (httpStatus >= 500 && attempt < maxAttempts) {
+          await page.waitForTimeout(450 * attempt);
+          continue;
+        }
+        break;
+      } catch (err) {
+        navError = err instanceof Error ? err.message : 'Timeout waiting for page';
+        this.appendLog(`Attempt ${attempt} note: ${navError.split('\n')[0]}`);
+        if (attempt < maxAttempts && !/ERR_NAME_NOT_RESOLVED/i.test(navError)) {
+          await page.waitForTimeout(400 * attempt);
+          continue;
+        }
+      }
+    }
+
     try {
-      const resp = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 22000 });
-      httpStatus = resp?.status() || 0;
-      await page.waitForTimeout(900);
-    } catch (err) {
-      navError = err instanceof Error ? err.message : 'Timeout waiting for page';
-      this.appendLog(`Navigation note: ${navError}`);
-    } finally {
       this.status.loading = false;
       const finalUrl = page.url();
       this.status.url = finalUrl;
       this.status.title = await page.title().catch(() => finalUrl);
 
+      // Dismiss IRCTC/govt advisory dialogs immediately on load so controls are clickable
+      await this.dismissAdvisoryPopup(page).catch(() => false);
+
       const bodySnippet = await page
-        .evaluate(() => (document.body?.innerText || '').slice(0, 600))
+        .evaluate(() => (document.body?.innerText || '').slice(0, 800))
         .catch(() => '');
       const lowerBody = bodySnippet.toLowerCase();
 
       if (finalUrl.startsWith('chrome-error://') || navError) {
         this.status.blockedReason =
           navError && navError.includes('ERR_NAME_NOT_RESOLVED')
-            ? `Domain "${target}" server se resolve nahi hua — Native App / Phone Browser me kholein ya AI se naya official link maangein.`
-            : `Yeh website Cloud Server par open nahi ho rahi (${navError ? navError.split('\n')[0] : 'network error'}). Phone/Native App me 100% khulegi.`;
+            ? `Domain "${target}" server se resolve nahi hua — Phone Browser me kholein ya Google AI Search se official link dhoondhein.`
+            : `Yeh website abhi heavy traffic ya timeout ki wajah se Cloud Server par open nahi hui (${navError ? navError.split('\n')[0] : 'network timeout'}). Retry karein ya Phone / Native App Browser me kholein.`;
       } else if (
         httpStatus === 403 ||
-        /access denied|you don't have permission to access|request blocked|cloudflare|akamai/i.test(
-          lowerBody
-        )
+        /access denied|you don't have permission to access|request blocked|akamai/i.test(lowerBody)
       ) {
-        this.status.blockedReason =
-          'Is sarkari/ticket website ne Cloud Server IP ko block (403 Access Denied) kiya hai — Phone / Native App Browser me yeh turant khulegi.';
+        this.status.blockedReason = isIrctcUrl(finalUrl)
+          ? 'IRCTC (Akamai) ne is Cloud Server IP ko temporarily block (403 Access Denied) kiya hai — Tatkal time par Phone / Native App Browser button se seedha phone ke IP par kholein.'
+          : 'Is website ne Cloud Server IP ko block (403 Access Denied) kiya hai — Phone / Native App Browser me yeh turant khulegi.';
       } else {
         this.status.blockedReason = null;
       }
 
       this.broadcastStatus();
       await this.captureAndBroadcastFrame();
+    } catch {
+      this.status.loading = false;
+      this.broadcastStatus();
     }
     return this.getStatus();
   }
@@ -647,6 +852,29 @@ export class LiveBrowserController {
     return this.getStatus();
   }
 
+  setTatkalMode(enabled: boolean): LiveBrowserStatus {
+    this.tatkalManualOverride = enabled;
+    this.status.tatkalMode = enabled;
+    this.appendLog(enabled ? 'Tatkal Turbo Mode ON (heavy media/fonts/ads blocked)' : 'Tatkal Turbo Mode OFF');
+    this.broadcastStatus();
+    return this.getStatus();
+  }
+
+  async prewarmIrctc(): Promise<LiveBrowserStatus> {
+    this.tatkalManualOverride = true;
+    this.status.tatkalMode = true;
+    this.status.agentStatus = 'Pre-warming IRCTC Tatkal session...';
+    this.appendLog('Pre-warming IRCTC NGET session with Tatkal Turbo Mode...');
+    this.broadcastStatus();
+    const st = await this.navigate('https://www.irctc.co.in/nget/train-search');
+    if (!st.blockedReason) {
+      this.status.agentStatus = 'IRCTC Tatkal Session Ready! Ab Login + Search tayyar rakhein.';
+      this.appendLog('IRCTC session warmed & advisory dismissed.');
+      this.broadcastStatus();
+    }
+    return this.getStatus();
+  }
+
   stopAgent() {
     this.agentAbort = true;
     this.status.agentRunning = false;
@@ -669,6 +897,7 @@ export class LiveBrowserController {
     this.page = null;
     this.context = null;
     this.lastFrameBase64 = '';
+    this.tatkalManualOverride = null;
     this.status = {
       active: false,
       url: 'about:blank',
@@ -676,6 +905,7 @@ export class LiveBrowserController {
       loading: false,
       adBlockEnabled: this.status.adBlockEnabled,
       blockedAdsCount: 0,
+      tatkalMode: false,
       viewportWidth: this.status.viewportWidth,
       viewportHeight: this.status.viewportHeight,
       agentRunning: false,
@@ -686,6 +916,7 @@ export class LiveBrowserController {
       filledCount: 0,
       requestedDocuments: [],
       missingFields: [],
+      formAnalysis: null,
       lastStepLogs: [],
     };
     this.broadcastStatus();
@@ -1819,5 +2050,140 @@ export class LiveBrowserController {
     }
 
     return this.getStatus();
+  }
+
+  async analyzeCurrentPageForm(params: {
+    profile: ProfileVault;
+    ephemeralDocs: EphemeralDocumentExtract[];
+    zeroSave: boolean;
+  }): Promise<{ status: LiveBrowserStatus; analysis: FormPageAnalysis | null }> {
+    const page = await this.ensurePage();
+    const currentUrl = page.url();
+    if (!currentUrl || currentUrl === 'about:blank') {
+      throw new Error('Pehle koi website ya form page kholein, phir AI Form Guide chalayein.');
+    }
+
+    this.status.agentStatus = 'AI poora form aur documents analyze kar raha hai...';
+    this.broadcastStatus();
+
+    try {
+      const screenshotBase64 = await this.captureAndBroadcastFrame();
+      const pageTitle = await page.title().catch(() => currentUrl);
+      const frames = this.getAccessibleFrames(page);
+
+      const allElements: InteractiveDomElement[] = [];
+      const textChunks: string[] = [];
+      let idxCounter = 0;
+
+      for (let fi = 0; fi < frames.length; fi++) {
+        const frame = frames[fi];
+        try {
+          const data = await frame.evaluate(
+            ({ startIdx, frameIndex }: { startIdx: number; frameIndex: number }) => {
+              const controls = Array.from(
+                document.querySelectorAll(
+                  'input, textarea, select, button, [role="combobox"], mat-select, ng-select, p-dropdown'
+                )
+              );
+              const results: InteractiveDomElement[] = [];
+              let idx = startIdx;
+              for (const node of controls) {
+                const el = node as HTMLElement;
+                const style = window.getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden') continue;
+                const rect = el.getBoundingClientRect();
+                if (rect.width < 4 || rect.height < 4) continue;
+                const inp = el as HTMLInputElement;
+                const id = el.getAttribute('id');
+                const lb = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null;
+                const labelText = (
+                  lb?.textContent ||
+                  el.getAttribute('aria-label') ||
+                  el.getAttribute('title') ||
+                  el.innerText ||
+                  ''
+                )
+                  .trim()
+                  .replace(/\s+/g, ' ')
+                  .slice(0, 80);
+                const parent = el.closest('div, td, th, li, p, label, form') || el.parentElement;
+                const nearbyText = (parent?.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                let options: string[] | undefined;
+                if (el.tagName.toLowerCase() === 'select') {
+                  options = Array.from((el as HTMLSelectElement).options)
+                    .map((o) => o.text.trim())
+                    .filter(Boolean)
+                    .slice(0, 15);
+                }
+                results.push({
+                  index: idx++,
+                  frameIndex,
+                  tag: el.tagName.toLowerCase(),
+                  type: inp.type || '',
+                  label: labelText,
+                  nearbyText,
+                  placeholder: (inp.placeholder || '').slice(0, 60),
+                  value: (inp.value || '').slice(0, 50),
+                  options,
+                  x: Math.round(rect.left + rect.width / 2),
+                  y: Math.round(rect.top + rect.height / 2),
+                  width: rect.width,
+                  height: rect.height,
+                });
+                if (results.length >= 65) break;
+              }
+              const fullText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 3200);
+              return { elements: results, fullText, nextIdx: idx };
+            },
+            { startIdx: idxCounter, frameIndex: fi }
+          );
+          allElements.push(...data.elements);
+          idxCounter = data.nextIdx;
+          if (data.fullText) textChunks.push(data.fullText);
+        } catch {
+          // ignore cross-origin frame
+        }
+      }
+
+      const emptyProfile: ProfileVault = {
+        ...params.profile,
+        fullName: params.zeroSave ? '' : params.profile.fullName,
+        fatherName: params.zeroSave ? '' : params.profile.fatherName,
+        motherName: params.zeroSave ? '' : params.profile.motherName,
+        dob: params.zeroSave ? '' : params.profile.dob,
+        gender: params.zeroSave ? '' : params.profile.gender,
+        mobile: params.zeroSave ? '' : params.profile.mobile,
+        email: params.zeroSave ? '' : params.profile.email,
+        addressLine: params.zeroSave ? '' : params.profile.addressLine,
+        district: params.zeroSave ? '' : params.profile.district,
+        state: params.zeroSave ? '' : params.profile.state,
+        pinCode: params.zeroSave ? '' : params.profile.pinCode,
+        panNumber: params.zeroSave ? '' : params.profile.panNumber,
+        aadhaarLast4: params.zeroSave ? '' : params.profile.aadhaarLast4,
+        customFields: params.zeroSave ? [] : params.profile.customFields,
+      };
+
+      const analysis = await analyzeLivePageFormWithAI({
+        screenshotBase64,
+        currentUrl,
+        pageTitle,
+        pageTextSnippet: textChunks.join(' | ').slice(0, 3500),
+        interactiveElements: allElements,
+        profile: emptyProfile,
+        ephemeralDocs: params.ephemeralDocs,
+      });
+
+      this.status.formAnalysis = analysis;
+      this.status.agentStatus = `AI Form Guide Ready: ${analysis.formTitle}`;
+      this.appendLog(`AI analyzed form "${analysis.formTitle}" (${analysis.requiredDocuments.length} docs listed).`);
+      this.broadcastStatus();
+      return { status: this.getStatus(), analysis };
+    } catch (err) {
+      const formatted = formatGeminiError(err);
+      this.status.agentStatus = formatted.message;
+      this.appendLog(`Form Analysis note: ${formatted.message}`);
+      this.broadcastStatus();
+      throw err;
+    }
   }
 }

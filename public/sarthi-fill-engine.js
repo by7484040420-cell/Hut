@@ -1178,14 +1178,35 @@
         sec = null;
       }
       if (sec) {
-        // If user explicitly supplied loginPassword in pre-flight for this session, fill login password safely
-        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim() && !irSkipSavedLogin()) {
+        // Fill password whenever loginPassword is supplied (skip only if confirm/create password on registration when user already has one, or fill both safely)
+        if (sec === 'password' && data.loginPassword && String(data.loginPassword).trim()) {
           if (!String(el.value || '').trim()) {
-            setNativeValue(el, String(data.loginPassword));
+            var pwVal = String(data.loginPassword).trim();
+            var pwId = el.getAttribute('data-sarthi-id');
+            if (!pwId) { pwId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', pwId); }
+            setNativeValue(el, pwVal);
             mark(el, GREEN);
             summary.filled++;
+            if (summary.filledKeys.indexOf('loginPassword') < 0) summary.filledKeys.push('loginPassword');
+            summary.filledItems.push({ id: pwId, tag: el.tagName.toLowerCase(), type: 'password', value: pwVal });
           }
           return;
+        }
+        if (sec === 'password' && !irSkipSavedLogin(data)) {
+          var missPwId = el.getAttribute('data-sarthi-id');
+          if (!missPwId) { missPwId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', missPwId); }
+          if (summary.needsUser.indexOf('loginPassword') < 0) summary.needsUser.push('loginPassword');
+          if (summary.missingFields.length < 30 && !/confirm|re ?enter|retype|verify/i.test(hint)) {
+            summary.missingFields.push({
+              id: missPwId,
+              key: 'loginPassword',
+              label: readableLabelOf(el, 'loginPassword') || 'Login Password',
+              tag: el.tagName.toLowerCase(),
+              type: 'password',
+              placeholder: el.placeholder || 'Enter Password',
+              options: []
+            });
+          }
         }
         mark(el, AMBER);
         if (sec === 'captcha') summary.hasCaptcha = true;
@@ -1229,8 +1250,29 @@
         val = pp;
       }
       if (key === 'middleName' && !val) return;
-      if ((key === 'loginUserId' || key === 'loginPassword') && irSkipSavedLogin()) return;   // IRCTC login native saved-login se hota hai
-      if ((key === 'loginUserId' || key === 'loginPassword') && !val) return;
+      if ((key === 'loginUserId' || key === 'loginPassword') && irSkipSavedLogin(data)) return;
+      if (key === 'loginUserId' && !val) {
+        var uidMissingId = el.getAttribute('data-sarthi-id');
+        if (!uidMissingId) { uidMissingId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', uidMissingId); }
+        mark(el, BLUE);
+        if (summary.needsUser.indexOf('loginUserId') < 0) summary.needsUser.push('loginUserId');
+        if (summary.missingFields.length < 30 && (isRequiredEl(el) || /user ?id|user ?name|login/i.test(hint))) {
+          var alreadyAddedUid = summary.missingFields.some(function (m) { return m.id === uidMissingId; });
+          if (!alreadyAddedUid) {
+            summary.missingFields.push({
+              id: uidMissingId,
+              key: 'loginUserId',
+              label: readableLabelOf(el, 'loginUserId') || 'User ID / Username',
+              tag: el.tagName.toLowerCase(),
+              type: type,
+              placeholder: el.placeholder || 'Enter User ID / Username',
+              options: []
+            });
+          }
+        }
+        return;
+      }
+      if (key === 'loginPassword' && !val) return;
 
       if (key && !val) {
         var isReqField = isRequiredEl(el);
@@ -1517,9 +1559,9 @@
       var el = document.querySelector('[data-sarthi-id="' + id + '"]');
       if (!el) return;
       var hint = hintOf(el);
-      if (classifySecurity(hint)) return;               // AI ko bhi security fields nahi chhune dena
+      var secType = classifySecurity(hint);
+      if (secType && secType !== 'password') return;    // CAPTCHA, OTP, Payment kabhi AI se nahi bharte; Password sirf explicit map/user input se
       var type = (el.type || el.tagName).toLowerCase();
-      if (type === 'password') return;
       if (el.tagName === 'SELECT') {
         if (selectOption(el, String(val), null)) {
           mark(el, GREEN);
@@ -1570,11 +1612,21 @@
     var out = [], radios = {};
     Array.prototype.slice.call(document.querySelectorAll('input,select,textarea')).forEach(function (el) {
       var type = (el.type || el.tagName).toLowerCase();
-      if (/^(hidden|submit|button|reset|image|range|color|search|password)$/.test(type)) return;
+      if (/^(hidden|submit|button|reset|image|range|color|search)$/.test(type)) return;
       if (el.disabled || (type !== 'file' && !isVisible(el))) return;
       if (el.readOnly && type !== 'checkbox') return;
       var hint = hintOf(el);
-      if (classifySecurity(hint) || RE_ROBOT.test(hint)) return;
+      var sec = classifySecurity(hint);
+      if (sec && sec !== 'password') return;
+      if (RE_ROBOT.test(hint)) return;
+      if (type === 'password' || sec === 'password') {
+        if (!String(el.value || '').trim() && !/confirm|re ?enter|retype|verify/i.test(hint)) {
+          var epwId = el.getAttribute('data-sarthi-id');
+          if (!epwId) { epwId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', epwId); }
+          out.push({ id: epwId, kind: 'text', key: 'loginPassword', label: readableLabelOf(el, 'loginPassword') || 'Login Password', tag: el.tagName.toLowerCase(), type: 'password', placeholder: el.placeholder || 'Enter password', options: [] });
+        }
+        return;
+      }
       var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
       var isStationAc = (key === 'fromStation' || key === 'toStation' || isAutocompleteEl(el));
       if (isStationAc && !isAutocompleteCommitted(el)) {
@@ -1674,14 +1726,18 @@
     return /application (has been |is )?(successfully )?(submitted|registered)|successfully (submitted|registered|completed|booked)|acknowledg(e)?ment (number|no|receipt)|transaction (is )?successful|booking (is )?confirmed|आवेदन सफलतापूर्वक|सफलतापूर्वक जमा/.test(t);
   }
 
-  // IRCTC LOGIN popup (native saved-login bharta hai) -> engine na bhare. REGISTER page par engine bharega.
-  function irSkipSavedLogin() {
+  // IRCTC LOGIN popup: jab user ne loginUserId/loginPassword payload me NAHI diya ho aur native Android saved-login handle kar raha ho tabhi skip karo;
+  // jab user ne explicit credentials diye hon tab ALWAYS fill karo!
+  function irSkipSavedLogin(data) {
     try {
+      if (data && (String(data.loginUserId || '').trim() || String(data.loginPassword || '').trim())) {
+        return false;
+      }
       if (!/irctc\.co\.in/i.test(location.hostname)) return false;
       var h = String(location.href || '').toLowerCase();
       if (/register|signup/.test(h)) return false;
       var pw = Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).filter(isVisible);
-      return pw.length < 2;
+      return pw.length < 2 && typeof root.SarthiNative !== 'undefined';
     } catch (e) { return false; }
   }
 

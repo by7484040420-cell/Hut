@@ -4,7 +4,9 @@ import {
   Bot,
   CheckCircle2,
   Compass,
+  ExternalLink,
   FileText,
+  Globe,
   IndianRupee,
   Loader2,
   Search,
@@ -18,6 +20,7 @@ import type {
   ProfileVault,
   ServiceBrief,
   ServiceCatalogItem,
+  WebSearchResponse,
 } from '../types';
 import {
   ADMIT_AND_RESULT_ITEMS,
@@ -196,6 +199,9 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   const [needDocs, setNeedDocs] = useState<string[]>([]);
   const [needBusy, setNeedBusy] = useState(false);
   const [inlineValues, setInlineValues] = useState<Record<string, string>>({});
+  const [webSearchBusy, setWebSearchBusy] = useState(false);
+  const [webSearchResult, setWebSearchResult] = useState<WebSearchResponse | null>(null);
+  const [webSearchError, setWebSearchError] = useState<string | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const pendingDocIdRef = React.useRef<string | null>(null);
@@ -243,6 +249,36 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
       // Keep fallback brief smoothly
     } finally {
       setLoadingBrief(false);
+    }
+  };
+
+  const runGoogleAiSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q || webSearchBusy) return;
+
+    // If user typed a direct URL (e.g. ssc.gov.in or https://...), open it directly in the Ad-Free AI Browser
+    if (/^(https?:\/\/)?[a-z0-9-]+(\.[a-z0-9-]+)+(\/.*)?$/i.test(q) && !q.includes(' ')) {
+      const targetUrl = q.startsWith('http://') || q.startsWith('https://') ? q : `https://${q}`;
+      onOpenDirectFormBrowser(
+        targetUrl,
+        'Is website ko ad-free kholo, poora form samjho aur user ki details auto-fill karo.'
+      );
+      return;
+    }
+
+    setWebSearchBusy(true);
+    setWebSearchError(null);
+    try {
+      const res = await apiFetchJson<WebSearchResponse>('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+      });
+      setWebSearchResult(res);
+    } catch (err) {
+      setWebSearchError(err instanceof Error ? err.message : 'Web search abhi available nahi hai.');
+    } finally {
+      setWebSearchBusy(false);
     }
   };
 
@@ -408,35 +444,147 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
         className="hidden"
       />
 
-      {/* Search & Instant Direct-Form Trigger */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (searchQuery.trim()) {
-            void openServiceBrief(undefined, searchQuery.trim());
-          }
-        }}
-        className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
-      >
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Job, SSC GD, PAN Card, Passport, IRCTC Train Ticket, Block Certificate khojein..."
-            className="w-full min-h-[44px] pl-10 pr-4 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900 placeholder:text-slate-400"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={!searchQuery.trim()}
-          className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 transition-colors"
+      {/* Universal Google-Style Search & Instant Direct-Form Trigger */}
+      <div className="space-y-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (searchQuery.trim()) {
+              void runGoogleAiSearch();
+            }
+          }}
+          className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
         >
-          <Sparkles className="w-4 h-4 text-rose-400" />
-          Fees &amp; Direct Form
-        </button>
-      </form>
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Google jaisa kuch bhi search karein (Job, PAN, IRCTC, Yojana, koi bhi website URL)..."
+              className="w-full min-h-[44px] pl-10 pr-4 rounded-xl bg-slate-50 border border-slate-200 focus:border-slate-900 focus:bg-white focus:outline-none text-sm text-slate-900 placeholder:text-slate-400"
+            />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="submit"
+              disabled={!searchQuery.trim() || webSearchBusy}
+              className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+            >
+              {webSearchBusy ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Globe className="w-4 h-4" />
+              )}
+              Web Search
+            </button>
+            <button
+              type="button"
+              disabled={!searchQuery.trim()}
+              onClick={() => {
+                if (searchQuery.trim()) void openServiceBrief(undefined, searchQuery.trim());
+              }}
+              className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2.5 rounded-xl bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+            >
+              <Sparkles className="w-4 h-4 text-rose-400" />
+              Fees &amp; Form
+            </button>
+          </div>
+        </form>
+
+        {webSearchError && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 text-xs text-rose-700 flex items-center justify-between gap-2">
+            <span>{webSearchError}</span>
+            <button
+              type="button"
+              onClick={() =>
+                onOpenDirectFormBrowser(
+                  searchQuery.trim(),
+                  `"${searchQuery.trim()}" ko ad-free browser me kholo.`
+                )
+              }
+              className="px-3 py-1 rounded-lg bg-[#0B1120] text-white font-semibold whitespace-nowrap"
+            >
+              Browser Me Search Karein
+            </button>
+          </div>
+        )}
+
+        {webSearchResult && (
+          <div className="bg-white border border-sky-200 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-xs">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="space-y-1 min-w-0">
+                <div className="text-xs font-bold text-sky-700 inline-flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Live Web AI Result · &ldquo;{webSearchResult.query}&rdquo;
+                </div>
+                <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line">
+                  {webSearchResult.answer}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWebSearchResult(null)}
+                aria-label="Close web search results"
+                className="min-h-[34px] min-w-[34px] rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {webSearchResult.results.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {webSearchResult.results.map((item, idx) => (
+                  <div
+                    key={`${item.url}-${idx}`}
+                    className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between gap-2.5"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-900 line-clamp-1">
+                          {item.title}
+                        </span>
+                        {item.isOfficialOrForm && (
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded shrink-0">
+                            Official
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] font-mono text-sky-700 truncate">{item.url}</div>
+                      <p className="text-xs text-slate-600 line-clamp-2">{item.snippet}</p>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenDirectFormBrowser(
+                            item.url,
+                            webSearchResult.suggestedGoal ||
+                              `Is portal (${item.title}) ko ad-free kholo, poora form samjho aur user ki details auto-fill karo.`
+                          )
+                        }
+                        className="flex-1 min-h-[36px] px-3 rounded-lg bg-[#0B1120] hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                      >
+                        <Compass className="w-3.5 h-3.5 text-emerald-400" />
+                        Open in Ad-Free AI Browser
+                      </button>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open in New Tab"
+                        className="min-h-[36px] min-w-[36px] rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-700 flex items-center justify-center shrink-0"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Primary Service Grid */}
       <section className="space-y-3.5">

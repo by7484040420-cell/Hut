@@ -13,11 +13,13 @@ import type {
   ChatMessage,
   EphemeralDocumentExtract,
   ExtractedDocumentField,
+  FormPageAnalysis,
   GroundingSource,
   ProfileVault,
   RequestedDocumentSpec,
   ServiceBrief,
   ServiceCatalogItem,
+  WebSearchResponse,
 } from '../src/types.js';
 import {
   buildFallbackServiceBrief,
@@ -1071,9 +1073,10 @@ export async function decideLiveBrowserStep(params: {
     '9. For empty `<input>` / `<textarea>`, return action="fill" with BOTH `elementIndex` and `(x, y)`, plus exact text in `value`.',
     '10. For dropdowns (`<select>`, `mat-select`, `ng-select`, `p-dropdown`, `[role="combobox"]`, "Select" triggers), return action="select" with `elementIndex`, `(x, y)`, and the matching option label in `value`.',
     '11. For buttons, tabs, links, autocomplete suggestions, checkboxes, or radio buttons, return action="click" with `elementIndex` and `(x, y)`.',
-    '12. STRICT HUMAN-IN-THE-LOOP SAFETY RULE: If you see ANY CAPTCHA image/input, "I am not a robot" / reCAPTCHA checkbox, OTP box, Aadhaar e-Sign, file upload `<input type="file">`, new password creation, or Final Payment / Pay Now / Final Submit button, NEVER attempt to read/solve CAPTCHA or click "I am not a robot" or guess OTP/payment! Immediately return action="pause_for_human" with a clear Hinglish `humanPrompt` asking the user to complete CAPTCHA / robot check / OTP / payment directly on the screen.',
-    '13. If required fields or the Next/Continue button are below the fold, return action="scroll" with value="down" or "up".',
-    '14. Return action="done" only when the visible multi-page application/booking stage reaches confirmation or all non-human fields are completed.',
+    '12. LOGIN PASSWORD RULE: If a login screen (`Username`/`User ID` and `Password`) is open AND `loginUserId` / `loginPassword` is present in USER DETAILS AVAILABLE RIGHT NOW, you MUST return action="fill" to type BOTH the username AND password into their fields! Only pause (`pause_for_human`) if login credentials are MISSING from USER DETAILS, or on "Create New Password" registration boxes when user did not supply one.',
+    '13. STRICT HUMAN-IN-THE-LOOP SAFETY RULE: If you see ANY CAPTCHA image/input, "I am not a robot" / reCAPTCHA checkbox, OTP box, Aadhaar e-Sign, file upload `<input type="file">`, or Final Payment / Pay Now / Final Submit button, NEVER attempt to read/solve CAPTCHA or click "I am not a robot" or guess OTP/payment! Immediately return action="pause_for_human" with a clear Hinglish `humanPrompt` asking the user to complete CAPTCHA / robot check / OTP / payment directly on the screen.',
+    '14. If required fields or the Next/Continue button are below the fold, return action="scroll" with value="down" or "up".',
+    '15. Return action="done" only when the visible multi-page application/booking stage reaches confirmation or all non-human fields are completed.',
   ].join('\n');
 
   const response = await generateContentResilient(ai, {
@@ -1734,3 +1737,277 @@ export async function formRecipeWithAI(params: {
     .slice(0, 12);
   return { name: String(parsed.name || '').slice(0, 60), details: details.slice(0, 22), documents };
 }
+
+// ---------------------------------------------------------------------------
+// GOOGLE-LIKE LIVE WEB SEARCH (AI + Google Search Grounding)
+// ---------------------------------------------------------------------------
+
+export async function searchWebWithAI(params: {
+  query: string;
+}): Promise<WebSearchResponse> {
+  const query = params.query.trim();
+  if (!query) {
+    return { query: '', answer: 'Koi search query likhein.', results: [] };
+  }
+
+  if (!isGeminiConfigured()) {
+    return {
+      query,
+      answer: `Live internet browser me "${query}" search karne ke liye "Browser Search" button dabayein.`,
+      suggestedGoal: `"${query}" ke liye website kholkar form aur documents check karo.`,
+      results: [
+        {
+          title: `Search Web for "${query}"`,
+          url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+          snippet: 'Open live search results in Ad-Free Browser',
+          isOfficialOrForm: true,
+        },
+      ],
+    };
+  }
+
+  const ai = getGeminiClient();
+  let groundingSources: GroundingSource[] = [];
+  let rawResearch = '';
+
+  try {
+    const res1 = await generateContentResilient(ai, {
+      contents: [
+        `Search the live internet for: "${query}"`,
+        'Provide the official website URL(s), direct application/form link if it relates to an Indian government service, job, exam, ticket, banking, or online work, plus accurate current facts, fees, dates, and steps.',
+      ].join('\n'),
+      config: {
+        tools: [{ googleSearch: {} }],
+      },
+    });
+    groundingSources = extractGroundingSources(res1);
+    rawResearch = res1.text?.trim() || '';
+  } catch {
+    rawResearch = '';
+  }
+
+  try {
+    const res2 = await generateContentResilient(ai, {
+      contents: [
+        `User searched: "${query}"`,
+        `LIVE GOOGLE SEARCH NOTES:\n${rawResearch || '(none)'}`,
+        `GROUNDED WEB LINKS:\n${groundingSources.map((s) => `- ${s.title}: ${s.uri}`).join('\n') || '(none)'}`,
+        '',
+        'Format a clean Google-style search response in crisp Hinglish/English:',
+        '1. "answer": A clear 2-4 sentence direct answer summarizing facts, fee/date/eligibility if applicable, and how to proceed online.',
+        '2. "suggestedGoal": A 1-line AI goal instruction if the user opens the top link to do online work or fill a form.',
+        '3. "results": Up to 6 useful, clickable search result objects { title, url, snippet, isOfficialOrForm }. Prioritize grounded official .gov.in / .nic.in / real URLs from the grounded web links or well-known verified official domains.',
+      ].join('\n'),
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            answer: { type: Type.STRING },
+            suggestedGoal: { type: Type.STRING },
+            results: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  url: { type: Type.STRING },
+                  snippet: { type: Type.STRING },
+                  isOfficialOrForm: { type: Type.BOOLEAN },
+                },
+                required: ['title', 'url', 'snippet'],
+              },
+            },
+          },
+          required: ['answer', 'results'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse((res2.text ?? '{}').trim()) as {
+      answer?: string;
+      suggestedGoal?: string;
+      results?: Array<{
+        title?: string;
+        url?: string;
+        snippet?: string;
+        isOfficialOrForm?: boolean;
+      }>;
+    };
+
+    const structuredResults = (parsed.results || [])
+      .filter((r) => r && r.url && /^https?:\/\//i.test(String(r.url)))
+      .slice(0, 6)
+      .map((r) => ({
+        title: String(r.title || r.url).slice(0, 120),
+        url: String(r.url),
+        snippet: String(r.snippet || '').slice(0, 220),
+        isOfficialOrForm: Boolean(r.isOfficialOrForm),
+      }));
+
+    // Ensure grounded sources that aren't already listed are also available
+    const existingUrls = new Set(structuredResults.map((r) => r.url));
+    for (const src of groundingSources) {
+      if (structuredResults.length >= 6) break;
+      if (src.uri.startsWith('http') && !existingUrls.has(src.uri)) {
+        existingUrls.add(src.uri);
+        structuredResults.push({
+          title: src.title || src.uri,
+          url: src.uri,
+          snippet: 'Verified Google search reference link',
+          isOfficialOrForm: /\.(gov|nic)\.in/i.test(src.uri),
+        });
+      }
+    }
+
+    return {
+      query,
+      answer: String(parsed.answer || rawResearch || `Results for "${query}"`),
+      suggestedGoal: parsed.suggestedGoal ? String(parsed.suggestedGoal) : undefined,
+      results: structuredResults,
+    };
+  } catch {
+    return {
+      query,
+      answer: rawResearch || `Live results for "${query}".`,
+      results: groundingSources.slice(0, 6).map((s) => ({
+        title: s.title,
+        url: s.uri,
+        snippet: 'Live web search result',
+        isOfficialOrForm: /\.(gov|nic)\.in/i.test(s.uri),
+      })),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ULTRA-INTELLIGENT LIVE PAGE & FORM ANALYZER
+// Kisi bhi khule hue form/page ko dekh kar: kaise bharna hai + kya documents + size/format + missing details
+// ---------------------------------------------------------------------------
+
+export async function analyzeLivePageFormWithAI(params: {
+  screenshotBase64: string;
+  currentUrl: string;
+  pageTitle: string;
+  pageTextSnippet: string;
+  interactiveElements: InteractiveDomElement[];
+  profile: ProfileVault;
+  ephemeralDocs?: EphemeralDocumentExtract[];
+}): Promise<FormPageAnalysis> {
+  const ai = getGeminiClient();
+  const userContext = serializeCombinedUserContext(params.profile, params.ephemeralDocs);
+  const fieldsText = params.interactiveElements
+    .slice(0, 65)
+    .map((el) => {
+      const opts = el.options?.length ? ` options=[${el.options.slice(0, 10).join(', ')}]` : '';
+      return `<${el.tag}${el.type ? ` type=${el.type}` : ''}> label="${el.label}" nearby="${el.nearbyText}" placeholder="${el.placeholder}" currentVal="${el.value}"${opts}`;
+    })
+    .join('\n');
+
+  const prompt = [
+    'You are an ultra-intelligent Indian Form, Portal, Exam, Certificate, Ticket, Banking & Online Service Expert.',
+    'Analyze the LIVE website screenshot + extracted page text + interactive form fields below.',
+    `URL: ${params.currentUrl}`,
+    `TITLE: ${params.pageTitle}`,
+    '',
+    'PAGE VISIBLE TEXT & INSTRUCTIONS:',
+    params.pageTextSnippet || '(no text extracted)',
+    '',
+    'EXTRACTED FORM CONTROLS ON THIS SCREEN:',
+    fieldsText || '(no form inputs visible yet — may be landing/instruction/login page)',
+    '',
+    'USER DETAILS CURRENTLY IN RAM / VAULT:',
+    userContext,
+    '',
+    'TASK: Explain clearly in crisp Hinglish so any Indian user instantly understands:',
+    '1. "formTitle": Exact name of this form/portal/step (e.g., "SSC One Time Registration (OTR) — Personal Details" or "IRCTC Train Ticket Booking").',
+    '2. "isFormPage": true if form/login/application controls are present, else false.',
+    '3. "summary": 1-2 line overview of what this page does and current stage.',
+    '4. "howToFillSteps": 4 to 6 numbered-style clear steps explaining EXACTLY how to fill and complete this form from start to finish ("Kaise bharna hai"), mentioning tricky dropdowns, Verify pairs, or portal quirks.',
+    '5. "requiredDocuments": Exact documents needed for this form AND exact file size/dimension/format if shown on the page or known for this official portal (e.g., { name: "Passport Size Photo", spec: "20KB–50KB JPG, light background", whyNeeded: "Candidate photo upload step" }). Never invent fake specs if unsure — say "Original / Clear JPG or PDF scan".',
+    '6. "feeAndDeadline": Official fee / exam or booking timing / portal charge if visible or known (else "Portal screen par verify karein").',
+    '7. "readyToFill": List of field names AI already has in USER DETAILS and can auto-fill right now.',
+    '8. "missingFromUser": List of details or login ID/password missing from USER DETAILS that the user should provide or scan via OCR.',
+    '9. "humanOnlySteps": List of steps only the human must do (CAPTCHA, OTP, Aadhaar e-Sign, File Upload check, Final Payment).',
+    '10. "nextBestAction": One clear recommendation for the very next action.',
+    'Return strict JSON.',
+  ].join('\n');
+
+  const parts: Array<{ inlineData?: { mimeType: string; data: string }; text?: string }> = [];
+  if (params.screenshotBase64) {
+    parts.push({ inlineData: { mimeType: 'image/jpeg', data: params.screenshotBase64 } });
+  }
+  parts.push({ text: prompt });
+
+  const response = await generateContentResilient(ai, {
+    contents: { parts },
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          formTitle: { type: Type.STRING },
+          isFormPage: { type: Type.BOOLEAN },
+          summary: { type: Type.STRING },
+          howToFillSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+          requiredDocuments: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                spec: { type: Type.STRING },
+                whyNeeded: { type: Type.STRING },
+              },
+              required: ['name', 'spec', 'whyNeeded'],
+            },
+          },
+          feeAndDeadline: { type: Type.STRING },
+          readyToFill: { type: Type.ARRAY, items: { type: Type.STRING } },
+          missingFromUser: { type: Type.ARRAY, items: { type: Type.STRING } },
+          humanOnlySteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+          nextBestAction: { type: Type.STRING },
+        },
+        required: [
+          'formTitle',
+          'isFormPage',
+          'summary',
+          'howToFillSteps',
+          'requiredDocuments',
+          'feeAndDeadline',
+          'readyToFill',
+          'missingFromUser',
+          'humanOnlySteps',
+          'nextBestAction',
+        ],
+      },
+    },
+  });
+
+  const parsed = JSON.parse((response.text ?? '{}').trim()) as Partial<FormPageAnalysis>;
+  return {
+    url: params.currentUrl,
+    formTitle: String(parsed.formTitle || params.pageTitle || 'Web Form Analysis'),
+    isFormPage: Boolean(parsed.isFormPage ?? params.interactiveElements.length > 0),
+    summary: String(parsed.summary || 'AI ne live page aur form structure analyze kar liya hai.'),
+    howToFillSteps: Array.isArray(parsed.howToFillSteps)
+      ? parsed.howToFillSteps.map(String).slice(0, 8)
+      : ['Apply / Form link kholein, apni details auto-fill karein aur CAPTCHA/OTP verify karke submit karein.'],
+    requiredDocuments: Array.isArray(parsed.requiredDocuments)
+      ? parsed.requiredDocuments.slice(0, 10).map((d) => ({
+          name: String(d.name || 'Document'),
+          spec: String(d.spec || 'Clear JPG / PDF'),
+          whyNeeded: String(d.whyNeeded || 'Verification / Upload'),
+        }))
+      : [],
+    feeAndDeadline: String(parsed.feeAndDeadline || 'Official portal screen par fee check karein'),
+    readyToFill: Array.isArray(parsed.readyToFill) ? parsed.readyToFill.map(String).slice(0, 15) : [],
+    missingFromUser: Array.isArray(parsed.missingFromUser) ? parsed.missingFromUser.map(String).slice(0, 15) : [],
+    humanOnlySteps: Array.isArray(parsed.humanOnlySteps)
+      ? parsed.humanOnlySteps.map(String).slice(0, 8)
+      : ['CAPTCHA / OTP / Final Payment'],
+    nextBestAction: String(parsed.nextBestAction || 'Auto-Fill button dabakar bhari ja sakne wali details type karwayein.'),
+    analyzedAt: new Date().toISOString(),
+  };
+}
+

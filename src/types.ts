@@ -144,6 +144,41 @@ export interface BrowserInspectionResult {
   sources: GroundingSource[];
 }
 
+export interface FormDocumentRequirement {
+  name: string;
+  spec: string;
+  whyNeeded: string;
+}
+
+export interface FormPageAnalysis {
+  url: string;
+  formTitle: string;
+  isFormPage: boolean;
+  summary: string;
+  howToFillSteps: string[];
+  requiredDocuments: FormDocumentRequirement[];
+  feeAndDeadline: string;
+  readyToFill: string[];
+  missingFromUser: string[];
+  humanOnlySteps: string[];
+  nextBestAction: string;
+  analyzedAt: string;
+}
+
+export interface WebSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  isOfficialOrForm?: boolean;
+}
+
+export interface WebSearchResponse {
+  query: string;
+  answer: string;
+  suggestedGoal?: string;
+  results: WebSearchResultItem[];
+}
+
 export interface MissingFormField {
   id: string;
   key?: string;
@@ -161,6 +196,7 @@ export interface LiveBrowserStatus {
   loading: boolean;
   adBlockEnabled: boolean;
   blockedAdsCount: number;
+  tatkalMode?: boolean;
   viewportWidth: number;
   viewportHeight: number;
   agentRunning: boolean;
@@ -171,6 +207,7 @@ export interface LiveBrowserStatus {
   filledCount?: number;
   requestedDocuments: RequestedDocumentSpec[];
   missingFields?: MissingFormField[];
+  formAnalysis?: FormPageAnalysis | null;
   lastStepLogs: string[];
 }
 
