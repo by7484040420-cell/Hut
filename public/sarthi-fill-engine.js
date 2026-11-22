@@ -3057,18 +3057,20 @@
     } catch (e) { return null; }
   }
 
-  var irSorryAt = 0, irSorryN = 0;
+  var irSorryAt = 0, irSorryN = 0, irSorrySeenAt = 0;
   function irctcSorryPage() {
     try {
       if (!/irctc/.test(irHref())) return null;
       var t = norm(((document.body && document.body.innerText) || '').slice(0, 600));
       if (!/sorry.{0,6}please try again/.test(t)) return null;
       var now = Date.now();
-      if (irSorryN >= 3 || now - irSorryAt < 15000) return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC ne "Sorry Please try again" dikhaya - wait' };
+      if (!irSorrySeenAt) irSorrySeenAt = now;
+      if (now - irSorrySeenAt < 4000) return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC ne \"Sorry Please try again\" dikhaya - 4 sec ruk kar login par wapas jaunga' };
+      if (irSorryN >= 3 || now - irSorryAt < 15000) return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC ne \"Sorry Please try again\" dikhaya - wait' };
       var b = irFindBtn(/click here to login|click here/);
       if (!b) return null;
-      irSorryAt = now; irSorryN++;
-      try { root.sessionStorage.removeItem('sarthi_ir_search_at'); } catch (e) { /* ignore */ }
+      irSorryAt = now; irSorryN++; irSorrySeenAt = 0;
+      try { root.sessionStorage.removeItem('sarthi_ir_search_at'); root.sessionStorage.removeItem('sarthi_ir_cont_at'); } catch (e) { /* ignore */ }
       irFlow.tries = {};
       clickLikeUser(b);
       return { state: 'next', clicked: 'click here to login', tatkalStage: 'search', note: 'IRCTC session error - home par wapas (' + irSorryN + '/3). Ab Search dobara chalega' };
@@ -3265,6 +3267,87 @@
     } catch (e) { return null; }
   }
 
+  // ---------------------------------------------------------------
+  // IRCTC FIX 1: "Welcome to IRCTC - language chuno" popup -> English apne aap
+  // ---------------------------------------------------------------
+  var irLangAt = 0;
+  function irctcWelcomeLanguage() {
+    try {
+      if (!/irctc/.test(irHref())) return null;
+      var bt = norm(((document.body && document.body.innerText) || '').slice(0, 4000));
+      if (!/welcome to irctc/.test(bt) || !/language/.test(bt)) return null;
+      var now = Date.now();
+      if (now - irLangAt < 2500) return { state: 'waiting', tatkalStage: 'search', note: 'Language popup band ho raha hai...' };
+      var eb = irFindBtn(/^english$/);
+      if (!eb) return null;
+      irLangAt = now;
+      mark(eb, GREEN);
+      clickLikeUser(eb);
+      return { state: 'next', clicked: 'english', tatkalStage: 'search', note: 'Language: English chun li' };
+    } catch (e) { return null; }
+  }
+
+  // ---------------------------------------------------------------
+  // IRCTC FIX 2: Passenger page -> details poori bharne ke baad
+  //   (a) "Pay through BHIM/UPI" apne aap chuno
+  //   (b) "Continue" SIRF EK BAAR dabao (double click = "Sorry! Please try again")
+  // CAPTCHA aur payment ka final step user hi karega.
+  // ---------------------------------------------------------------
+  var irPaxSig = '', irPaxSigAt = 0, irUpiTryAt = 0;
+  function irctcPassengerFinish() {
+    try {
+      if (!/irctc/.test(irHref())) return null;
+      if (irPwInputs().length > 0) return null;
+      var names = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="passengerName"], app-passenger input[placeholder="Name"]')).filter(isVisible);
+      if (!names.length) return null;
+      var ages = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="passengerAge"]')).filter(isVisible);
+      var genders = Array.prototype.slice.call(document.querySelectorAll('select[formcontrolname="passengerGender"]')).filter(isVisible);
+      var now = Date.now();
+
+      var sig = names.map(function (n) { return n.value; }).join('|') + '#' + ages.map(function (a) { return a.value; }).join('|') + '#' + genders.map(function (g) { return g.value; }).join('|');
+      if (sig !== irPaxSig) { irPaxSig = sig; irPaxSigAt = now; }
+
+      var ready = names.every(function (n) { return String(n.value || '').trim().length >= 3; }) &&
+                  ages.length >= names.length && ages.every(function (a) { return String(a.value || '').trim(); }) &&
+                  genders.every(function (g) { return !!g.value; });
+      if (!ready) return null;                       // baaki fill engine pehle bhar le
+      // typing abhi chal rahi ho to ruko (value 1.5 sec stable honi chahiye)
+      if (now - irPaxSigAt < 2500) return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details bhar raha hu...' };
+      // IRCTC loader chal raha ho to Continue mat dabao (fare/berth update ke beech click = Sorry page)
+      if (irctcIsLoadingSpinnerActive()) return { state: 'waiting', tatkalStage: 'passenger', note: 'IRCTC loading hai - ruk raha hu' };
+      // koi passenger/contact field galat ya khali (Angular invalid) ho to Continue mat dabao
+      var bad = Array.prototype.slice.call(document.querySelectorAll('app-passenger input.ng-invalid, app-passenger select.ng-invalid, input[formcontrolname="passengerName"].ng-invalid, input[formcontrolname="passengerAge"].ng-invalid, select[formcontrolname="passengerGender"].ng-invalid, input#mobileNumber.ng-invalid')).filter(isVisible);
+      if (bad.length) { bad.forEach(function (b) { mark(b, AMBER); }); return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger form me ' + bad.length + ' field galat/khali hai (peela) - theek karke Continue dabayein' }; }
+
+      // (a) BHIM/UPI payment mode
+      var lbls = Array.prototype.slice.call(document.querySelectorAll('label, span')).filter(function (el) {
+        return isVisible(el) && /pay through bhim\s*\/?\s*upi/.test(norm(el.innerText || el.textContent || '')) && (el.innerText || '').length < 80;
+      });
+      if (lbls.length) {
+        var lb = lbls[0];
+        var holder = lb.closest ? (lb.closest('p-radiobutton') || lb.parentElement) : lb.parentElement;
+        var rb = holder && holder.querySelector ? holder.querySelector('input[type="radio"]') : null;
+        var box = holder && holder.querySelector ? holder.querySelector('.ui-radiobutton-box, .p-radiobutton-box') : null;
+        var on = (rb && rb.checked) || (box && /ui-state-active|p-highlight/.test(box.className || ''));
+        if (!on) {
+          if (now - irUpiTryAt > 1500) { irUpiTryAt = now; mark(lb, GREEN); clickLikeUser(lb); }
+          return { state: 'filling', tatkalStage: 'passenger', note: 'Payment mode: BHIM/UPI chun raha hu...' };
+        }
+      }
+
+      // (b) Continue - sirf ek baar, phir 30 sec tak kuch nahi
+      var lastAt = 0;
+      try { lastAt = parseInt(root.sessionStorage.getItem('sarthi_ir_cont_at') || '0', 10); } catch (e1) { /* ignore */ }
+      if (lastAt && now - lastAt < 30000) return { state: 'waiting', tatkalStage: 'review_captcha', note: 'Continue dab chuka - IRCTC ka page khulne ka wait (dobara click nahi karunga)' };
+      var cb = irFindBtn(/^continue$/);
+      if (!cb || cb.disabled) return null;
+      try { root.sessionStorage.setItem('sarthi_ir_cont_at', String(now)); } catch (e2) { /* ignore */ }
+      mark(cb, GREEN);
+      clickLikeUser(cb);
+      return { state: 'next', clicked: 'continue', tatkalStage: 'review_captcha', note: 'Continue dabaya - ab CAPTCHA aap daalein' };
+    } catch (e) { return null; }
+  }
+
   function autopilotCore(payload, opts) {
     opts = opts || {};
     var sorry = irctcSorryPage();
@@ -3272,6 +3355,12 @@
       return { filled: 0, url: root.location ? root.location.href : '', title: document.title || '', hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
                isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sorry.state, clicked: sorry.clicked || '',
                asks: [], uploads: [], uploadFields: [], done: false, note: sorry.note, profile: 'IRCTC', tatkalStage: sorry.tatkalStage || 'blocked', emptyRequired: 0 };
+    }
+    var langStep = irctcWelcomeLanguage();
+    if (langStep) {
+      return { filled: 0, url: root.location ? root.location.href : '', title: document.title || '', hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
+               isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: langStep.state, clicked: langStep.clicked || '',
+               asks: [], uploads: [], uploadFields: [], done: false, note: langStep.note, profile: 'IRCTC Ticket Booking', tatkalStage: langStep.tatkalStage || 'search', emptyRequired: 0, irctcHandled: true };
     }
     if (opts.reset) {
       askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; irLastAddPaxAt = 0;
@@ -3345,6 +3434,12 @@
     s.done = false;
     s.note = '';
     s.profile = '';
+    var paxFin = irctcPassengerFinish();
+    if (paxFin) {
+      s.state = paxFin.state; s.clicked = paxFin.clicked || ''; s.note = paxFin.note || '';
+      s.profile = 'IRCTC Ticket Booking'; s.tatkalStage = paxFin.tatkalStage || 'passenger'; s.irctcHandled = true;
+      return s;
+    }
     var list = emptyRequiredList();
     s.emptyRequired = list.length;
 
@@ -3520,6 +3615,12 @@
         }
       }
       if (!relevant || watchRuns >= 80) return;
+      try {
+        if (root.location && /irctc/i.test(root.location.href || '')) {
+          var ct = parseInt(root.sessionStorage.getItem('sarthi_ir_cont_at') || '0', 10);
+          if (ct && Date.now() - ct < 30000) return;   // Continue dab chuka: naya page load ho raha hai, usme kuch mat likho
+        }
+      } catch (eW) { /* ignore */ }
       clearTimeout(watchTimer);
       watchTimer = setTimeout(function () {
         watchRuns++;
