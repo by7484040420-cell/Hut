@@ -11,6 +11,7 @@ import type {
   ApplicationDraft,
   BrowserInspectionResult,
   ChatMessage,
+  CscLegalLandResponse,
   EphemeralDocumentExtract,
   ExtractedDocumentField,
   FormPageAnalysis,
@@ -915,11 +916,12 @@ export async function extractDocumentWithOCR(params: {
         },
         {
           text: [
-            'Perform exact OCR and AI structured extraction on this uploaded Indian document (Aadhaar Card, PAN, Marksheet, Army/NCC Certificate, Domicile/Caste/Income Certificate, Passport, or Driving License).',
+            'Perform exact OCR and AI structured extraction on this uploaded Indian document (Aadhaar Card, PAN, Marksheet, Khatiyan / Jamabandi / Kewala / Lagaan Rasid, Court Summons / FIR / Bail Order, Army/NCC Certificate, Domicile/Caste/Income Certificate, Passport, or Driving License).',
             'Extract EVERY visible detail accurately without guessing or inventing values.',
             'IMPORTANT FOR AADHAAR & ADDRESS DOCUMENTS: Always extract the Indian State/UT (`state`) in canonical English (e.g., "Bihar", "Uttar Pradesh", "Maharashtra", "Delhi", "Jharkhand", "Rajasthan", "West Bengal") from the address or PIN code, even if the card prints it in Hindi or inside the full address block. Also separate `district`, `blockOrTehsil`, `villageOrWard`, `postOffice`, `policeStation`, `pinCode`, and `addressLine`.',
+            'IMPORTANT FOR LAND / COURT PAPERS: If Khatiyan/Jamabandi/Rasid or FIR/Summons is scanned, also extract khataNumber, khesraNumber, mauza, thanaNumber, jamabandiNumber, landArea, cnrNumber, caseNumber, firNumber, courtName, nextHearingDate, sectionsApplied.',
             'For `dob`, prefer YYYY-MM-DD format if full date is visible (or DD/MM/YYYY if only year/partial).',
-            'Include standard keys where visible: fullName, fatherName, motherName, dob, gender, category, mobile, email, addressLine, villageOrWard, postOffice, policeStation, blockOrTehsil, district, state, pinCode, qualification, boardOrUniversity, passingYear, rollNumber, percentageOrGrade, panNumber, aadhaarNumber, passportNumber, dlNumber, voterId, heightCm, certificateNumber.',
+            'Include standard keys where visible: fullName, fatherName, motherName, dob, gender, category, mobile, email, addressLine, villageOrWard, postOffice, policeStation, blockOrTehsil, district, state, pinCode, qualification, boardOrUniversity, passingYear, rollNumber, percentageOrGrade, panNumber, aadhaarNumber, passportNumber, dlNumber, voterId, heightCm, certificateNumber, khataNumber, khesraNumber, mauza, thanaNumber, jamabandiNumber, landArea, cnrNumber, caseNumber, firNumber, courtName, nextHearingDate, sectionsApplied.',
           ].join('\n'),
         },
       ],
@@ -2010,4 +2012,206 @@ export async function analyzeLivePageFormWithAI(params: {
     analyzedAt: new Date().toISOString(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// CSC LAND / REVENUE & COURT / CASE / WAKIL APPOINTMENT GENERATOR
+// ---------------------------------------------------------------------------
+
+export async function generateCscLegalOrLandPacket(params: {
+  mode: 'land' | 'court_case' | 'lawyer_appointment';
+  subType: string;
+  state: string;
+  district: string;
+  blockOrCourt: string;
+  policeStationOrMauza: string;
+  referenceNumber: string;
+  applicantName: string;
+  oppositePartyOrAdvocate: string;
+  factsOrProblem: string;
+  language: 'hindi' | 'hinglish' | 'english';
+  profile: ProfileVault;
+  ephemeralDocs?: EphemeralDocumentExtract[];
+}): Promise<CscLegalLandResponse> {
+  const ai = getGeminiClient();
+  const userContext = serializeCombinedUserContext(params.profile, params.ephemeralDocs);
+
+  let sources: GroundingSource[] = [];
+  let webNotes = '';
+  const searchTopic =
+    params.mode === 'land'
+      ? `${params.state || 'India'} online land record portal ${params.subType} official application procedure fees`
+      : params.mode === 'court_case'
+      ? `eCourts India ${params.subType} bail haziri required documents eFiling portal`
+      : `Tele-Law CSC Nyaya Bandhu NALSA online advocate consultation appointment booking India`;
+
+  try {
+    const res1 = await generateContentResilient(ai, {
+      contents: `Find verified official Indian government portal URL, exact procedure, and required documents for: ${searchTopic}`,
+      config: {
+        tools: [{ googleSearch: {} }],
+      },
+    });
+    sources = extractGroundingSources(res1);
+    webNotes = res1.text?.trim() || '';
+  } catch {
+    webNotes = '';
+  }
+
+  const langGuide =
+    params.language === 'hindi'
+      ? 'Write primaryDraftText and secondaryDraftText in authentic formal Hindi (Devanagari) suitable for Indian Tehsil/CO/SDM/District Court submission (with clean "Seva me / Shriman..." format). Write summary and actionPlan in clear Hindi/Hinglish.'
+      : params.language === 'english'
+      ? 'Write all drafts, summary, and checklists in formal Indian legal/administrative English.'
+      : 'Write summary, steps, and document list in crisp Hinglish, and write primaryDraftText & secondaryDraftText in clean formal Hindi (Devanagari) or Court English appropriate for Indian offices.';
+
+  const modeRole =
+    params.mode === 'land'
+      ? 'You are an expert Indian CSC Revenue & Land Record Consultant (Bhumi, Parimarjan, Dakhil-Kharij, Khasra/Khatauni, Amin Demarcation, CO/SDM/DCLR Revenue Petitions).'
+      : params.mode === 'court_case'
+      ? 'You are an expert Indian Legal Document & CSC Court Clerk Assistant (Drafting Haziri/Appearance applications, Bail/Surety document checklists, Section 107/144 replies, Written Statements, RTI/Certified Copy requests, and eCourts/e-Filing guidance).'
+      : 'You are an expert Indian CSC Tele-Law, Nyaya Bandhu & Court Appointment Coordinator (Preparing concise case briefs for panel advocates, NALSA legal aid forms, eCourts hearing checks, and e-Mulakat passes).';
+
+  const prompt = [
+    modeRole,
+    langGuide,
+    '',
+    `MODE: ${params.mode}`,
+    `SUBTYPE / PROBLEM: ${params.subType}`,
+    `STATE: ${params.state || params.profile.state || 'Bihar / India'}`,
+    `DISTRICT: ${params.district || params.profile.district || ''}`,
+    `BLOCK / ANCHAL / COURT NAME: ${params.blockOrCourt || params.profile.blockOrTehsil || ''}`,
+    `MAUZA / THANA / PS: ${params.policeStationOrMauza || params.profile.policeStation || ''}`,
+    `KHATA-KHESRA / CNR / FIR / CASE NO: ${params.referenceNumber || '(to be filled)'}`,
+    `APPLICANT / CLIENT NAME: ${params.applicantName || params.profile.fullName || '[Applicant Name]'}`,
+    `OPPOSITE PARTY / PREFERRED PORTAL OR ADVOCATE: ${params.oppositePartyOrAdvocate || ''}`,
+    `DETAILED FACTS / PROBLEM:\n${params.factsOrProblem || '(No extra facts given — infer clean standard template for this subtype)'}`,
+    '',
+    'USER DETAILS IN RAM / VAULT (OCR Documents + Profile):',
+    userContext,
+    '',
+    'LIVE WEB NOTES:',
+    webNotes || '(use verified official Indian govt portals: biharbhumi.bihar.gov.in, upbhulekh.gov.in, vaad.up.nic.in, jharbhoomi.nic.in, services.ecourts.gov.in, efiling.ecourts.gov.in, tele-law.in, nyayabandhu.doj.gov.in, nalsa.gov.in, vcourts.gov.in, eprisons.nic.in)',
+    '',
+    'Return strict JSON matching this exact structure:',
+    '1. "title": Clear title of this packet.',
+    '2. "summary": 2-3 line summary of the situation and immediate next move.',
+    '3. "portalName": Best verified official Indian portal name.',
+    '4. "portalUrl": Verified https:// official portal URL.',
+    '5. "browserGoal": Exact instruction for Live AI Browser to open and auto-fill the portal.',
+    '6. "feeAndTimeline": Realistic official govt fee & expected timeline.',
+    '7. "actionPlan": 5 to 7 concrete numbered steps from today to completion (CSC + Office/Court steps).',
+    '8. "primaryDraftTitle": Name of main application/petition (e.g. "CO / Anchal Adhikari Parimarjan Aavedan", "Court Haziri & Bail Document Memo", or "Tele-Law Advocate Case Brief").',
+    '9. "primaryDraftText": COMPLETE ready-to-print formal letter/petition with placeholders ONLY where data was missing.',
+    '10. "secondaryDraftTitle": Name of supporting draft (e.g. "Shapath Patra / Affidavit Format" or "Surety & Evidence Index + Vakalatnama Points").',
+    '11. "secondaryDraftText": COMPLETE ready-to-print supporting draft.',
+    '12. "requiredDocuments": 4 to 7 exact documents needed with { name, spec, purpose } (include JPG/PDF KB size hints where portal uploads apply).',
+    '13. "cautionNote": Honest legal/procedural caution (remind user to verify facts & consult licensed Advocate before final court filing).',
+    '14. "recommendedPortals": 2 to 4 verified { name, url, purpose } portals.',
+  ].join('\n');
+
+  const response = await generateContentResilient(ai, {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          summary: { type: Type.STRING },
+          portalName: { type: Type.STRING },
+          portalUrl: { type: Type.STRING },
+          browserGoal: { type: Type.STRING },
+          feeAndTimeline: { type: Type.STRING },
+          actionPlan: { type: Type.ARRAY, items: { type: Type.STRING } },
+          primaryDraftTitle: { type: Type.STRING },
+          primaryDraftText: { type: Type.STRING },
+          secondaryDraftTitle: { type: Type.STRING },
+          secondaryDraftText: { type: Type.STRING },
+          requiredDocuments: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                spec: { type: Type.STRING },
+                purpose: { type: Type.STRING },
+              },
+              required: ['name', 'spec', 'purpose'],
+            },
+          },
+          cautionNote: { type: Type.STRING },
+          recommendedPortals: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                url: { type: Type.STRING },
+                purpose: { type: Type.STRING },
+              },
+              required: ['name', 'url', 'purpose'],
+            },
+          },
+        },
+        required: [
+          'title',
+          'summary',
+          'portalName',
+          'portalUrl',
+          'browserGoal',
+          'feeAndTimeline',
+          'actionPlan',
+          'primaryDraftTitle',
+          'primaryDraftText',
+          'secondaryDraftTitle',
+          'secondaryDraftText',
+          'requiredDocuments',
+          'cautionNote',
+          'recommendedPortals',
+        ],
+      },
+    },
+  });
+
+  const parsed = JSON.parse((response.text ?? '{}').trim()) as Partial<CscLegalLandResponse>;
+  return {
+    mode: params.mode,
+    title: String(parsed.title || `${params.subType} — CSC Action Packet`),
+    summary: String(parsed.summary || 'Complete application packet and official portal workflow ready.'),
+    portalName: String(parsed.portalName || 'Official Government Portal'),
+    portalUrl: String(parsed.portalUrl || 'https://www.tele-law.in/'),
+    browserGoal: String(
+      parsed.browserGoal || 'Open the official portal, fill user details, and pause at CAPTCHA/OTP.'
+    ),
+    feeAndTimeline: String(parsed.feeAndTimeline || 'Official govt portal fee applicable'),
+    actionPlan: Array.isArray(parsed.actionPlan) ? parsed.actionPlan.map(String).slice(0, 8) : [],
+    primaryDraftTitle: String(parsed.primaryDraftTitle || 'Formal Application / Petition'),
+    primaryDraftText: String(parsed.primaryDraftText || ''),
+    secondaryDraftTitle: String(parsed.secondaryDraftTitle || 'Supporting Affidavit / Document Index'),
+    secondaryDraftText: String(parsed.secondaryDraftText || ''),
+    requiredDocuments: Array.isArray(parsed.requiredDocuments)
+      ? parsed.requiredDocuments.slice(0, 8).map((d) => ({
+          name: String(d.name || 'Document'),
+          spec: String(d.spec || 'Clear PDF / JPG scan'),
+          purpose: String(d.purpose || 'Verification'),
+        }))
+      : [],
+    cautionNote: String(
+      parsed.cautionNote ||
+        'Yeh AI-assisted draft hai. Court/Revenue filing se pehle apna document number verify karein aur zarurat ho to registered Advocate se review karwayein.'
+    ),
+    recommendedPortals: Array.isArray(parsed.recommendedPortals)
+      ? parsed.recommendedPortals
+          .filter((p) => p && p.url && /^https?:\/\//i.test(String(p.url)))
+          .slice(0, 4)
+          .map((p) => ({
+            name: String(p.name || 'Official Portal'),
+            url: String(p.url),
+            purpose: String(p.purpose || 'Online Filing / Status'),
+          }))
+      : [],
+    sources,
+  };
+}
+
 

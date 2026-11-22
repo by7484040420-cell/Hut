@@ -18,6 +18,7 @@ import {
   extractDocumentWithOCR,
   formatGeminiError,
   generateAutoFilledApplication,
+  generateCscLegalOrLandPacket,
   getServiceBriefWithAI,
   inspectUrlWithAI,
   isGeminiConfigured,
@@ -667,6 +668,50 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
+// ---- CSC Land, Court Case Docs & Advocate Appointment Generator ----
+
+app.post('/api/csc/legal-land-assist', async (req, res) => {
+  const rawMode = String(req.body?.mode || 'land');
+  const mode = (
+    rawMode === 'court_case' || rawMode === 'lawyer_appointment' ? rawMode : 'land'
+  ) as 'land' | 'court_case' | 'lawyer_appointment';
+  const subType = String(req.body?.subType || '').trim();
+  if (!subType) {
+    res.status(400).json({ error: 'Please select a land, court case, or appointment type.' });
+    return;
+  }
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+  const languageRaw = String(req.body?.language || 'hinglish');
+  const language = (
+    languageRaw === 'hindi' || languageRaw === 'english' ? languageRaw : 'hinglish'
+  ) as 'hindi' | 'hinglish' | 'english';
+
+  try {
+    const packet = await generateCscLegalOrLandPacket({
+      mode,
+      subType,
+      state: String(req.body?.state || '').trim(),
+      district: String(req.body?.district || '').trim(),
+      blockOrCourt: String(req.body?.blockOrCourt || '').trim(),
+      policeStationOrMauza: String(req.body?.policeStationOrMauza || '').trim(),
+      referenceNumber: String(req.body?.referenceNumber || '').trim(),
+      applicantName: String(req.body?.applicantName || '').trim(),
+      oppositePartyOrAdvocate: String(req.body?.oppositePartyOrAdvocate || '').trim(),
+      factsOrProblem: String(req.body?.factsOrProblem || '').trim(),
+      language,
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+    });
+    res.json({ packet });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
+  }
+});
+
 // ---- Real Live Chromium Browser + Ad-Blocker + OCR+AI Vision Copilot ----
 
 app.get('/api/live-browser/status', (_req, res) => {
@@ -781,6 +826,35 @@ app.post('/api/live-browser/tatkal-prewarm', async (_req, res) => {
     res.status(503).json({
       error: err instanceof Error ? err.message : 'Unable to pre-warm IRCTC session.',
     });
+  }
+});
+
+app.post('/api/live-browser/tatkal-human-submit', async (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  const clickAction = req.body?.clickAction !== false;
+  const pressEnter = Boolean(req.body?.pressEnter);
+  const goal =
+    String(req.body?.goal || '').trim() ||
+    'Complete IRCTC Tatkal Fast-Track booking and stop at CAPTCHA, OTP, or Payment.';
+  const zeroSave = Boolean(req.body?.zeroSave);
+  const ephemeralDocs = Array.isArray(req.body?.ephemeralDocs)
+    ? (req.body.ephemeralDocs as EphemeralDocumentExtract[])
+    : [];
+
+  try {
+    const status = await liveBrowser.submitHumanInputAndResume({
+      text,
+      clickAction,
+      pressEnter,
+      goal,
+      profile: zeroSave ? createEmptyProfile() : workspace.profile,
+      ephemeralDocs,
+      zeroSave,
+    });
+    res.json({ status });
+  } catch (err) {
+    const formatted = formatGeminiError(err);
+    res.status(formatted.status).json({ error: formatted.message });
   }
 });
 

@@ -2,13 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   Bot,
+  CalendarCheck,
   CheckCircle2,
   Compass,
   ExternalLink,
   FileText,
   Globe,
+  Image as ImageIcon,
   IndianRupee,
+  Landmark,
   Loader2,
+  Scale,
   Search,
   ShieldCheck,
   Sparkles,
@@ -16,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  CscDeskMode,
   EphemeralDocumentExtract,
   ProfileVault,
   ServiceBrief,
@@ -45,6 +50,7 @@ interface HomePortalSectionProps {
   onOpenAiChat: (prefillPrompt?: string) => void;
   onOpenFormStudio: () => void;
   onOpenDirectory?: () => void;
+  onOpenCscDesk?: (mode: CscDeskMode) => void;
 }
 
 const MANUAL_DOC_ID = 'user-details';
@@ -185,6 +191,7 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
   onOpenDirectFormBrowser,
   onOpenAiChat,
   onOpenDirectory,
+  onOpenCscDesk,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -637,6 +644,97 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
           ))}
         </div>
       </section>
+
+      {/* CSC, Jamin, Court Case & Cyber Operator Express Desk */}
+      {onOpenCscDesk && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-bold text-slate-900">
+              CSC Center · Jamin, Court Case, Wakil &amp; Cyber Tools
+            </h2>
+            <span className="text-xs text-slate-500">
+              Petition · Bail/Haziri · Tele-Law Booking · KB Resizer
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <button
+              type="button"
+              onClick={() => onOpenCscDesk('land')}
+              className="text-left bg-white border border-slate-200 hover:border-slate-400 rounded-2xl p-4 flex flex-col justify-between gap-2.5 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                  <Landmark className="w-4 h-4" />
+                </span>
+                <span className="text-xs font-semibold text-amber-800 whitespace-nowrap">Bhumi / CO Desk →</span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">Jamin / Land Samasya</div>
+                <div className="text-xs text-slate-600 mt-0.5 line-clamp-2">
+                  Parimarjan, Dakhil-Kharij, Khasra-Khatauni, Napi / Kabza aavedan &amp; State Bhumi links
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenCscDesk('court_case')}
+              className="text-left bg-white border border-slate-200 hover:border-slate-400 rounded-2xl p-4 flex flex-col justify-between gap-2.5 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center shrink-0">
+                  <Scale className="w-4 h-4" />
+                </span>
+                <span className="text-xs font-semibold text-rose-700 whitespace-nowrap">Case Kit →</span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">Case Hai? Court Documents</div>
+                <div className="text-xs text-slate-600 mt-0.5 line-clamp-2">
+                  FIR / Summons scan, Haziri, Bail &amp; Surety Checklist, 107/144 Reply aur Court drafts
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenCscDesk('lawyer_appointment')}
+              className="text-left bg-white border border-slate-200 hover:border-slate-400 rounded-2xl p-4 flex flex-col justify-between gap-2.5 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center shrink-0">
+                  <CalendarCheck className="w-4 h-4" />
+                </span>
+                <span className="text-xs font-semibold text-sky-700 whitespace-nowrap">Book Slot →</span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">Wakil &amp; Court Appointment</div>
+                <div className="text-xs text-slate-600 mt-0.5 line-clamp-2">
+                  CSC Tele-Law Video Wakil, Nyaya Bandhu, NALSA Legal Aid, eCourts CNR &amp; e-Mulakat
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenCscDesk('resizer')}
+              className="text-left bg-white border border-slate-200 hover:border-slate-400 rounded-2xl p-4 flex flex-col justify-between gap-2.5 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+                  <ImageIcon className="w-4 h-4" />
+                </span>
+                <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">Resize JPG →</span>
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-900">Cyber Photo &amp; Sign KB Tool</div>
+                <div className="text-xs text-slate-600 mt-0.5 line-clamp-2">
+                  20–45 KB Photo, 10–18 KB Sign, PAN 213×213px aur print sheet turant tayyar karein
+                </div>
+              </div>
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Quiet Important Updates Row */}
       <div className="bg-white border border-slate-200/90 rounded-xl px-4 py-2.5 flex items-center gap-3 overflow-x-auto text-xs text-slate-700 shadow-xs">

@@ -197,6 +197,17 @@ export interface LiveBrowserStatus {
   adBlockEnabled: boolean;
   blockedAdsCount: number;
   tatkalMode?: boolean;
+  tatkalStage?:
+    | 'idle'
+    | 'prewarm'
+    | 'search'
+    | 'train_list'
+    | 'login_captcha'
+    | 'passenger'
+    | 'review_captcha'
+    | 'otp'
+    | 'payment'
+    | 'blocked';
   viewportWidth: number;
   viewportHeight: number;
   agentRunning: boolean;
@@ -247,6 +258,39 @@ export interface ServiceBrief {
   fromLiveAi: boolean;
 }
 
+export type CscDeskMode = 'land' | 'court_case' | 'lawyer_appointment' | 'resizer';
+
+export interface CscRecommendedPortal {
+  name: string;
+  url: string;
+  purpose: string;
+}
+
+export interface CscRequiredDoc {
+  name: string;
+  spec: string;
+  purpose: string;
+}
+
+export interface CscLegalLandResponse {
+  mode: 'land' | 'court_case' | 'lawyer_appointment';
+  title: string;
+  summary: string;
+  portalName: string;
+  portalUrl: string;
+  browserGoal: string;
+  feeAndTimeline: string;
+  actionPlan: string[];
+  primaryDraftTitle: string;
+  primaryDraftText: string;
+  secondaryDraftTitle: string;
+  secondaryDraftText: string;
+  requiredDocuments: CscRequiredDoc[];
+  cautionNote: string;
+  recommendedPortals: CscRecommendedPortal[];
+  sources: GroundingSource[];
+}
+
 export interface WorkspaceBootstrap {
   profile: ProfileVault;
   applications: ApplicationDraft[];
@@ -255,3 +299,4 @@ export interface WorkspaceBootstrap {
   aiConfigured: boolean;
   liveBrowserAvailable: boolean;
 }
+

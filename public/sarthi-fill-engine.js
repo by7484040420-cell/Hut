@@ -694,8 +694,9 @@
   }
 
   // Natural character-by-character typing for Angular/PrimeNG autocomplete (IRCTC From/To station, etc.)
-  function typeTextIncrementally(el, text, done) {
+  function typeTextIncrementally(el, text, done, opts) {
     var s = String(text || '');
+    var isFast = Boolean((opts && opts.fast) || (root.location && /irctc/i.test(root.location.href || '')));
     irSoftFocus(el);
     var desc = Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, 'value');
     if (desc && desc.set) desc.set.call(el, ''); else el.value = '';
@@ -727,9 +728,11 @@
       } catch (e) {
         fire(el, ['keyup']);
       }
-      setTimeout(step, 38);
+      // Subtle human jitter on IRCTC keeps automation fast (~14ms/char) without robotic 0ms burst patterns
+      var delay = isFast ? (11 + Math.floor(Math.random() * 8)) : 32;
+      setTimeout(step, delay);
     }
-    setTimeout(step, 40);
+    setTimeout(step, isFast ? 18 : 35);
   }
 
   function fire(el, names) {
@@ -1036,6 +1039,7 @@
   function processDdQueue() {
     if (ddBusy || ddQueue.length === 0) return;
     ddBusy = true;
+    var isFastHost = !!(root.location && /irctc/i.test(root.location.href || ''));
     var job = ddQueue.shift();
     var el = job.el;
     var wanted = job.wanted;
@@ -1043,9 +1047,9 @@
     function finishJob() {
       setTimeout(function () {
         try { el.removeAttribute && el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ }
-      }, 600);
+      }, isFastHost ? 260 : 500);
       ddBusy = false;
-      setTimeout(processDdQueue, 200);
+      setTimeout(processDdQueue, isFastHost ? 90 : 180);
     }
     try {
       if (job.isAutocomplete && isAutocompleteCommitted(el) && !job.overwrite) {
@@ -1054,7 +1058,7 @@
       }
 
       var pollAttempts = 0;
-      var maxPollAttempts = job.isAutocomplete ? 18 : 8;
+      var maxPollAttempts = job.isAutocomplete ? 20 : 10;
       function pollOptions() {
         pollAttempts++;
         try {
@@ -1062,7 +1066,7 @@
           if (filterInput && isVisible(filterInput) && filterInput !== el && !filterInput.getAttribute('data-sarthi-filtered')) {
             filterInput.setAttribute('data-sarthi-filtered', '1');
             setNativeValue(filterInput, wanted, { noBlur: true });
-            setTimeout(pollOptions, 280);
+            setTimeout(pollOptions, isFastHost ? 140 : 250);
             return;
           }
           var opts = [];
@@ -1085,7 +1089,7 @@
                 if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: 'a', keyCode: 65, which: 65, bubbles: true }));
               } catch (e) { /* ignore */ }
             }
-            setTimeout(pollOptions, 240);
+            setTimeout(pollOptions, isFastHost ? 115 : 220);
             return;
           }
           var best = pickBestOverlayOption(opts, wanted, key, job.isAutocomplete);
@@ -1117,12 +1121,12 @@
         }
         setTimeout(function () {
           typeTextIncrementally(el, wanted, function () {
-            setTimeout(pollOptions, 420);
-          });
-        }, hadVal ? 260 : 80);
+            setTimeout(pollOptions, isFastHost ? 190 : 380);
+          }, { fast: isFastHost });
+        }, hadVal ? (isFastHost ? 110 : 240) : 50);
       } else {
         clickLikeUser(el);
-        setTimeout(pollOptions, 320);
+        setTimeout(pollOptions, isFastHost ? 140 : 280);
       }
     } catch (e) {
       finishJob();
@@ -1133,10 +1137,10 @@
     if (!job || !job.el || !job.wanted) return;
     if (job.el.getAttribute('data-sarthi-dd-queued') === '1') return;
     job.el.setAttribute('data-sarthi-dd-queued', '1');
-    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 6000);
+    setTimeout(function () { try { job.el.removeAttribute('data-sarthi-dd-queued'); } catch (e) { /* ignore */ } }, 4500);
     ddQueue.push(job);
     clearTimeout(ddStartTimer);
-    ddStartTimer = setTimeout(processDdQueue, 240);
+    ddStartTimer = setTimeout(processDdQueue, (root.location && /irctc/i.test(root.location.href || '')) ? 90 : 200);
   }
 
   // ---------------------------------------------------------------
@@ -2466,17 +2470,25 @@
       if (!/irctc/.test(href)) return null;
       var now = Date.now();
 
+      // 0) If Login / Password / OTP / CAPTCHA modal is open over the Train List page, hand over IMMEDIATELY!
+      if (irPwInputs().length > 0) return null;
+      var dialogs = Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show, app-confirmation-dialog, app-login')).filter(isVisible);
+      for (var chk = 0; chk < dialogs.length; chk++) {
+        if (dialogs[chk].querySelector('input:not([type="hidden"]), select, textarea')) {
+          return null;
+        }
+      }
+
       // 1) Confirmation / T&C modal dialogs ("Yes", "I Agree", "OK") — never click Cancel/No/Pay
-      var dialogs = Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show, app-confirmation-dialog')).filter(isVisible);
       for (var d = 0; d < dialogs.length; d++) {
         var dlgBtns = Array.prototype.slice.call(dialogs[d].querySelectorAll('button, a, [role="button"]')).filter(isVisible);
         for (var db = 0; db < dlgBtns.length; db++) {
           var bt = norm(dlgBtns[db].innerText || dlgBtns[db].value || '');
           if (/^(yes|i agree|agree|ok|ok proceed|continue|proceed)$/.test(bt) && !RE_NO_CLICK.test(bt)) {
-            if (now - irctcLastActAt < 1800) return { state: 'filling', note: 'Confirmation popup check...' };
+            if (now - irctcLastActAt < 550) return { state: 'filling', tatkalStage: 'train_list', note: 'Confirmation popup accept...' };
             irctcLastActAt = now;
             clickLikeUser(dlgBtns[db]);
-            return { state: 'next', clicked: bt, note: 'IRCTC popup accepted (' + bt + ')' };
+            return { state: 'next', clicked: bt, tatkalStage: 'train_list', note: 'IRCTC popup accepted (' + bt + ')' };
           }
         }
       }
@@ -2494,6 +2506,17 @@
       }
       if (!cards.length) return null;
 
+      // 2b) Ensure Quota dropdown on Train-List matches user's Tatkal preference before refreshing availability
+      if (data && data.trainQuota && !irFlow.busy) {
+        var qreList = irQuotaRe(data.trainQuota);
+        var qddList = qreList ? irFindDd('quota') : null;
+        if (qddList && !qreList.test(irDdLabel(qddList)) && irTry('tl_quota') <= 2) {
+          irFlow.busy = true; irFlow.since = now; irFlow.note = 'Quota (' + data.trainQuota + ') set ho raha hai...';
+          irPickDropdown(qddList, qreList, function () { irFlow.busy = false; });
+          return { state: 'filling', tatkalStage: 'train_list', note: irFlow.note };
+        }
+      }
+
       var prefTrain = (data && data.preferredTrain) ? String(data.preferredTrain).trim() : '';
       var effClass = (data && data.trainClass && !/all classes/i.test(data.trainClass)) ? data.trainClass : irctcInferPageClassHint();
       var wantedClasses = irctcWantedClasses(effClass);
@@ -2501,7 +2524,7 @@
         return prefTrain ? irctcCardMatchesTrain(c.innerText || '', prefTrain) : (c.getAttribute('data-sarthi-regret') !== '1');
       });
       if (!matchingCards.length) {
-        if (prefTrain) return { state: 'filling', note: 'Train "' + prefTrain + '" list me dhundhi ja rahi hai...' };
+        if (prefTrain) return { state: 'filling', tatkalStage: 'train_list', note: 'Train "' + prefTrain + '" list me dhundhi ja rahi hai...' };
         matchingCards = cards;
       }
 
@@ -2547,7 +2570,7 @@
       // If all loaded slots in this non-preferred train are REGRET/NOT AVAILABLE, skip this card on next tick
       if (slotCandidates.length > 0 && bookableSlots.length === 0 && !prefTrain) {
         chosen.setAttribute('data-sarthi-regret', '1');
-        return { state: 'filling', note: 'Train regret hai - agli available train dekh raha hai...' };
+        return { state: 'filling', tatkalStage: 'train_list', note: 'Train regret hai - agli available train dekh raha hai...' };
       }
 
       // Agar IRCTC ka yellow toast "please select class" dikh raha hai to slot abhi select nahi hua — dobara td/pre-avl pe click karo
@@ -2571,26 +2594,26 @@
         var slotClicked = chosen.getAttribute('data-sarthi-slot-clicked') === '1';
         var isSlotSelected = !toastErr && (irctcIsSlotSelected(bestSlot) || (!!chosenBookBtn && slotClicked));
         if (!isSlotSelected) {
-          if (now - slotAt >= 1800 && now - irctcLastActAt >= 1100) {
+          if (now - slotAt >= 600 && now - irctcLastActAt >= 320) {
             irctcLastActAt = now;
             chosen.setAttribute('data-sarthi-slot-at', String(now));
             chosen.setAttribute('data-sarthi-slot-tries', String(slotTries + 1));
             chosen.setAttribute('data-sarthi-slot-clicked', '1');
             mark(bestSlot, GREEN);
             clickLikeUser(irctcClickableChild(bestSlot, false, slotTries % 2 === 1));
-            return { state: 'filling', note: 'Date slot select kiya...' };
+            return { state: 'filling', tatkalStage: 'train_list', note: 'Date slot fast-select kiya...' };
           }
-          return { state: 'filling', note: 'Date slot active hone ka wait...' };
+          return { state: 'filling', tatkalStage: 'train_list', note: 'Date slot active hone ka wait...' };
         }
-        if (chosenBookBtn && now - irctcLastActAt >= 600 && now - irctcBookAt >= 15000) {
+        if (chosenBookBtn && now - irctcLastActAt >= 220 && now - irctcBookAt >= 6500) {
           irctcBookAt = now;
           try { root.sessionStorage.setItem('sarthi_ir_book_at', String(now)); } catch (eB) { /* ignore */ }
           irctcLastActAt = now;
           mark(chosenBookBtn, GREEN);
           clickLikeUser(chosenBookBtn);
-          return { state: 'next', clicked: 'book now', note: 'Book Now dabaya!' };
+          return { state: 'next', clicked: 'book now', tatkalStage: 'train_list', note: 'Book Now fast dabaya!' };
         }
-        return { state: 'filling', note: 'Book Now button activate ho raha hai...' };
+        return { state: 'filling', tatkalStage: 'train_list', note: 'Book Now button activate ho raha hai...' };
       }
 
       // 4) No availability slots open yet in chosen card -> click wanted class tab's inner clickable/Refresh target so Angular catches it!
@@ -2614,16 +2637,16 @@
           pickedTile = pickedTile.closest('.pre-avl') || pickedTile.closest('td, [role="button"], button, a') || pickedTile;
         }
         var clsAt = parseInt(chosen.getAttribute('data-sarthi-cls-at') || '0', 10);
-        if (pickedTile && now - clsAt >= 2600 && now - irctcLastActAt >= 1100) {
+        if (pickedTile && now - clsAt >= 1100 && now - irctcLastActAt >= 320) {
           var tok = irctcClassTokenOf(pickedTile.innerText || '');
           irctcLastActAt = now;
           chosen.setAttribute('data-sarthi-cls-at', String(now));
           chosen.removeAttribute('data-sarthi-slot-at');
           mark(pickedTile, GREEN);
           clickLikeUser(irctcClickableChild(pickedTile, true));
-          return { state: 'filling', note: 'Class (' + tok + ') availability check ho rahi hai...' };
+          return { state: 'filling', tatkalStage: 'train_list', note: 'Class (' + tok + ') Tatkal availability check...' };
         }
-        return { state: 'filling', note: 'Train availability load ho rahi hai...' };
+        return { state: 'filling', tatkalStage: 'train_list', note: 'Train availability load ho rahi hai...' };
       }
     } catch (e) { /* ignore */ }
     return null;
@@ -2705,29 +2728,35 @@
   function irctcAccountPost(data) {
     try {
       if (!/irctc/.test(irHref())) return null;
-      if (!irBookRecent()) return null;
       var pw = irPwInputs();
       if (!pw.length) return null;
+      var hasCreds = !!(String((data && data.loginUserId) || '').trim() && String((data && data.loginPassword) || '').trim());
+      if (!irBookRecent() && !hasCreds) return null;
       var now = Date.now();
-      if (now - irAcctAt < 6000) return { state: 'waiting', note: '' };
-      var hasCreds = !!(String(data.loginUserId || '').trim() && String(data.loginPassword || '').trim());
+      if (now - irAcctAt < 4500) return { state: 'waiting', tatkalStage: 'login_captcha', note: 'Sign In response wait...' };
       var isReg = pw.length >= 2 || /register|signup/.test(irHref());
       if (isReg) {
-        if (!irCaptchaFilled()) return { state: 'user', note: 'CAPTCHA aap dalein, phir Register main dabaunga' };
+        if (!irCaptchaFilled()) {
+          focusSecurityInput();
+          return { state: 'user', hasCaptcha: true, tatkalStage: 'login_captcha', note: 'CAPTCHA aap dalein, phir Register main dabaunga' };
+        }
         var rb = irFindBtn(/^(register|sign ?up|submit|create account)$/);
         if (!rb) return null;
         irAcctAt = now; mark(rb, GREEN); clickLikeUser(rb);
-        return { state: 'next', clicked: 'register', note: 'Account register ho raha hai - OTP aaye to aap dalein' };
+        return { state: 'next', clicked: 'register', tatkalStage: 'login_captcha', note: 'Account register ho raha hai - OTP aaye to aap dalein' };
       }
       // login popup / page
       if (hasCreds) {
         var filled = pw.some(function (p) { return String(p.value || '').trim(); });
         if (!filled) return null;
-        if (!irCaptchaFilled()) return { state: 'user', note: 'CAPTCHA aap dalein, phir Sign In main dabaunga' };
+        if (!irCaptchaFilled()) {
+          focusSecurityInput();
+          return { state: 'user', hasCaptcha: true, tatkalStage: 'login_captcha', note: 'Login ID & Password auto-fill ho chuke! Ab CAPTCHA daalein — AI turant Sign In kar dega.' };
+        }
         var sb = irFindBtn(/^(sign ?in|login|log in)$/);
         if (!sb) return null;
         irAcctAt = now; mark(sb, GREEN); clickLikeUser(sb);
-        return { state: 'next', clicked: 'sign in', note: 'IRCTC login ho raha hai' };
+        return { state: 'next', clicked: 'sign in', tatkalStage: 'passenger', note: 'IRCTC Sign In ho raha hai...' };
       }
       // Login popup: pehle user ko apna ID/password dalne ka mauka do (25 sec). Tab tak kuch nahi, sirf ek baar Register dabega.
       if (data.autoRegister === false) return null;
@@ -2789,34 +2818,34 @@
     });
   }
 
-  // station: type -> list aaye to best option click -> na bane to ArrowDown+Enter
+  // station: fast human-paced typing -> quick poll -> select best match
   function irStation(el, wanted, key, done) {
     var polls = 0;
     function finish() { done(); }
     function verify(cb) {
       setTimeout(function () {
         if (stationValueOk(el.value)) { mark(el, GREEN); finish(); } else cb();
-      }, 700);
+      }, 260);
     }
     function poll() {
       polls++;
       var ac = el.closest ? el.closest('p-autocomplete, .ui-autocomplete, [class*="autocomplete"]') : null;
       var opts = irVisibleOpts(ac);
-      if (!opts.length) { if (polls < 28) { setTimeout(poll, 250); return; } finish(); return; }
+      if (!opts.length) { if (polls < 32) { setTimeout(poll, 95); return; } finish(); return; }
       var best = pickBestOverlayOption(opts, wanted, key, true);
       if (best) {
         clickLikeUser(best);
         verify(function () {
           irSoftFocus(el); irKey(el, 'ArrowDown', 40);
-          setTimeout(function () { irKey(el, 'Enter', 13); verify(finish); }, 250);
+          setTimeout(function () { irKey(el, 'Enter', 13); verify(finish); }, 130);
         });
       } else {
         irSoftFocus(el); irKey(el, 'ArrowDown', 40);
-        setTimeout(function () { irKey(el, 'Enter', 13); verify(finish); }, 250);
+        setTimeout(function () { irKey(el, 'Enter', 13); verify(finish); }, 130);
       }
     }
     irSoftFocus(el);
-    typeTextIncrementally(el, String(wanted), function () { setTimeout(poll, 500); });
+    typeTextIncrementally(el, String(wanted), function () { setTimeout(poll, 170); }, { fast: true });
   }
 
   function irClassRe(w) {
@@ -2853,21 +2882,21 @@
     }
     return null;
   }
-  // p-dropdown: ek baar kholo -> option click -> label verify
+  // p-dropdown: ek baar kholo -> fast option click -> label verify
   function irPickDropdown(host, re, done) {
     var polls = 0;
     clickLikeUser(host);
     function poll() {
       polls++;
       var opts = irVisibleOpts(null);
-      if (!opts.length) { if (polls < 20) { setTimeout(poll, 200); return; } done(); return; }
+      if (!opts.length) { if (polls < 24) { setTimeout(poll, 90); return; } done(); return; }
       var pick = null;
       opts.forEach(function (o) { if (!pick && re.test(norm(o.innerText || o.textContent || ''))) pick = o; });
-      if (!pick) { try { document.body.click(); } catch (e) { /* ignore */ } setTimeout(done, 300); return; }
+      if (!pick) { try { document.body.click(); } catch (e) { /* ignore */ } setTimeout(done, 150); return; }
       clickLikeUser(pick);
-      setTimeout(function () { if (re.test(irDdLabel(host))) mark(host, GREEN); done(); }, 600);
+      setTimeout(function () { if (re.test(irDdLabel(host))) mark(host, GREEN); done(); }, 220);
     }
-    setTimeout(poll, 300);
+    setTimeout(poll, 110);
   }
 
   function irctcSearchFlow(data) {
@@ -2922,12 +2951,12 @@
       var last = 0, n = 0;
       try { last = parseInt(root.sessionStorage.getItem('sarthi_ir_search_at') || '0', 10); n = parseInt(root.sessionStorage.getItem('sarthi_ir_search_n') || '0', 10); } catch (e) { /* ignore */ }
       var now = Date.now();
-      if (now - last < 45000) return { state: 'waiting', note: 'Search ho raha hai...' };
-      if (n >= 3) return { state: 'final', note: 'Search 3 baar dabaya - aap khud Search Trains dabayein' };
+      if (now - last < 45000) return { state: 'waiting', tatkalStage: 'search', note: 'Search ho raha hai...' };
+      if (n >= 3) return { state: 'final', tatkalStage: 'search', note: 'Search 3 baar dabaya - aap khud Search Trains dabayein' };
       try { root.sessionStorage.setItem('sarthi_ir_search_at', String(now)); root.sessionStorage.setItem('sarthi_ir_search_n', String(n + 1)); } catch (e) { /* ignore */ }
       mark(btn, GREEN);
       clickLikeUser(btn);
-      return { state: 'next', clicked: 'search trains', note: 'Search Trains dabaya' };
+      return { state: 'next', clicked: 'search trains', tatkalStage: 'search', note: 'Search Trains dabaya!' };
     } catch (e) { return null; }
   }
 
@@ -2938,15 +2967,103 @@
       var t = norm(((document.body && document.body.innerText) || '').slice(0, 600));
       if (!/sorry.{0,6}please try again/.test(t)) return null;
       var now = Date.now();
-      if (irSorryN >= 3 || now - irSorryAt < 15000) return { state: 'waiting', note: 'IRCTC ne "Sorry Please try again" dikhaya - wait' };
+      if (irSorryN >= 3 || now - irSorryAt < 15000) return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC ne "Sorry Please try again" dikhaya - wait' };
       var b = irFindBtn(/click here to login|click here/);
       if (!b) return null;
       irSorryAt = now; irSorryN++;
       try { root.sessionStorage.removeItem('sarthi_ir_search_at'); } catch (e) { /* ignore */ }
       irFlow.tries = {};
       clickLikeUser(b);
-      return { state: 'next', clicked: 'click here to login', note: 'IRCTC session error - home par wapas (' + irSorryN + '/3). Ab Search dobara chalega' };
+      return { state: 'next', clicked: 'click here to login', tatkalStage: 'search', note: 'IRCTC session error - home par wapas (' + irSorryN + '/3). Ab Search dobara chalega' };
     } catch (e) { return null; }
+  }
+
+  function focusSecurityInput() {
+    try {
+      var candidates = Array.prototype.slice.call(document.querySelectorAll('input, textarea')).filter(function (el) {
+        var tp = (el.type || '').toLowerCase();
+        return !/^(hidden|submit|button|checkbox|radio|file)$/.test(tp) && isVisible(el) && !el.disabled;
+      });
+      var otpEl = candidates.find(function (el) { return classifySecurity(hintOf(el)) === 'otp'; });
+      var capEl = candidates.find(function (el) { return classifySecurity(hintOf(el)) === 'captcha'; });
+      var target = otpEl || capEl || null;
+      if (target) {
+        try { target.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (e) { target.scrollIntoView(); }
+        irSoftFocus(target);
+        mark(target, AMBER);
+        return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+
+  function irctcPaymentScreenCheck() {
+    try {
+      if (!/irctc/.test(irHref())) return null;
+      var href = irHref();
+      var body = norm(((document.body && document.body.innerText) || '').slice(0, 2200));
+      var hasPassengerInputs = Array.prototype.slice.call(document.querySelectorAll('input')).some(function (el) {
+        return isVisible(el) && /passenger|full ?name|\bage\b/.test(hintOf(el));
+      });
+      if (hasPassengerInputs) return null;
+      var payBtn = irFindBtn(/^(pay & book|pay and book|make payment|proceed to pay|pay rs\.?|pay now)/);
+      var isPayUrl = /\/payment|\/bkgpayment|\/pg\b|ipay/.test(href);
+      var hasPaySection = /select payment method|payment options|multiple payment service|irctc ipay|bhim\/upi|net banking|wallets/.test(body) && (!!payBtn || isPayUrl);
+      if (isPayUrl || hasPaySection) {
+        if (payBtn) mark(payBtn, AMBER);
+        return {
+          state: 'user',
+          hasPayment: true,
+          tatkalStage: 'payment',
+          note: 'Payment Checkout ready hai! Apna UPI / Bank chunein aur OTP + Payment confirm karein.'
+        };
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  function irctcPassengerSmartExtras(data) {
+    var added = 0;
+    try {
+      if (!/irctc/.test(irHref())) return 0;
+      // 1) Auto-tick "Consider for Auto Upgradation" checkbox
+      var cbs = Array.prototype.slice.call(document.querySelectorAll('input[type="checkbox"]')).filter(function (c) { return !c.disabled && isVisible(c); });
+      cbs.forEach(function (c) {
+        var h = hintOf(c);
+        if (/auto ?upgrad|consider for auto/.test(h) && !c.checked) {
+          try { c.click(); } catch (e) { c.checked = true; fire(c, ['input', 'change']); }
+          mark(c.parentElement || c, GREEN);
+          added++;
+        }
+      });
+      // 2) Select Payment Mode ("Pay through BHIM/UPI" fastest for Tatkal) & Travel Insurance ("Yes") radios
+      var rds = Array.prototype.slice.call(document.querySelectorAll('input[type="radio"]')).filter(function (r) { return !r.disabled && isVisible(r); });
+      var groups = groupRadios(rds);
+      Object.keys(groups).forEach(function (gk) {
+        var grp = groups[gk];
+        if (grp.some(function (r) { return r.checked; })) return;
+        var optTxt = norm(grp.map(function (r) { return radioLabel(r); }).join(' | '));
+        var ctx = norm(grp.map(function (r) { return ancestorText(r); }).join(' '));
+        if (/bhim|upi|pay through/.test(optTxt)) {
+          var upiR = grp.find(function (r) { return /bhim|upi/.test(radioLabel(r)); }) || grp[0];
+          if (upiR) {
+            try { upiR.click(); } catch (e) { upiR.checked = true; fire(upiR, ['input', 'change']); }
+            mark(upiR.parentElement || upiR, GREEN);
+            added++;
+          }
+          return;
+        }
+        if (/travel insurance|insurance/.test(ctx) && grp.some(function (r) { return /\byes\b|accept/.test(radioLabel(r)); })) {
+          var yesR = grp.find(function (r) { return /\byes\b|accept/.test(radioLabel(r)); });
+          if (yesR) {
+            try { yesR.click(); } catch (e) { yesR.checked = true; fire(yesR, ['input', 'change']); }
+            mark(yesR.parentElement || yesR, GREEN);
+            added++;
+          }
+        }
+      });
+    } catch (e) { /* ignore */ }
+    return added;
   }
 
   function autopilotCore(payload, opts) {
@@ -2955,9 +3072,21 @@
     if (sorry) {
       return { filled: 0, url: root.location ? root.location.href : '', title: document.title || '', hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
                isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sorry.state, clicked: sorry.clicked || '',
-               asks: [], uploads: [], uploadFields: [], done: false, note: sorry.note, profile: 'IRCTC', emptyRequired: 0 };
+               asks: [], uploads: [], uploadFields: [], done: false, note: sorry.note, profile: 'IRCTC', tatkalStage: sorry.tatkalStage || 'blocked', emptyRequired: 0 };
     }
     if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; }
+
+    // Never touch payment confirmation buttons on IRCTC Payment screen — hand over immediately to user!
+    var payCheck = irctcPaymentScreenCheck();
+    if (payCheck) {
+      return {
+        filled: 0, url: root.location ? root.location.href : '', title: document.title || '',
+        hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: true,
+        isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
+        state: 'user', clicked: '', asks: [], uploads: [], uploadFields: [], done: false, irctcHandled: true,
+        note: payCheck.note, profile: 'IRCTC Ticket Booking', tatkalStage: 'payment', emptyRequired: 0
+      };
+    }
 
     // On IRCTC /train-list or confirmation popups: handle train cards FIRST so top "Modify Search" header bar NEVER loops!
     var irStep = irctcTrainListStep(payload || {});
@@ -2969,7 +3098,7 @@
         hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
         isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
         state: irStep.state || 'filling', clicked: irStep.clicked || '', asks: [], uploads: [], uploadFields: [],
-        done: false, irctcHandled: true, note: irStep.note || '', profile: 'IRCTC Ticket Booking', emptyRequired: 0
+        done: false, irctcHandled: true, note: irStep.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: irStep.tatkalStage || 'train_list', emptyRequired: 0
       };
     }
 
@@ -2977,12 +3106,12 @@
     if (sflow) {
       return { filled: 0, url: root.location ? root.location.href : '', title: document.title || '', hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
                isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sflow.state, clicked: sflow.clicked || '',
-               asks: [], uploads: [], uploadFields: [], done: false, note: sflow.note || '', profile: 'IRCTC Ticket Booking', emptyRequired: 0, irctcHandled: true };
+               asks: [], uploads: [], uploadFields: [], done: false, note: sflow.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: 'search', emptyRequired: 0, irctcHandled: true };
     }
     var acctPre = irctcAccountPre(payload);
     var s = run(payload, {});
     var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
-    s.filled += sd.filled;
+    s.filled += sd.filled + irctcPassengerSmartExtras(payload || {});
     s.smartMissing = sd.missing;
     if (sd.unlockedSection && !opts._afterUnlock) {
       setTimeout(function () { try { run(payload || {}, { _afterUnlock: true }); } catch (e) { /* ignore */ } }, 450);
@@ -3010,7 +3139,12 @@
     // IRCTC login / naya account
     var acct = irctcAccountPost(payload || {});
     if (acct) {
-      s.state = acct.state; s.clicked = acct.clicked || ''; s.note = (acct.note || '') + (acctPre ? (acct.note ? ' | ' : '') + acctPre.note : '');
+      s.state = acct.state;
+      s.clicked = acct.clicked || '';
+      s.hasCaptcha = !!acct.hasCaptcha;
+      s.hasPassword = false;
+      if (acct.tatkalStage) s.tatkalStage = acct.tatkalStage;
+      s.note = (acct.note || '') + (acctPre ? (acct.note ? ' | ' : '') + acctPre.note : '');
       s.profile = 'IRCTC Ticket Booking';
       return s;
     }
@@ -3065,13 +3199,36 @@
     }
     fillingTicks = 0;
 
-    if (s.hasCaptcha || s.hasOtp || s.hasPassword || s.hasPayment) { s.state = 'user'; userHold = { sig: pageSig() }; return s; }
+    if (s.hasCaptcha || s.hasOtp || s.hasPassword || s.hasPayment) {
+      focusSecurityInput();
+      if (/irctc/.test(irHref())) {
+        s.tatkalStage = s.hasPayment ? 'payment' : (s.hasOtp ? 'otp' : (/review/i.test(irHref()) || !irPwInputs().length ? 'review_captcha' : 'login_captcha'));
+        if (!s.note) {
+          s.note = s.hasPayment
+            ? 'Payment screen ready hai — UPI / Bank OTP verify karke Ticket Confirm karein.'
+            : (s.hasOtp
+              ? 'OTP daalein — AI baaki details bhar chuka hai.'
+              : 'CAPTCHA screen par hai — sirf CAPTCHA type karein, baaki AI sambhalega.');
+        }
+      }
+      s.state = 'user';
+      userHold = { sig: pageSig() };
+      return s;
+    }
 
     var sig = pageSig();
-    if (sig === lastNextSig && Date.now() - lastNextAt < 10000) { s.state = 'waiting'; return s; }
+    if (sig === lastNextSig && Date.now() - lastNextAt < ((/irctc/.test(irHref())) ? 3500 : 10000)) { s.state = 'waiting'; return s; }
     var t = clickNext();
-    if (t === '__wait__') { s.state = 'waiting'; if (irWaitMsg) s.pending = [irWaitMsg]; return s; }
-    if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; }
+    if (t === '__wait__') {
+      if (/irctc/.test(irHref())) {
+        focusSecurityInput();
+        s.tatkalStage = /please try again/i.test((document.body && document.body.innerText) || '') ? 'blocked' : 'login_captcha';
+      }
+      s.state = 'waiting';
+      if (irWaitMsg) s.pending = [irWaitMsg];
+      return s;
+    }
+    if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; if (/irctc/.test(irHref())) s.tatkalStage = 'passenger'; }
     else { s.state = 'final'; }
     return s;
   }
@@ -3098,7 +3255,7 @@
       var holdAct = otpAssist();
       if (holdAct === 'verify') userHold = null;
       return { state: holdAct === 'verify' ? 'otp' : 'user', otpAction: holdAct, note: holdAct === 'verify' ? 'OTP verify dabaya' : (holdAct === 'send' ? 'OTP bhej diya - aap OTP daal dein' : ''), filled: 0, asks: [], uploads: [], uploadFields: [], done: false, profile: '', needRecipe: false, stuck: null,
-               hasCaptcha: true, hasOtp: false, hasPassword: false, hasPayment: false, needsUser: [], unmatched: [], emptyRequired: 0, url: root.location ? root.location.href : '', title: document.title || '' };
+               hasCaptcha: true, hasOtp: false, hasPassword: false, hasPayment: false, needsUser: [], unmatched: [], emptyRequired: 0, tatkalStage: /irctc/.test(irHref()) ? (/review/i.test(irHref()) ? 'review_captcha' : 'login_captcha') : undefined, url: root.location ? root.location.href : '', title: document.title || '' };
     }
     userHold = null;
     var s = autopilotCore(payload, opts);
@@ -3147,7 +3304,7 @@
       watchTimer = setTimeout(function () {
         watchRuns++;
         try { run(payload, {}); } catch (e) { /* ignore */ }
-      }, 1000);
+      }, (root.location && /irctc/i.test(root.location.href || '')) ? 350 : 900);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
@@ -3170,6 +3327,7 @@
     watch: watch,
     unwatch: unwatch,
     tickDeclarations: tickDeclarations,
+    focusSecurityInput: focusSecurityInput,
     _internal: {
       norm: norm, matchKey: matchKey, classifySecurity: classifySecurity,
       parseDate: parseDate, formatDateForInput: formatDateForInput,

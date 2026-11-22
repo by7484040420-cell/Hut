@@ -6,19 +6,21 @@ import {
   Home,
   Landmark,
   Loader2,
+  Scale,
   Server,
   ShieldCheck,
-  UserCheck,
 } from 'lucide-react';
 import type {
   ApplicationDraft,
   ChatMessage,
+  CscDeskMode,
   EphemeralDocumentExtract,
   PortalBookmark,
   ProfileVault,
   WorkspaceBootstrap,
 } from './types';
 import { HomePortalSection } from './components/HomePortalSection';
+import { CscLegalDeskSection } from './components/CscLegalDeskSection';
 import { DirectorySection } from './components/DirectorySection';
 import { AiAgentSection } from './components/AiAgentSection';
 import { FormStudioSection } from './components/FormStudioSection';
@@ -35,10 +37,12 @@ import {
   setSavedBackendUrl,
 } from './lib/api';
 
-type TabKey = 'home' | 'directory' | 'agent' | 'browser' | 'forms' | 'vault';
+type TabKey = 'home' | 'csc' | 'directory' | 'agent' | 'browser' | 'forms';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('home');
+  const [formsSubTab, setFormsSubTab] = useState<'forms' | 'vault'>('forms');
+  const [queuedCscMode, setQueuedCscMode] = useState<CscDeskMode | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serverOfflineMode, setServerOfflineMode] = useState(false);
@@ -124,7 +128,13 @@ export function App() {
 
   const openDraftInStudio = (draftId: string) => {
     setSelectedDraftId(draftId);
+    setFormsSubTab('forms');
     setActiveTab('forms');
+  };
+
+  const openCscDesk = (mode: CscDeskMode) => {
+    setQueuedCscMode(mode);
+    setActiveTab('csc');
   };
 
   const handleChatUpdate = (messages: ChatMessage[], createdDraft?: ApplicationDraft) => {
@@ -301,16 +311,16 @@ export function App() {
 
   const navItems: { key: TabKey; label: string; shortLabel: string; icon: React.ReactNode }[] = [
     { key: 'home', label: 'Home', shortLabel: 'Home', icon: <Home className="w-4 h-4" /> },
+    { key: 'csc', label: 'CSC & Legal', shortLabel: 'CSC/Court', icon: <Scale className="w-4 h-4" /> },
     { key: 'directory', label: 'Portals', shortLabel: 'Portals', icon: <Landmark className="w-4 h-4" /> },
     { key: 'agent', label: 'AI Agent', shortLabel: 'AI Agent', icon: <Bot className="w-4 h-4" /> },
     { key: 'browser', label: 'Live Browser', shortLabel: 'Browser', icon: <Compass className="w-4 h-4" /> },
     {
       key: 'forms',
-      label: `Forms (${workspace?.applications.length ?? 0})`,
+      label: `Forms & Vault (${workspace?.applications.length ?? 0})`,
       shortLabel: 'Forms',
       icon: <FileSpreadsheet className="w-4 h-4" />,
     },
-    { key: 'vault', label: 'Vault', shortLabel: 'Vault', icon: <UserCheck className="w-4 h-4" /> },
   ];
 
   return (
@@ -438,8 +448,24 @@ export function App() {
                 onWipeEphemeralDocs={handleWipeAllSession}
                 onOpenDirectFormBrowser={openUrlInLiveBrowser}
                 onOpenAiChat={openAiWithPrompt}
-                onOpenFormStudio={() => setActiveTab('forms')}
+                onOpenFormStudio={() => {
+                  setFormsSubTab('forms');
+                  setActiveTab('forms');
+                }}
                 onOpenDirectory={() => setActiveTab('directory')}
+                onOpenCscDesk={openCscDesk}
+              />
+            )}
+
+            {activeTab === 'csc' && (
+              <CscLegalDeskSection
+                profile={workspace.profile}
+                ephemeralDocs={ephemeralDocs}
+                zeroSave={zeroSave}
+                initialMode={queuedCscMode}
+                onConsumeInitialMode={() => setQueuedCscMode(null)}
+                onAddEphemeralDoc={handleAddEphemeralDoc}
+                onOpenBrowser={openUrlInLiveBrowser}
               />
             )}
 
@@ -468,7 +494,10 @@ export function App() {
                 onChatUpdate={handleChatUpdate}
                 onOpenBrowser={openUrlInLiveBrowser}
                 onOpenDraft={openDraftInStudio}
-                onGoToVault={() => setActiveTab('vault')}
+                onGoToVault={() => {
+                  setFormsSubTab('vault');
+                  setActiveTab('forms');
+                }}
               />
             )}
 
@@ -494,25 +523,59 @@ export function App() {
             )}
 
             {activeTab === 'forms' && (
-              <FormStudioSection
-                applications={workspace.applications}
-                selectedId={selectedDraftId}
-                ephemeralDocs={ephemeralDocs}
-                zeroSave={zeroSave}
-                onToggleZeroSave={setZeroSave}
-                onAddEphemeralDoc={handleAddEphemeralDoc}
-                onWipeEphemeralDocs={handleWipeEphemeralDocs}
-                onSelectId={setSelectedDraftId}
-                onApplicationsChange={handleApplicationsChange}
-                onOpenBrowser={openUrlInLiveBrowser}
-              />
-            )}
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-2.5">
+                  <div className="inline-flex items-center gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setFormsSubTab('forms')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                        formsSubTab === 'forms'
+                          ? 'bg-[#0B1120] text-white'
+                          : 'text-slate-700 hover:text-slate-900'
+                      }`}
+                    >
+                      Prepared Forms ({workspace.applications.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormsSubTab('vault')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                        formsSubTab === 'vault'
+                          ? 'bg-[#0B1120] text-white'
+                          : 'text-slate-700 hover:text-slate-900'
+                      }`}
+                    >
+                      Profile Vault
+                    </button>
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    {formsSubTab === 'forms'
+                      ? 'Auto-filled drafts, court/block letters & export'
+                      : 'Permanent citizen profile for Zero-Save OFF mode'}
+                  </span>
+                </div>
 
-            {activeTab === 'vault' && (
-              <ProfileVaultSection
-                profile={workspace.profile}
-                onProfileSaved={handleProfileSaved}
-              />
+                {formsSubTab === 'forms' ? (
+                  <FormStudioSection
+                    applications={workspace.applications}
+                    selectedId={selectedDraftId}
+                    ephemeralDocs={ephemeralDocs}
+                    zeroSave={zeroSave}
+                    onToggleZeroSave={setZeroSave}
+                    onAddEphemeralDoc={handleAddEphemeralDoc}
+                    onWipeEphemeralDocs={handleWipeEphemeralDocs}
+                    onSelectId={setSelectedDraftId}
+                    onApplicationsChange={handleApplicationsChange}
+                    onOpenBrowser={openUrlInLiveBrowser}
+                  />
+                ) : (
+                  <ProfileVaultSection
+                    profile={workspace.profile}
+                    onProfileSaved={handleProfileSaved}
+                  />
+                )}
+              </div>
             )}
           </>
         )}

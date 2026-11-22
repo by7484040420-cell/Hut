@@ -185,8 +185,25 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [localFormAnalysis, setLocalFormAnalysis] = useState<FormPageAnalysis | null>(null);
   const [prewarmingIrctc, setPrewarmingIrctc] = useState(false);
   const [showTatkalBar, setShowTatkalBar] = useState(false);
+  const [tatkalSetupOpen, setTatkalSetupOpen] = useState(false);
+  const [tatkalFrom, setTatkalFrom] = useState(() => profile.preferredDepartureCity || '');
+  const [tatkalTo, setTatkalTo] = useState('');
+  const [tatkalDate, setTatkalDate] = useState(() => {
+    const tomorrow = new Date(Date.now() + 86400000);
+    const dd = String(tomorrow.getDate()).padStart(2, '0');
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mm}/${tomorrow.getFullYear()}`;
+  });
+  const [tatkalClass, setTatkalClass] = useState(() => profile.preferredTrainClass || '3A');
+  const [tatkalQuota, setTatkalQuota] = useState('TATKAL');
+  const [tatkalTrain, setTatkalTrain] = useState('');
+  const [tatkalPassengerName, setTatkalPassengerName] = useState('');
+  const [tatkalPassengerAge, setTatkalPassengerAge] = useState('');
+  const [tatkalPassengerGender, setTatkalPassengerGender] = useState('');
   const [sessionLoginId, setSessionLoginId] = useState('');
   const [sessionLoginPw, setSessionLoginPw] = useState('');
+  const [humanQuickInput, setHumanQuickInput] = useState('');
+  const [submittingHumanQuick, setSubmittingHumanQuick] = useState(false);
   const [istNow, setIstNow] = useState(() => new Date());
   const lastPopupSigRef = useRef<string>('');
 
@@ -901,6 +918,116 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     }
   };
 
+  const buildTatkalEffectiveDocs = (): EphemeralDocumentExtract[] => {
+    const fields: Array<{ key: string; label: string; value: string }> = [];
+    if (tatkalFrom.trim()) fields.push({ key: 'fromStation', label: 'From Station', value: tatkalFrom.trim() });
+    if (tatkalTo.trim()) fields.push({ key: 'toStation', label: 'To Station', value: tatkalTo.trim() });
+    if (tatkalDate.trim()) fields.push({ key: 'journeyDate', label: 'Journey Date', value: tatkalDate.trim() });
+    if (tatkalClass.trim()) fields.push({ key: 'trainClass', label: 'Train Class', value: tatkalClass.trim() });
+    if (tatkalQuota.trim()) fields.push({ key: 'trainQuota', label: 'Train Quota', value: tatkalQuota.trim() });
+    if (tatkalTrain.trim()) fields.push({ key: 'preferredTrain', label: 'Preferred Train', value: tatkalTrain.trim() });
+    if (sessionLoginId.trim()) fields.push({ key: 'loginUserId', label: 'IRCTC User ID', value: sessionLoginId.trim() });
+    if (sessionLoginPw.trim()) fields.push({ key: 'loginPassword', label: 'IRCTC Password', value: sessionLoginPw.trim() });
+    if (tatkalPassengerName.trim()) fields.push({ key: 'fullName', label: 'Passenger Name', value: tatkalPassengerName.trim() });
+    if (tatkalPassengerAge.trim()) fields.push({ key: 'age', label: 'Passenger Age', value: tatkalPassengerAge.trim() });
+    if (tatkalPassengerGender.trim()) fields.push({ key: 'gender', label: 'Gender', value: tatkalPassengerGender.trim() });
+
+    if (fields.length === 0) return ephemeralDocs;
+    const tatkalDoc: EphemeralDocumentExtract = {
+      id: `tatkal-${Date.now()}`,
+      fileName: 'Tatkal Express Session (RAM)',
+      documentType: 'IRCTC Tatkal Session Details',
+      summary: 'Temporary RAM-only Tatkal journey & login details',
+      fields,
+      extractedAt: new Date().toISOString(),
+    };
+    return [tatkalDoc, ...ephemeralDocs];
+  };
+
+  const startTatkalExpress = async () => {
+    setError(null);
+    const docs = buildTatkalEffectiveDocs();
+    const targetUrl = isIrctcActive && status.active && /irctc/i.test(status.url || '')
+      ? undefined
+      : 'https://www.irctc.co.in/nget/train-search';
+    const goal = `IRCTC Tatkal Express Auto-Book (${tatkalFrom || 'Source'} -> ${tatkalTo || 'Dest'}, ${tatkalClass}, ${tatkalQuota}). Login ID/Pass + Passenger + BHIM/UPI select karo; sirf CAPTCHA, OTP aur Payment mere liye roko.`;
+
+    if (!status.tatkalMode && !serverOfflineMode) {
+      await apiFetchJson('/api/live-browser/tatkal-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true }),
+      }).catch(() => {});
+    }
+
+    if (nativeApkMode && serverOfflineMode) {
+      portalLaunchedAtRef.current = Date.now();
+      launchNativeControlledPortal({
+        url: 'https://www.irctc.co.in/nget/train-search',
+        profile,
+        ephemeralDocs: docs,
+        zeroSave,
+        goal,
+      });
+      return;
+    }
+
+    await startLiveAgent(goal, targetUrl, docs);
+  };
+
+  const openTatkalInPhone = () => {
+    const docs = buildTatkalEffectiveDocs();
+    const target =
+      status.url && /irctc/i.test(status.url) && !status.url.startsWith('chrome-error://')
+        ? status.url
+        : 'https://www.irctc.co.in/nget/train-search';
+    if (nativeApkMode) {
+      portalLaunchedAtRef.current = Date.now();
+      launchNativeControlledPortal({
+        url: target,
+        profile,
+        ephemeralDocs: docs,
+        zeroSave,
+        goal: 'IRCTC Tatkal Fast-Track Booking (stop at CAPTCHA, OTP, Payment)',
+      });
+    } else {
+      window.open(target, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleSubmitHumanQuick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submittingHumanQuick || status.tatkalStage === 'payment') return;
+    setSubmittingHumanQuick(true);
+    setError(null);
+    try {
+      const docs = buildTatkalEffectiveDocs();
+      const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
+        '/api/live-browser/tatkal-human-submit',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: humanQuickInput.trim(),
+            clickAction: true,
+            pressEnter: true,
+            goal:
+              agentGoal ||
+              'Continue IRCTC Tatkal Fast-Track booking and stop at CAPTCHA, OTP, or Payment.',
+            zeroSave,
+            ephemeralDocs: docs,
+          }),
+        }
+      );
+      if (data.status) setStatus(data.status);
+      setHumanQuickInput('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to submit CAPTCHA / OTP');
+    } finally {
+      setSubmittingHumanQuick(false);
+    }
+  };
+
   const applySessionCredentialsAndFill = async () => {
     const uid = sessionLoginId.trim();
     const pw = sessionLoginPw.trim();
@@ -1409,47 +1536,197 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             </div>
           )}
 
-          {/* IRCTC Tatkal 10:00 AM AC / 11:00 AM Non-AC Command Bar */}
+          {/* IRCTC Tatkal 10:00 AM AC / 11:00 AM Non-AC Express Command Bar */}
           {isIrctcActive && (
-            <div className="px-3.5 py-2 bg-amber-950 text-amber-50 border-b border-amber-800/70 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 font-bold text-amber-300">
-                  <Clock className="w-3.5 h-3.5" />
-                  IST {istInfo.clock}
-                </span>
-                <span className="px-2 py-0.5 rounded bg-amber-900/90 border border-amber-700/80 font-mono text-[11px]">
-                  AC 10:00 AM: <strong>{istInfo.acCountdown}</strong>
-                </span>
-                <span className="px-2 py-0.5 rounded bg-amber-900/90 border border-amber-700/80 font-mono text-[11px]">
-                  SL 11:00 AM: <strong>{istInfo.slCountdown}</strong>
-                </span>
+            <div className="bg-[#0B1120] text-slate-100 border-b border-amber-500/30 text-xs">
+              <div className="px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 font-bold text-amber-400 tabular-nums">
+                    <Clock className="w-3.5 h-3.5" />
+                    IST {istInfo.clock}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-[11px] tabular-nums">
+                    AC 10:00: <strong className="text-amber-300">{istInfo.acCountdown}</strong>
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono text-[11px] tabular-nums">
+                    SL 11:00: <strong className="text-amber-300">{istInfo.slCountdown}</strong>
+                  </span>
+                  <span className="hidden lg:inline-flex items-center gap-1 text-[11px] text-slate-300 pl-1 border-l border-slate-700">
+                    <span className={status.tatkalStage === 'search' || status.tatkalStage === 'train_list' ? 'text-emerald-400 font-semibold' : ''}>
+                      1. Search
+                    </span>
+                    <span>→</span>
+                    <span className={status.tatkalStage === 'login_captcha' ? 'text-amber-400 font-semibold' : ''}>
+                      2. Login CAPTCHA
+                    </span>
+                    <span>→</span>
+                    <span className={status.tatkalStage === 'passenger' ? 'text-emerald-400 font-semibold' : ''}>
+                      3. Passenger+UPI
+                    </span>
+                    <span>→</span>
+                    <span className={status.tatkalStage === 'review_captcha' || status.tatkalStage === 'otp' || status.tatkalStage === 'payment' ? 'text-amber-400 font-semibold' : ''}>
+                      4. CAPTCHA/OTP/Pay
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTatkalSetupOpen((v) => !v)}
+                    className={`min-h-[30px] px-2.5 rounded-lg font-semibold text-[11px] border whitespace-nowrap shrink-0 transition-colors ${
+                      tatkalSetupOpen
+                        ? 'bg-amber-400 text-slate-950 border-amber-400'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700'
+                    }`}
+                  >
+                    Tatkal Setup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleTatkalMode()}
+                    className={`min-h-[30px] px-2.5 rounded-lg font-semibold text-[11px] whitespace-nowrap shrink-0 transition-colors ${
+                      status.tatkalMode
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                    }`}
+                  >
+                    Turbo: {status.tatkalMode ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={prewarmingIrctc}
+                    onClick={() => void handlePrewarmIrctc()}
+                    className="min-h-[30px] px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0 disabled:opacity-60"
+                  >
+                    {prewarmingIrctc ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Zap className="w-3 h-3 text-amber-400" />
+                    )}
+                    Pre-Warm
+                  </button>
+                  <button
+                    type="button"
+                    disabled={status.agentRunning}
+                    onClick={() => void startTatkalExpress()}
+                    className="min-h-[30px] px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0 disabled:opacity-55"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Tatkal Auto-Book
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openTatkalInPhone}
+                    title="Agar Cloud IP par Akamai 403 block aaye to seedha Phone ke IP par kholein"
+                    className="min-h-[30px] px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                  >
+                    <Smartphone className="w-3 h-3" />
+                    Phone IP
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => void toggleTatkalMode()}
-                  className={`min-h-[28px] px-2.5 rounded-lg font-semibold text-[11px] transition-colors ${
-                    status.tatkalMode
-                      ? 'bg-emerald-500 text-slate-950'
-                      : 'bg-amber-900 hover:bg-amber-800 text-amber-100 border border-amber-700'
-                  }`}
-                >
-                  Tatkal Turbo: {status.tatkalMode ? 'ON' : 'OFF'}
-                </button>
-                <button
-                  type="button"
-                  disabled={prewarmingIrctc}
-                  onClick={() => void handlePrewarmIrctc()}
-                  className="min-h-[28px] px-2.5 rounded-lg bg-white hover:bg-amber-50 text-slate-950 font-bold text-[11px] inline-flex items-center gap-1 disabled:opacity-60"
-                >
-                  {prewarmingIrctc ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <Zap className="w-3 h-3 text-amber-600" />
-                  )}
-                  Pre-Warm IRCTC
-                </button>
-              </div>
+
+              {tatkalSetupOpen && (
+                <div className="px-3.5 py-2.5 bg-slate-900/95 border-t border-slate-800 space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5">
+                    <input
+                      type="text"
+                      value={tatkalFrom}
+                      onChange={(e) => setTatkalFrom(e.target.value.toUpperCase())}
+                      placeholder="From (e.g. NDLS)"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-500"
+                    />
+                    <input
+                      type="text"
+                      value={tatkalTo}
+                      onChange={(e) => setTatkalTo(e.target.value.toUpperCase())}
+                      placeholder="To (e.g. PNBE)"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-500"
+                    />
+                    <input
+                      type="text"
+                      value={tatkalDate}
+                      onChange={(e) => setTatkalDate(e.target.value)}
+                      placeholder="DD/MM/YYYY"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white font-mono placeholder:text-slate-500"
+                    />
+                    <select
+                      value={tatkalClass}
+                      onChange={(e) => setTatkalClass(e.target.value)}
+                      className="min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white"
+                    >
+                      <option value="SL">SL (Sleeper)</option>
+                      <option value="3A">3A (AC 3 Tier)</option>
+                      <option value="3E">3E (AC Economy)</option>
+                      <option value="2A">2A (AC 2 Tier)</option>
+                      <option value="1A">1A (First AC)</option>
+                      <option value="CC">CC (Chair Car)</option>
+                      <option value="2S">2S (2nd Sitting)</option>
+                    </select>
+                    <select
+                      value={tatkalQuota}
+                      onChange={(e) => setTatkalQuota(e.target.value)}
+                      className="min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white"
+                    >
+                      <option value="TATKAL">TATKAL</option>
+                      <option value="PREMIUM TATKAL">PREMIUM TATKAL</option>
+                      <option value="GENERAL">GENERAL</option>
+                      <option value="LADIES">LADIES</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={tatkalTrain}
+                      onChange={(e) => setTatkalTrain(e.target.value)}
+                      placeholder="Train No (Opt)"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-500"
+                    />
+                    <input
+                      type="text"
+                      value={sessionLoginId}
+                      onChange={(e) => setSessionLoginId(e.target.value)}
+                      placeholder="IRCTC User ID"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-500"
+                    />
+                    <input
+                      type="password"
+                      value={sessionLoginPw}
+                      onChange={(e) => setSessionLoginPw(e.target.value)}
+                      placeholder="IRCTC Password"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 items-center">
+                    <input
+                      type="text"
+                      value={tatkalPassengerName}
+                      onChange={(e) => setTatkalPassengerName(e.target.value)}
+                      placeholder={(!zeroSave && profile.fullName) ? `Name: ${profile.fullName}` : 'Passenger Name (RAM)'}
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
+                    />
+                    <input
+                      type="text"
+                      value={tatkalPassengerAge}
+                      onChange={(e) => setTatkalPassengerAge(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                      placeholder="Passenger Age (e.g. 26)"
+                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
+                    />
+                    <select
+                      value={tatkalPassengerGender}
+                      onChange={(e) => setTatkalPassengerGender(e.target.value)}
+                      className="min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white"
+                    >
+                      <option value="">Gender ({(!zeroSave && profile.gender) || 'Auto/Select'})</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Transgender">Other</option>
+                    </select>
+                    <div className="text-[11px] text-slate-300 truncate">
+                      RAM-only · BHIM/UPI &amp; Insurance auto-selected · Stops only at CAPTCHA/OTP/Pay
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1576,15 +1853,15 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             </div>
           )}
 
-          {/* Contextual Alert: Human CAPTCHA/OTP or Requested Documents */}
+          {/* Contextual Alert: Human CAPTCHA/OTP/Payment or Requested Documents */}
           {status.waitingForHuman && status.humanPrompt && missingFields.length === 0 && (
             <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-xs text-amber-950 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
-                  <span className="font-medium">{status.humanPrompt}</span>
+                  <span className="font-semibold">{status.humanPrompt}</span>
                 </div>
-                {latestDoc && onUpdateEphemeralDocField && (
+                {latestDoc && onUpdateEphemeralDocField && !isIrctcActive && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <label className="text-[11px] font-semibold text-amber-900">State:</label>
                     <select
@@ -1604,6 +1881,31 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   </div>
                 )}
               </div>
+
+              {status.tatkalStage !== 'payment' &&
+                (!status.requestedDocuments || status.requestedDocuments.length === 0) && (
+                  <form onSubmit={handleSubmitHumanQuick} className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={humanQuickInput}
+                      onChange={(e) => setHumanQuickInput(e.target.value)}
+                      placeholder="Screen par dikha CAPTCHA ya OTP yahan type karein..."
+                      className="flex-1 min-w-[180px] min-h-[34px] px-3 rounded-lg bg-white border border-amber-300 focus:border-slate-900 focus:outline-none text-xs font-mono text-slate-900 placeholder:text-slate-400"
+                    />
+                    <button
+                      type="submit"
+                      disabled={submittingHumanQuick}
+                      className="min-h-[34px] px-3.5 rounded-lg bg-[#0B1120] hover:bg-slate-800 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                    >
+                      {submittingHumanQuick ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                      )}
+                      {humanQuickInput.trim() ? 'Send CAPTCHA/OTP & Resume AI' : 'Resume Fast AI'}
+                    </button>
+                  </form>
+                )}
 
               {status.requestedDocuments && status.requestedDocuments.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

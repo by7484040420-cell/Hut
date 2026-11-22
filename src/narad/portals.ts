@@ -4,7 +4,8 @@ export const extraHosts = [
   'irctc.co.in', 'mudra.org.in', 'jansamarth.in', 'standupmitra.in', 'licindia.in',
   'sbpdcl.co.in', 'nbpdcl.co.in', 'nta.ac.in', 'nptel.ac.in', 'upmsp.edu.in',
   'slprbassam.in', 'tgprb.in', 'manipurpolice.org', 'ibps.in', 'sbi.co.in', 'rbi.org.in',
-  'cdac.in', 'aiimsexams.ac.in', 'cbse.gov.in', 'uksssc.in', 'amcsscentry.gov.in'
+  'cdac.in', 'aiimsexams.ac.in', 'cbse.gov.in', 'uksssc.in', 'amcsscentry.gov.in',
+  'tele-law.in', 'ecourts.gov.in', 'nalsa.gov.in', 'vcourts.gov.in'
 ];
 
 export function isAllowed(url: string): boolean {
@@ -114,9 +115,28 @@ export const categories: Category[] = [
     tag: 'L',
     color: '#EF6C00',
     links: [
-      { name: 'Bihar Bhumi (Jamabandi, Khasra, Rasid)', url: 'https://biharbhumi.bihar.gov.in', keys: ['bhumi', 'jamabandi', 'khasra', 'lagaan', 'dakhil kharij'], note: 'Bihar Land Records' },
+      { name: 'Bihar Bhumi (Jamabandi, Khasra, Rasid)', url: 'https://biharbhumi.bihar.gov.in/Biharbhumi/', keys: ['bhumi', 'jamabandi', 'khasra', 'lagaan', 'dakhil kharij', 'parimarjan'], note: 'Bihar Land Records' },
       { name: 'UP Bhulekh', url: 'https://upbhulekh.gov.in', keys: ['bhulekh', 'khatauni'], note: 'Uttar Pradesh Land' },
-      { name: 'Jharbhoomi (Jharkhand)', url: 'https://jharbhoomi.nic.in', keys: ['jharbhoomi'], note: 'Jharkhand Land' }
+      { name: 'UP Revenue Court (Vaad / RCCMS)', url: 'https://vaad.up.nic.in', keys: ['vaad', 'revenue court', 'tehsildar'], note: 'UP Revenue Cases' },
+      { name: 'Jharbhoomi (Jharkhand)', url: 'https://jharbhoomi.nic.in', keys: ['jharbhoomi'], note: 'Jharkhand Land' },
+      { name: 'MP Bhulekh', url: 'https://mpbhulekh.gov.in', keys: ['mpbhulekh', 'khasra'], note: 'Madhya Pradesh Land' },
+      { name: 'Bhunaksha Digital Land Map', url: 'https://bhunaksha.gov.in', keys: ['bhunaksha', 'naksha', 'map'], note: 'All States Plot Map' },
+      { name: 'NGDRS Property Registry', url: 'https://ngdrs.gov.in', keys: ['registry', 'deed', 'stamp'], note: 'Online Deed & Appointment' }
+    ]
+  },
+  {
+    name: 'Court & Legal (Wakil)',
+    sub: 'eCourts, Tele-Law, e-Filing',
+    tag: 'C',
+    color: '#B91C1C',
+    links: [
+      { name: 'eCourts India (Case Status & CNR)', url: 'https://services.ecourts.gov.in/ecourtindia_v6/', keys: ['ecourt', 'court', 'case status', 'cnr', 'kachahari'], note: 'Hearing Date & Orders' },
+      { name: 'Tele-Law (CSC Online Wakil Appointment)', url: 'https://www.tele-law.in/', keys: ['telelaw', 'wakil', 'lawyer', 'advocate', 'appointment', 'csc'], note: 'Video Advocate Consult' },
+      { name: 'Nyaya Bandhu (Pro-Bono Advocate)', url: 'https://www.nyayabandhu.doj.gov.in/', keys: ['nyaya bandhu', 'advocate', 'wakil', 'free lawyer'], note: 'Dept. of Justice Connect' },
+      { name: 'eCourts e-Filing 3.0', url: 'https://efiling.ecourts.gov.in/', keys: ['efiling', 'court filing', 'petition', 'vakalatnama'], note: 'Online Case Filing' },
+      { name: 'NALSA Free Legal Aid', url: 'https://nalsa.gov.in/', keys: ['nalsa', 'legal aid', 'free advocate'], note: 'Govt Free Lawyer' },
+      { name: 'Virtual Courts (Traffic / Summary)', url: 'https://vcourts.gov.in/', keys: ['virtual court', 'vcourt', 'challan'], note: 'Online Court Disposal' },
+      { name: 'e-Mulakat (Jail Appointment)', url: 'https://eprisons.nic.in/public/MyVisitRegistration', keys: ['mulakat', 'jail', 'prison'], note: 'Prisoner Meeting Pass' }
     ]
   },
   {

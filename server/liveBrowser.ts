@@ -147,36 +147,42 @@ function buildServerFillPayload(params: {
   }
   const EXPLICIT_DIRECT_KEYS = new Set([
     'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'preferredTrain', 'berthPreference',
-    'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation',
+    'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation', 'age',
     'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent',
     'twelfthBoard', 'twelfthRoll', 'twelfthYear', 'twelfthPercent',
     'aadhaarNumber', 'panNumber', 'passportNumber', 'dlNumber', 'voterId',
   ]);
   const orderedDocs = [...params.ephemeralDocs].sort((a, b) => {
-    const rank = (id: string) => (id === 'user-details' ? 0 : id.startsWith('popup-') ? 1 : 2);
+    const rank = (id: string) => (id.startsWith('tatkal-') ? -1 : id === 'user-details' ? 0 : id.startsWith('popup-') ? 1 : 2);
     return rank(a.id) - rank(b.id);
   });
   for (const doc of orderedDocs) {
+    const isTatkalSessionDoc = doc.id.startsWith('tatkal-');
     const docTypeLower = `${doc.documentType} ${doc.fileName}`.toLowerCase();
     const isTenthDoc = /10th|matric|ssc|high\s*school|class\s*x\b/.test(docTypeLower);
     const isTwelfthDoc = /12th|inter|hsc|senior\s*secondary|class\s*xii/.test(docTypeLower);
+    const assignField = (keyName: string, val: string) => {
+      if (isTatkalSessionDoc) map[keyName] = val;
+      else map[keyName] = map[keyName] || val;
+    };
     for (const f of doc.fields) {
       const k = f.key.trim();
       const v = f.value.trim();
       if (!v) continue;
       if (EXPLICIT_DIRECT_KEYS.has(k)) {
-        map[k] = map[k] || v;
+        assignField(k, v);
       }
       const lower = `${k} ${f.label}`.toLowerCase();
-      if (k === 'fromStation' || lower.includes('from station') || lower.includes('boarding station')) map.fromStation = map.fromStation || v;
-      else if (k === 'toStation' || lower.includes('to station') || lower.includes('destination station')) map.toStation = map.toStation || v;
-      else if (k === 'journeyDate' || lower.includes('journey date') || lower.includes('travel date')) map.journeyDate = map.journeyDate || v;
-      else if (k === 'trainClass' || lower.includes('train class')) map.trainClass = map.trainClass || v;
-      else if (k === 'trainQuota' || lower.includes('quota')) map.trainQuota = map.trainQuota || v;
-      else if (k === 'preferredTrain' || lower.includes('preferred train') || lower.includes('train name') || lower.includes('train number')) map.preferredTrain = map.preferredTrain || v;
-      else if (k === 'berthPreference' || lower.includes('berth')) map.berthPreference = map.berthPreference || v;
-      else if (k === 'loginUserId' || lower.includes('login user') || lower.includes('irctc user')) map.loginUserId = map.loginUserId || v;
-      else if (k === 'loginPassword') map.loginPassword = map.loginPassword || v;
+      if (k === 'fromStation' || lower.includes('from station') || lower.includes('boarding station')) assignField('fromStation', v);
+      else if (k === 'toStation' || lower.includes('to station') || lower.includes('destination station')) assignField('toStation', v);
+      else if (k === 'journeyDate' || lower.includes('journey date') || lower.includes('travel date')) assignField('journeyDate', v);
+      else if (k === 'trainClass' || lower.includes('train class')) assignField('trainClass', v);
+      else if (k === 'trainQuota' || lower.includes('quota')) assignField('trainQuota', v);
+      else if (k === 'preferredTrain' || lower.includes('preferred train') || lower.includes('train name') || lower.includes('train number')) assignField('preferredTrain', v);
+      else if (k === 'berthPreference' || lower.includes('berth')) assignField('berthPreference', v);
+      else if (k === 'loginUserId' || lower.includes('login user') || lower.includes('irctc user')) assignField('loginUserId', v);
+      else if (k === 'loginPassword') assignField('loginPassword', v);
+      else if (k === 'age' || lower === 'passenger age') assignField('age', v);
       else if (k === 'tenthBoard') map.tenthBoard = map.tenthBoard || v;
       else if (k === 'tenthRoll') map.tenthRoll = map.tenthRoll || v;
       else if (k === 'tenthYear') map.tenthYear = map.tenthYear || v;
@@ -186,13 +192,13 @@ function buildServerFillPayload(params: {
       else if (k === 'twelfthYear') map.twelfthYear = map.twelfthYear || v;
       else if (k === 'twelfthPercent') map.twelfthPercent = map.twelfthPercent || v;
       else if (lower.includes('full_name') || lower === 'fullname' || (lower.includes('name') && !lower.includes('father') && !lower.includes('mother') && !lower.includes('school') && !lower.includes('college') && !lower.includes('board'))) {
-        map.fullName = map.fullName || v;
+        assignField('fullName', v);
       } else if (lower.includes('father')) map.fatherName = map.fatherName || v;
       else if (lower.includes('mother')) map.motherName = map.motherName || v;
       else if (lower.includes('dob') || (lower.includes('birth') && lower.includes('date'))) map.dob = map.dob || v;
       else if (lower.includes('birth') && lower.includes('place')) map.birthPlace = map.birthPlace || v;
       else if (lower.includes('blood')) map.bloodGroup = map.bloodGroup || v;
-      else if (lower.includes('gender') || lower.includes('sex')) map.gender = map.gender || v;
+      else if (lower.includes('gender') || lower.includes('sex')) assignField('gender', v);
       else if (lower.includes('category') || lower.includes('caste')) map.category = map.category || v;
       else if (lower.includes('marital')) map.maritalStatus = map.maritalStatus || v;
       else if (lower.includes('mobile') || lower.includes('phone')) map.mobile = map.mobile || v;
@@ -387,6 +393,7 @@ export class LiveBrowserController {
     adBlockEnabled: true,
     blockedAdsCount: 0,
     tatkalMode: false,
+    tatkalStage: 'idle',
     viewportWidth: DESKTOP_WIDTH,
     viewportHeight: DESKTOP_HEIGHT,
     agentRunning: false,
@@ -481,6 +488,13 @@ export class LiveBrowserController {
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-blink-features=AutomationControlled',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-ipc-flooding-protection',
+            `--window-size=${this.status.viewportWidth},${this.status.viewportHeight}`,
+            '--no-first-run',
+            '--no-default-browser-check',
             '--ignore-certificate-errors',
           ],
         });
@@ -512,7 +526,45 @@ export class LiveBrowserController {
       await this.context.addInitScript(() => {
         try {
           Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-          Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en', 'hi'] });
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en-US', 'en', 'hi'] });
+          Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+          if (!navigator.hardwareConcurrency || navigator.hardwareConcurrency < 4) {
+            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+          }
+          const navAny = navigator as unknown as { deviceMemory?: number };
+          if (!navAny.deviceMemory) {
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+          }
+          const winAny = window as unknown as Record<string, unknown>;
+          if (!winAny.chrome) {
+            winAny.chrome = {
+              runtime: {},
+              app: { isInstalled: false },
+              csi: () => ({}),
+              loadTimes: () => ({}),
+            };
+          }
+          if (!navigator.plugins || navigator.plugins.length === 0) {
+            const fakePlugins = [
+              { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+              { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+              { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            ];
+            Object.defineProperty(navigator, 'plugins', { get: () => fakePlugins });
+          }
+          if (window.outerWidth === 0) {
+            Object.defineProperty(window, 'outerWidth', { get: () => window.innerWidth || 1366 });
+            Object.defineProperty(window, 'outerHeight', { get: () => window.innerHeight || 820 });
+          }
+          if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+            const origQuery = navigator.permissions.query.bind(navigator.permissions);
+            navigator.permissions.query = (desc: PermissionDescriptor) => {
+              if (desc && desc.name === 'notifications') {
+                return Promise.resolve({ state: 'denied', onchange: null } as unknown as PermissionStatus);
+              }
+              return origQuery(desc);
+            };
+          }
           // Silence annoying notification permission popups on sarkari/news sites
           if (typeof Notification !== 'undefined') {
             Object.defineProperty(Notification, 'permission', { get: () => 'denied' });
@@ -541,7 +593,7 @@ export class LiveBrowserController {
           await route.abort();
           return;
         }
-        // Tatkal Turbo filter: drop heavy decorative fonts/media/video & third-party promo banners while preserving ALL core API calls, scripts, CSS, and CAPTCHA images
+        // Tatkal Turbo filter: drop heavy decorative fonts/media/video, chatbots (AskDisha/Corover), & promo banners while preserving ALL core APIs, scripts, CSS, and CAPTCHA images
         if (this.status.tatkalMode) {
           const rtype = req.resourceType();
           const lower = reqUrl.toLowerCase();
@@ -549,10 +601,14 @@ export class LiveBrowserController {
             await route.abort();
             return;
           }
+          if (/askdisha|corover|chatbot|livechat|youtube\.com|vimeo\.com/.test(lower) && !/captcha|nlpcaptcha/.test(lower)) {
+            await route.abort();
+            return;
+          }
           if (
             rtype === 'image' &&
             !/captcha|nlpcaptcha|qr|barcode/.test(lower) &&
-            (/banner|promo|slider|carousel|dishav|askdisha|youtube|vimeo/.test(lower) ||
+            (/banner|promo|slider|carousel|dishav|askdisha|youtube|vimeo|irctctourism|tourism/.test(lower) ||
               (!isIrctcUrl(lower) && !lower.startsWith('data:')))
           ) {
             await route.abort();
@@ -625,6 +681,20 @@ export class LiveBrowserController {
       this.status.title = await page.title().catch(() => this.status.url);
       this.broadcastStatus();
       await this.captureAndBroadcastFrame();
+    });
+
+    page.on('response', (resp) => {
+      if (this.page !== page || page.isClosed()) return;
+      const rUrl = resp.url();
+      if (resp.status() === 403 && isIrctcUrl(rUrl) && /eticketing\/web-services|nget\/train-search/i.test(rUrl)) {
+        this.agentAbort = true;
+        this.status.agentRunning = false;
+        this.status.tatkalStage = 'blocked';
+        this.status.blockedReason =
+          'IRCTC (Akamai) ne is Cloud Server IP ke API request ko 403 Access Denied diya hai — repeat retry se permanent IP block na ho isliye AI ruk gaya hai. Phone / Native App Browser button dabakar seedha apne phone IP par kholein!';
+        this.appendLog('Stopped immediately on IRCTC 403 to prevent rate-limit lock.');
+        this.broadcastStatus();
+      }
     });
   }
 
@@ -863,13 +933,18 @@ export class LiveBrowserController {
   async prewarmIrctc(): Promise<LiveBrowserStatus> {
     this.tatkalManualOverride = true;
     this.status.tatkalMode = true;
-    this.status.agentStatus = 'Pre-warming IRCTC Tatkal session...';
+    this.status.tatkalStage = 'prewarm';
+    this.status.agentStatus = 'Pre-warming IRCTC Tatkal session (TLS + Cookies)...';
     this.appendLog('Pre-warming IRCTC NGET session with Tatkal Turbo Mode...');
     this.broadcastStatus();
     const st = await this.navigate('https://www.irctc.co.in/nget/train-search');
     if (!st.blockedReason) {
-      this.status.agentStatus = 'IRCTC Tatkal Session Ready! Ab Login + Search tayyar rakhein.';
-      this.appendLog('IRCTC session warmed & advisory dismissed.');
+      this.status.tatkalStage = 'search';
+      this.status.agentStatus = 'IRCTC Tatkal Session Warm & Ready! Ab Search/Login run karein.';
+      this.appendLog('IRCTC session warmed, cookies live & advisory dismissed.');
+      this.broadcastStatus();
+    } else {
+      this.status.tatkalStage = 'blocked';
       this.broadcastStatus();
     }
     return this.getStatus();
@@ -906,6 +981,7 @@ export class LiveBrowserController {
       adBlockEnabled: this.status.adBlockEnabled,
       blockedAdsCount: 0,
       tatkalMode: false,
+      tatkalStage: 'idle',
       viewportWidth: this.status.viewportWidth,
       viewportHeight: this.status.viewportHeight,
       agentRunning: false,
@@ -1225,6 +1301,341 @@ export class LiveBrowserController {
     return null;
   }
 
+  private async runTatkalFastTrackLoop(params: {
+    goal: string;
+    profile: ProfileVault;
+    ephemeralDocs?: EphemeralDocumentExtract[];
+    zeroSave?: boolean;
+  }): Promise<'paused' | 'done' | 'fallback_vision'> {
+    const engineSource = loadFillEngineSource();
+    if (!engineSource) return 'fallback_vision';
+
+    const payload = buildServerFillPayload({
+      profile: params.profile,
+      ephemeralDocs: params.ephemeralDocs || [],
+      zeroSave: Boolean(params.zeroSave),
+      goal: params.goal,
+    });
+
+    const maxTicks = 75;
+    let consecutiveStuck = 0;
+
+    for (let tick = 1; tick <= maxTicks; tick++) {
+      if (this.agentAbort || this.status.blockedReason) {
+        return 'paused';
+      }
+
+      const page = await this.ensurePage();
+      await this.dismissAdvisoryPopup(page).catch(() => false);
+
+      const frames = this.getAccessibleFrames(page);
+      type TatkalFastSummary = {
+        state?: string;
+        clicked?: string;
+        note?: string;
+        filled?: number;
+        hasCaptcha?: boolean;
+        hasOtp?: boolean;
+        hasPassword?: boolean;
+        hasPayment?: boolean;
+        tatkalStage?: LiveBrowserStatus['tatkalStage'];
+        missingFields?: MissingFormField[];
+        filledItems?: Array<{ id: string; tag: string; type: string; value: string }>;
+        done?: boolean;
+        stuck?: unknown;
+        irctcHandled?: boolean;
+      };
+      let bestSummary: TatkalFastSummary | null = null;
+      let activeFrame: Frame = frames[0];
+
+      for (const frame of frames) {
+        try {
+          await frame.evaluate((src: string) => {
+            const w = window as unknown as { SarthiFill?: unknown };
+            if (!w.SarthiFill) {
+              // eslint-disable-next-line no-eval
+              (0, eval)(src);
+            }
+          }, engineSource);
+
+          const res = await frame.evaluate(
+            ({ pl, isReset }: { pl: Record<string, string>; isReset: boolean }) => {
+              const w = window as unknown as {
+                SarthiFill: {
+                  autopilot: (
+                    p: Record<string, string>,
+                    o?: Record<string, unknown>
+                  ) => {
+                    state?: string;
+                    clicked?: string;
+                    note?: string;
+                    filled?: number;
+                    hasCaptcha?: boolean;
+                    hasOtp?: boolean;
+                    hasPassword?: boolean;
+                    hasPayment?: boolean;
+                    tatkalStage?: string;
+                    missingFields?: MissingFormField[];
+                    filledItems?: Array<{ id: string; tag: string; type: string; value: string }>;
+                    done?: boolean;
+                    stuck?: unknown;
+                    irctcHandled?: boolean;
+                  };
+                };
+              };
+              return w.SarthiFill.autopilot(pl, { reset: isReset, tatkalFast: true });
+            },
+            { pl: payload, isReset: tick === 1 }
+          );
+
+          if (res && (res.irctcHandled || res.hasCaptcha || res.hasOtp || res.hasPayment || (res.filled || 0) > 0 || res.clicked || !bestSummary)) {
+            bestSummary = res as TatkalFastSummary;
+            activeFrame = frame;
+            if (res.irctcHandled || res.hasCaptcha || res.hasOtp || res.hasPayment) break;
+          }
+        } catch {
+          // frame navigating or cross-origin
+        }
+      }
+
+      if (!bestSummary) {
+        await page.waitForTimeout(240);
+        continue;
+      }
+
+      // Apply fast trusted fills ONLY when native setter values weren't already retained cleanly
+      if (bestSummary.filledItems && bestSummary.filledItems.length > 0) {
+        for (const item of bestSummary.filledItems) {
+          if (!item?.id || !item.value) continue;
+          try {
+            const loc = activeFrame.locator(`[data-sarthi-id="${item.id}"]`).first();
+            if ((await loc.count()) === 0) continue;
+            if (item.tag === 'select') {
+              const cur = await loc.inputValue({ timeout: 250 }).catch(() => '');
+              if (!cur) {
+                await loc.selectOption({ label: item.value }, { timeout: 700 }).catch(() => loc.selectOption(item.value, { timeout: 700 })).catch(() => {});
+              }
+            } else {
+              const cur = await loc.inputValue({ timeout: 250 }).catch(() => '');
+              if (cur !== item.value) {
+                await loc.fill(item.value, { timeout: 700 }).catch(() => {});
+                await loc.dispatchEvent('input').catch(() => {});
+                await loc.dispatchEvent('change').catch(() => {});
+              }
+            }
+          } catch {
+            // already populated by SarthiFill DOM engine
+          }
+        }
+      }
+
+      this.status.url = page.url();
+      this.status.title = await page.title().catch(() => this.status.url);
+      if (bestSummary.tatkalStage) {
+        this.status.tatkalStage = bestSummary.tatkalStage;
+      }
+      if (bestSummary.filled) {
+        this.status.filledCount = (this.status.filledCount || 0) + bestSummary.filled;
+      }
+      if (bestSummary.note) {
+        this.status.agentStatus = bestSummary.note;
+        if (this.status.lastStepLogs[this.status.lastStepLogs.length - 1] !== bestSummary.note) {
+          this.appendLog(bestSummary.note);
+        }
+      }
+
+      // 1) Missing required fields (e.g. Login ID/Password or missing passenger age) -> popup immediately
+      if (bestSummary.missingFields && bestSummary.missingFields.length > 0) {
+        this.status.missingFields = bestSummary.missingFields;
+        this.status.agentRunning = false;
+        this.status.waitingForHuman = true;
+        this.status.humanPrompt =
+          bestSummary.note ||
+          `${bestSummary.missingFields.length} detail(s) chahiye — turant enter karein taaki Tatkal fast aage badhe.`;
+        this.status.agentStatus = `Details needed (${bestSummary.missingFields.length})`;
+        this.broadcastStatus();
+        await this.captureAndBroadcastFrame();
+        return 'paused';
+      }
+
+      // 2) Human-only stage: CAPTCHA / OTP / Payment -> Pause cleanly & focus box!
+      const isTransitioning = bestSummary.state === 'next' || bestSummary.state === 'waiting';
+      const isSecurityHold =
+        bestSummary.hasPayment ||
+        bestSummary.tatkalStage === 'payment' ||
+        bestSummary.state === 'user' ||
+        (!isTransitioning &&
+          (bestSummary.hasCaptcha ||
+            bestSummary.hasOtp ||
+            bestSummary.tatkalStage === 'login_captcha' ||
+            bestSummary.tatkalStage === 'review_captcha'));
+
+      if (isSecurityHold) {
+        this.status.agentRunning = false;
+        this.status.waitingForHuman = true;
+        this.status.requestedDocuments = [];
+        const stagePrompt = bestSummary.hasPayment || bestSummary.tatkalStage === 'payment'
+          ? 'Payment Checkout Ready! UPI / Bank OTP complete karke Ticket Confirm karein.'
+          : bestSummary.hasOtp
+          ? 'OTP enter karein (niche Quick Box ya screen par) — AI Verify karke aage badhega.'
+          : bestSummary.note || 'CAPTCHA screen par hai — Quick CAPTCHA Box me likh kar Enter dabayein.';
+        this.status.humanPrompt = stagePrompt;
+        this.status.agentStatus =
+          bestSummary.hasPayment || bestSummary.tatkalStage === 'payment'
+            ? 'Payment Ready (User Confirmation)'
+            : bestSummary.hasOtp
+            ? 'Waiting for OTP (User)'
+            : 'Waiting for CAPTCHA (User)';
+        this.broadcastStatus();
+        await this.captureAndBroadcastFrame();
+        return 'paused';
+      }
+
+      if (bestSummary.done) {
+        this.status.agentRunning = false;
+        this.status.waitingForHuman = false;
+        this.status.agentStatus = 'Booking flow completed — verify confirmation!';
+        this.broadcastStatus();
+        await this.captureAndBroadcastFrame();
+        return 'done';
+      }
+
+      if (bestSummary.stuck) {
+        consecutiveStuck += 1;
+        if (consecutiveStuck >= 2 && isGeminiConfigured()) {
+          this.appendLog('Tatkal fast-track encountered unfamiliar dialog — switching to 1-step AI Vision check...');
+          return 'fallback_vision';
+        }
+      } else {
+        consecutiveStuck = 0;
+      }
+
+      this.broadcastStatus();
+      if (tick % 3 === 1 || bestSummary.clicked || bestSummary.state === 'next') {
+        await this.captureAndBroadcastFrame();
+      }
+      await page.waitForTimeout(bestSummary.state === 'waiting' ? 520 : 210);
+    }
+
+    return 'paused';
+  }
+
+  async submitHumanInputAndResume(params: {
+    text: string;
+    pressEnter?: boolean;
+    clickAction?: boolean;
+    goal: string;
+    profile: ProfileVault;
+    ephemeralDocs?: EphemeralDocumentExtract[];
+    zeroSave?: boolean;
+  }): Promise<LiveBrowserStatus> {
+    const page = await this.ensurePage();
+    const val = String(params.text || '').trim();
+
+    if (val) {
+      const frames = this.getAccessibleFrames(page);
+      let typed = false;
+      for (const frame of frames) {
+        try {
+          const hit = await frame.evaluate(() => {
+            const els = Array.from(document.querySelectorAll('input, textarea')) as HTMLInputElement[];
+            let otp: HTMLInputElement | null = null;
+            let cap: HTMLInputElement | null = null;
+            for (const el of els) {
+              if (el.disabled) continue;
+              const st = window.getComputedStyle(el);
+              if (st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') continue;
+              const r = el.getBoundingClientRect();
+              if (r.width <= 12 || r.height <= 12) continue;
+              const hint = `${el.getAttribute('name') || ''} ${el.getAttribute('id') || ''} ${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''}`.toLowerCase();
+              if (!otp && /\botp\b|one time|mpin/.test(hint)) otp = el;
+              if (!cap && /captcha|security code|verification code/.test(hint)) cap = el;
+            }
+            const target = otp || cap || (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') ? (document.activeElement as HTMLInputElement) : null);
+            if (!target) return false;
+            target.setAttribute('data-sarthi-human-target', '1');
+            return true;
+          });
+          if (hit) {
+            const loc = frame.locator('[data-sarthi-human-target="1"]').first();
+            await loc.click({ timeout: 1000 }).catch(() => {});
+            await loc.fill('', { timeout: 600 }).catch(() => {});
+            await loc.pressSequentially(val, { delay: 16, timeout: 2500 }).catch(async () => {
+              await loc.fill(val, { timeout: 800 }).catch(() => {});
+            });
+            await frame.evaluate(() => {
+              document.querySelectorAll('[data-sarthi-human-target="1"]').forEach((n) => n.removeAttribute('data-sarthi-human-target'));
+            }).catch(() => {});
+            typed = true;
+            break;
+          }
+        } catch {
+          // try next frame
+        }
+      }
+      if (!typed) {
+        await page.keyboard.type(val, { delay: 16 }).catch(() => {});
+      }
+    }
+
+    if (params.clickAction !== false) {
+      // Safe non-payment submit/continue click (SIGN IN / VERIFY / CONTINUE — strictly blocks Pay Now / Checkout!)
+      const frames = this.getAccessibleFrames(page);
+      for (const frame of frames) {
+        try {
+          const btnHit = await frame.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a[role="button"]')) as HTMLElement[];
+            document.querySelectorAll('[data-sarthi-safe-submit]').forEach((n) => n.removeAttribute('data-sarthi-safe-submit'));
+            const noPayRe = /pay now|make payment|proceed to pay|pay & book|pay and book|confirm booking|checkout|final submit/i;
+            const okRe = /^(sign ?in|login|log in|verify( otp)?|submit|continue|proceed|next)$/i;
+            for (const b of btns) {
+              if ((b as HTMLButtonElement).disabled) continue;
+              const st = window.getComputedStyle(b);
+              if (st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') continue;
+              const r = b.getBoundingClientRect();
+              if (r.width <= 12 || r.height <= 12) continue;
+              const txt = (b.innerText || (b as HTMLInputElement).value || '').replace(/\s+/g, ' ').trim();
+              if (!txt || noPayRe.test(txt)) continue;
+              if (okRe.test(txt)) {
+                b.setAttribute('data-sarthi-safe-submit', '1');
+                return txt;
+              }
+            }
+            return null;
+          });
+          if (btnHit) {
+            await frame.locator('[data-sarthi-safe-submit="1"]').first().click({ timeout: 1500 }).catch(() => {});
+            await frame.evaluate(() => {
+              document.querySelectorAll('[data-sarthi-safe-submit]').forEach((n) => n.removeAttribute('data-sarthi-safe-submit'));
+            }).catch(() => {});
+            this.appendLog(`CAPTCHA/OTP submitted (${btnHit}) — Resuming Fast-Track AI...`);
+            break;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    } else if (params.pressEnter) {
+      await page.keyboard.press('Enter').catch(() => {});
+    }
+
+    this.status.waitingForHuman = false;
+    this.status.humanPrompt = null;
+    await page.waitForTimeout(450);
+    await this.captureAndBroadcastFrame();
+
+    if (this.status.tatkalStage !== 'payment') {
+      void this.startAgentLoop({
+        goal: params.goal || 'Complete IRCTC Tatkal Fast-Track booking and stop at CAPTCHA/OTP/Payment.',
+        profile: params.profile,
+        ephemeralDocs: params.ephemeralDocs,
+        zeroSave: params.zeroSave,
+      });
+    }
+
+    return this.getStatus();
+  }
+
   async startAgentLoop(params: {
     goal: string;
     startUrl?: string;
@@ -1241,7 +1652,7 @@ export class LiveBrowserController {
     this.status.waitingForHuman = false;
     this.status.humanPrompt = null;
     this.status.requestedDocuments = [];
-    this.status.agentStatus = 'Starting Universal OCR + AI Vision Autopilot...';
+    this.status.agentStatus = 'Starting Sarthi Fast-Track Copilot...';
     this.status.lastStepLogs = [`Goal: ${params.goal}`];
     this.broadcastStatus();
 
@@ -1255,6 +1666,7 @@ export class LiveBrowserController {
 
       if (this.status.blockedReason) {
         this.status.agentRunning = false;
+        this.status.tatkalStage = 'blocked';
         this.status.agentStatus = 'Portal Cloud IP blocked — Open in Phone / Native App Browser.';
         this.appendLog(this.status.blockedReason);
         this.broadcastStatus();
@@ -1262,6 +1674,17 @@ export class LiveBrowserController {
       }
 
       await this.dismissAdvisoryPopup(page);
+
+      // TATKAL EXPRESS FAST-TRACK: Zero-LLM-delay sub-second deterministic automation on IRCTC / Tatkal Turbo Mode!
+      if (isIrctcUrl(page.url()) || this.status.tatkalMode) {
+        this.status.agentStatus = 'Tatkal Fast-Track Active (Sub-Second Execution)...';
+        this.appendLog('Tatkal Express Fast-Track engaged (zero Vision-LLM latency).');
+        this.broadcastStatus();
+        const fastOutcome = await this.runTatkalFastTrackLoop(params);
+        if (fastOutcome !== 'fallback_vision') {
+          return;
+        }
+      }
 
       const maxSteps = 35;
       for (let step = 1; step <= maxSteps; step++) {
