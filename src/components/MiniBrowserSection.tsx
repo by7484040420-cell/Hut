@@ -24,6 +24,7 @@ import {
   MoreVertical,
   PanelRightClose,
   PanelRightOpen,
+  Plus,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -197,9 +198,10 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const [tatkalClass, setTatkalClass] = useState(() => profile.preferredTrainClass || '3A');
   const [tatkalQuota, setTatkalQuota] = useState('TATKAL');
   const [tatkalTrain, setTatkalTrain] = useState('');
-  const [tatkalPassengerName, setTatkalPassengerName] = useState('');
-  const [tatkalPassengerAge, setTatkalPassengerAge] = useState('');
-  const [tatkalPassengerGender, setTatkalPassengerGender] = useState('');
+  const [tatkalPassengers, setTatkalPassengers] = useState<
+    Array<{ name: string; age: string; gender: string; berth: string }>
+  >([{ name: '', age: '', gender: '', berth: '' }]);
+  const [tatkalMobile, setTatkalMobile] = useState('');
   const [sessionLoginId, setSessionLoginId] = useState('');
   const [sessionLoginPw, setSessionLoginPw] = useState('');
   const [humanQuickInput, setHumanQuickInput] = useState('');
@@ -926,18 +928,36 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     if (tatkalClass.trim()) fields.push({ key: 'trainClass', label: 'Train Class', value: tatkalClass.trim() });
     if (tatkalQuota.trim()) fields.push({ key: 'trainQuota', label: 'Train Quota', value: tatkalQuota.trim() });
     if (tatkalTrain.trim()) fields.push({ key: 'preferredTrain', label: 'Preferred Train', value: tatkalTrain.trim() });
+    if (tatkalMobile.trim()) fields.push({ key: 'mobile', label: 'Mobile Number', value: tatkalMobile.trim() });
     if (sessionLoginId.trim()) fields.push({ key: 'loginUserId', label: 'IRCTC User ID', value: sessionLoginId.trim() });
     if (sessionLoginPw.trim()) fields.push({ key: 'loginPassword', label: 'IRCTC Password', value: sessionLoginPw.trim() });
-    if (tatkalPassengerName.trim()) fields.push({ key: 'fullName', label: 'Passenger Name', value: tatkalPassengerName.trim() });
-    if (tatkalPassengerAge.trim()) fields.push({ key: 'age', label: 'Passenger Age', value: tatkalPassengerAge.trim() });
-    if (tatkalPassengerGender.trim()) fields.push({ key: 'gender', label: 'Gender', value: tatkalPassengerGender.trim() });
+
+    tatkalPassengers.slice(0, 4).forEach((pax, idx) => {
+      const n = idx + 1;
+      if (pax.name.trim()) {
+        fields.push({ key: `passenger${n}Name`, label: `Passenger ${n} Name`, value: pax.name.trim() });
+        if (n === 1) fields.push({ key: 'fullName', label: 'Passenger Name', value: pax.name.trim() });
+      }
+      if (pax.age.trim()) {
+        fields.push({ key: `passenger${n}Age`, label: `Passenger ${n} Age`, value: pax.age.trim() });
+        if (n === 1) fields.push({ key: 'age', label: 'Passenger Age', value: pax.age.trim() });
+      }
+      if (pax.gender.trim()) {
+        fields.push({ key: `passenger${n}Gender`, label: `Passenger ${n} Gender`, value: pax.gender.trim() });
+        if (n === 1) fields.push({ key: 'gender', label: 'Gender', value: pax.gender.trim() });
+      }
+      if (pax.berth.trim()) {
+        fields.push({ key: `passenger${n}Berth`, label: `Passenger ${n} Berth`, value: pax.berth.trim() });
+        if (n === 1) fields.push({ key: 'berthPreference', label: 'Berth Preference', value: pax.berth.trim() });
+      }
+    });
 
     if (fields.length === 0) return ephemeralDocs;
     const tatkalDoc: EphemeralDocumentExtract = {
       id: `tatkal-${Date.now()}`,
       fileName: 'Tatkal Express Session (RAM)',
       documentType: 'IRCTC Tatkal Session Details',
-      summary: 'Temporary RAM-only Tatkal journey & login details',
+      summary: 'Temporary RAM-only Tatkal journey & passenger details',
       fields,
       extractedAt: new Date().toISOString(),
     };
@@ -975,24 +995,21 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     await startLiveAgent(goal, targetUrl, docs);
   };
 
-  const openTatkalInPhone = () => {
+  const tatkalPhoneTargetUrl =
+    status.url && /irctc/i.test(status.url) && !status.url.startsWith('chrome-error://')
+      ? status.url
+      : 'https://www.irctc.co.in/nget/train-search';
+
+  const openTatkalInPhoneBridge = () => {
     const docs = buildTatkalEffectiveDocs();
-    const target =
-      status.url && /irctc/i.test(status.url) && !status.url.startsWith('chrome-error://')
-        ? status.url
-        : 'https://www.irctc.co.in/nget/train-search';
-    if (nativeApkMode) {
-      portalLaunchedAtRef.current = Date.now();
-      launchNativeControlledPortal({
-        url: target,
-        profile,
-        ephemeralDocs: docs,
-        zeroSave,
-        goal: 'IRCTC Tatkal Fast-Track Booking (stop at CAPTCHA, OTP, Payment)',
-      });
-    } else {
-      window.open(target, '_blank', 'noopener,noreferrer');
-    }
+    portalLaunchedAtRef.current = Date.now();
+    launchNativeControlledPortal({
+      url: tatkalPhoneTargetUrl,
+      profile,
+      ephemeralDocs: docs,
+      zeroSave,
+      goal: 'IRCTC Tatkal Fast-Track Booking (stop at CAPTCHA, OTP, Payment)',
+    });
   };
 
   const handleSubmitHumanQuick = async (e: React.FormEvent) => {
@@ -1615,15 +1632,28 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                     <Sparkles className="w-3 h-3" />
                     Tatkal Auto-Book
                   </button>
-                  <button
-                    type="button"
-                    onClick={openTatkalInPhone}
-                    title="Agar Cloud IP par Akamai 403 block aaye to seedha Phone ke IP par kholein"
-                    className="min-h-[30px] px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                  >
-                    <Smartphone className="w-3 h-3" />
-                    Phone IP
-                  </button>
+                  {nativeApkMode ? (
+                    <button
+                      type="button"
+                      onClick={openTatkalInPhoneBridge}
+                      title="Agar Cloud IP par Akamai 403 block aaye to seedha Phone ke IP par kholein"
+                      className="min-h-[30px] px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                    >
+                      <Smartphone className="w-3 h-3" />
+                      Phone IP
+                    </button>
+                  ) : (
+                    <a
+                      href={tatkalPhoneTargetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Agar Cloud IP par Akamai 403 block aaye to seedha Phone ke IP par kholein"
+                      className="min-h-[30px] px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                    >
+                      <Smartphone className="w-3 h-3" />
+                      Phone IP
+                    </a>
+                  )}
                 </div>
               </div>
 
@@ -1696,33 +1726,132 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                       className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-500"
                     />
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 items-center">
-                    <input
-                      type="text"
-                      value={tatkalPassengerName}
-                      onChange={(e) => setTatkalPassengerName(e.target.value)}
-                      placeholder={(!zeroSave && profile.fullName) ? `Name: ${profile.fullName}` : 'Passenger Name (RAM)'}
-                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
-                    />
-                    <input
-                      type="text"
-                      value={tatkalPassengerAge}
-                      onChange={(e) => setTatkalPassengerAge(e.target.value.replace(/\D/g, '').slice(0, 3))}
-                      placeholder="Passenger Age (e.g. 26)"
-                      className="min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
-                    />
-                    <select
-                      value={tatkalPassengerGender}
-                      onChange={(e) => setTatkalPassengerGender(e.target.value)}
-                      className="min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white"
-                    >
-                      <option value="">Gender ({(!zeroSave && profile.gender) || 'Auto/Select'})</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Transgender">Other</option>
-                    </select>
-                    <div className="text-[11px] text-slate-300 truncate">
-                      RAM-only · BHIM/UPI &amp; Insurance auto-selected · Stops only at CAPTCHA/OTP/Pay
+                  <div className="space-y-1.5">
+                    {tatkalPassengers.map((pax, idx) => (
+                      <div key={idx} className="grid grid-cols-2 sm:grid-cols-12 gap-1.5 items-center">
+                        <input
+                          type="text"
+                          value={pax.name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setTatkalPassengers((prev) =>
+                              prev.map((row, i) => (i === idx ? { ...row, name: val } : row))
+                            );
+                          }}
+                          placeholder={
+                            idx === 0 && !zeroSave && profile.fullName
+                              ? `Passenger 1: ${profile.fullName}`
+                              : `Passenger ${idx + 1} Name (RAM)`
+                          }
+                          className="sm:col-span-4 min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
+                        />
+                        <input
+                          type="text"
+                          value={pax.age}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '').slice(0, 3);
+                            setTatkalPassengers((prev) =>
+                              prev.map((row, i) => (i === idx ? { ...row, age: val } : row))
+                            );
+                          }}
+                          placeholder="Age (e.g. 26)"
+                          className="sm:col-span-2 min-h-[32px] px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white placeholder:text-slate-400"
+                        />
+                        <select
+                          value={pax.gender}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setTatkalPassengers((prev) =>
+                              prev.map((row, i) => (i === idx ? { ...row, gender: val } : row))
+                            );
+                          }}
+                          className="sm:col-span-2 min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white"
+                        >
+                          <option value="">
+                            Gender ({idx === 0 && !zeroSave && profile.gender ? profile.gender : 'Select'})
+                          </option>
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Transgender">Other</option>
+                        </select>
+                        <select
+                          value={pax.berth}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setTatkalPassengers((prev) =>
+                              prev.map((row, i) => (i === idx ? { ...row, berth: val } : row))
+                            );
+                          }}
+                          className="sm:col-span-3 min-h-[32px] px-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-xs text-white"
+                        >
+                          <option value="">Berth (No Pref)</option>
+                          <option value="LOWER">Lower</option>
+                          <option value="MIDDLE">Middle</option>
+                          <option value="UPPER">Upper</option>
+                          <option value="SIDE LOWER">Side Lower</option>
+                          <option value="SIDE UPPER">Side Upper</option>
+                          <option value="WINDOW SIDE">Window Side</option>
+                        </select>
+                        <div className="sm:col-span-1 flex justify-end">
+                          {idx > 0 ? (
+                            <button
+                              type="button"
+                              aria-label={`Remove passenger ${idx + 1}`}
+                              onClick={() =>
+                                setTatkalPassengers((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              className="min-h-[32px] w-full sm:w-8 rounded-lg bg-slate-800 hover:bg-rose-900/70 text-rose-300 flex items-center justify-center"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={tatkalPassengers.length >= 4}
+                              onClick={() =>
+                                setTatkalPassengers((prev) =>
+                                  prev.length < 4
+                                    ? [...prev, { name: '', age: '', gender: '', berth: '' }]
+                                    : prev
+                                )
+                              }
+                              title="Add another passenger (Tatkal max 4)"
+                              className="min-h-[32px] w-full sm:w-8 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-amber-200 disabled:opacity-40 flex items-center justify-center"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="tel"
+                          value={tatkalMobile}
+                          onChange={(e) => setTatkalMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          placeholder={(!zeroSave && profile.mobile) ? `Mobile: ${profile.mobile}` : 'Ticket SMS Mobile (10-digit)'}
+                          className="min-h-[30px] w-48 px-2.5 rounded-lg bg-slate-950 border border-slate-700 focus:border-amber-400 focus:outline-none text-[11px] font-mono text-white placeholder:text-slate-400"
+                        />
+                        {tatkalPassengers.length < 4 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTatkalPassengers((prev) => [
+                                ...prev,
+                                { name: '', age: '', gender: '', berth: '' },
+                              ])
+                            }
+                            className="min-h-[30px] px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Add Passenger ({tatkalPassengers.length}/4)
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-300">
+                        RAM-only · BHIM/UPI &amp; Insurance auto · Stops only at CAPTCHA/OTP/Pay
+                      </span>
                     </div>
                   </div>
                 </div>

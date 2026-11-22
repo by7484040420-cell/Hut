@@ -504,12 +504,19 @@ export const HomePortalSection: React.FC<HomePortalSectionProps> = ({
             <span>{webSearchError}</span>
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
+                const raw = searchQuery.trim();
+                const normalizedUrl =
+                  /^https?:\/\//i.test(raw)
+                    ? raw
+                    : /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)
+                    ? `https://${raw}`
+                    : `https://html.duckduckgo.com/html/?q=${encodeURIComponent(raw)}`;
                 onOpenDirectFormBrowser(
-                  searchQuery.trim(),
-                  `"${searchQuery.trim()}" ko ad-free browser me kholo.`
-                )
-              }
+                  normalizedUrl,
+                  `"${raw}" ko ad-free browser me kholo.`
+                );
+              }}
               className="px-3 py-1 rounded-lg bg-[#0B1120] text-white font-semibold whitespace-nowrap"
             >
               Browser Me Search Karein

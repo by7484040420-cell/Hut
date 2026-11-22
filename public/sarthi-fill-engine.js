@@ -82,7 +82,7 @@
     // IRCTC / travel
     [{ key: 'fromStation', pos: /\bfrom\b|\borigin\b|source station|departure station|boarding/, neg: /date|time|dob|year|month|day|bank|income|name/ },
      { key: 'toStation', pos: /\bto\b|\bdestination\b|arrival station/, neg: /date|time|dob|year|month|day|bank|income|name|agree|consent|terms|same|equal|verify|confirm|back|next|proceed|apply|upload|photo|print/ },
-     { key: 'journeyDate', pos: /journey date|travel date|departure date|date of journey|\bdoj\b|jdate|dd\/mm\/yyyy/, neg: /birth|dob|issue|expiry/ },
+     { key: 'journeyDate', pos: /journey date|travel date|departure date|date of journey|\bdoj\b|\bj ?date\b|dd mm yyyy|dd\/mm\/yyyy/, neg: /birth|dob|issue|expiry/ },
      { key: 'trainClass', pos: /all classes|journey class|travel class|journeyclass|\bclass\b|coach/, neg: /10th|12th|tenth|twelfth|matric|high ?school|inter/ },
      { key: 'trainQuota', pos: /\bquota\b|journey ?quota|reservation quota/, neg: /^$/ },
      { key: 'berthPreference', pos: /berth|seat preference/, neg: /^$/ }],
@@ -2429,8 +2429,8 @@
           var r = parseInt(bg[1], 10), g = parseInt(bg[2], 10), bl = parseInt(bg[3], 10);
           var alpha = bg[4] !== undefined ? parseFloat(bg[4]) : 1;
           if (alpha > 0 && alpha < 0.85) return false;
-          // Faded IRCTC Book Now is pale peach (high G & B); active IRCTC Book Now is deep orange #fb792b (g~121, b~43)
-          if (r >= 230 && g >= 175 && bl >= 135) return false;
+          // Faded IRCTC Book Now is pale peach (high R, G, B with orange bias); active IRCTC Book Now is deep orange #fb792b (g~121, b~43)
+          if (r >= 230 && g >= 175 && bl >= 135 && (r - bl) >= 20) return false;
         }
       }
     } catch (e) { /* ignore */ }
@@ -2818,14 +2818,20 @@
     });
   }
 
-  // station: fast human-paced typing -> quick poll -> select best match
+  // station: fast human-paced typing -> quick poll -> select best match -> commit Angular ControlValueAccessor
   function irStation(el, wanted, key, done) {
     var polls = 0;
-    function finish() { done(); }
+    function finish() {
+      try { fire(el, ['change', 'blur']); } catch (e) { /* ignore */ }
+      done();
+    }
     function verify(cb) {
       setTimeout(function () {
-        if (stationValueOk(el.value)) { mark(el, GREEN); finish(); } else cb();
-      }, 260);
+        if (stationValueOk(el.value)) {
+          mark(el, GREEN);
+          finish();
+        } else cb();
+      }, 240);
     }
     function poll() {
       polls++;
@@ -2899,10 +2905,84 @@
     setTimeout(poll, 110);
   }
 
+  function irctcCloseOverlays(dateEl) {
+    try {
+      if (dateEl) {
+        irKey(dateEl, 'Escape', 27);
+        dateEl.blur && dateEl.blur();
+      }
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        irKey(document.activeElement, 'Escape', 27);
+      }
+      var panels = document.querySelectorAll('.ui-datepicker, .p-datepicker, .ui-dropdown-panel, .p-dropdown-panel, .ui-autocomplete-panel, .p-autocomplete-panel');
+      Array.prototype.forEach.call(panels, function (p) {
+        if (isVisible(p)) {
+          try { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); document.body.click(); } catch (e) { /* ignore */ }
+        }
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  function irctcReadToastText() {
+    try {
+      var sels = '.ui-toast-detail, .p-toast-detail, .ui-toast-summary, .p-toast-summary, .ui-messages-error, .p-message-error, .alert-danger, .err_msg, [role="alert"]';
+      var nodes = Array.prototype.slice.call(document.querySelectorAll(sels)).filter(isVisible);
+      var texts = [];
+      nodes.forEach(function (n) {
+        var t = String(n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim();
+        if (t && t.length > 3 && texts.indexOf(t) < 0) texts.push(t);
+      });
+      return texts.join(' | ');
+    } catch (e) { return ''; }
+  }
+
+  function irctcIsLoadingSpinnerActive() {
+    try {
+      return Array.prototype.slice.call(document.querySelectorAll('app-loader, .ui-blockui, .p-blockui, .p-progress-spinner, .loading-spinner, [class*="preloader"]')).some(isVisible);
+    } catch (e) { return false; }
+  }
+
+  function irSetJourneyDate(dateEl, want, done) {
+    try {
+      irNoKeyboard(dateEl);
+      irSoftFocus(dateEl);
+      typeTextIncrementally(dateEl, want, function () {
+        setTimeout(function () {
+          // If PrimeNG calendar overlay is open, click the matching day cell ONLY when calendar displays the target month/year
+          try {
+            var dp = document.querySelector('.ui-datepicker, .p-datepicker');
+            var parts = want.split(/[\/\-\.]/);
+            var wantDay = parts.length === 3 ? String(parseInt(parts[0], 10)) : '';
+            var wantMonthIdx = parts.length === 3 ? parseInt(parts[1], 10) - 1 : -1;
+            var wantYear = parts.length === 3 ? parts[2] : '';
+            var MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+            if (dp && isVisible(dp) && wantDay && wantMonthIdx >= 0 && wantMonthIdx < 12) {
+              var hdr = norm((dp.querySelector('.ui-datepicker-title, .p-datepicker-title') || {}).innerText || '');
+              var monthOk = !hdr || (hdr.indexOf(MONTHS[wantMonthIdx]) >= 0 && (!wantYear || hdr.indexOf(wantYear) >= 0));
+              if (monthOk) {
+                var cells = Array.prototype.slice.call(dp.querySelectorAll('td:not(.ui-state-disabled):not(.p-datepicker-other-month) a, td:not(.ui-state-disabled):not(.p-datepicker-other-month) span'));
+                var hit = cells.find(function (c) { return String(c.innerText || '').trim() === wantDay && isVisible(c); });
+                if (hit) clickLikeUser(hit);
+              }
+            }
+          } catch (eCal) { /* ignore */ }
+          irKey(dateEl, 'Enter', 13);
+          irKey(dateEl, 'Escape', 27);
+          fire(dateEl, ['input', 'change', 'blur']);
+          irctcCloseOverlays(dateEl);
+          done();
+        }, 120);
+      }, { fast: true });
+    } catch (e) {
+      setNativeValue(dateEl, want);
+      done();
+    }
+  }
+
   function irctcSearchFlow(data) {
     try {
       if (!/irctc/.test(irHref()) || !data || !data.fromStation || !data.toStation) return null;
-      if (document.querySelector('app-train-avl-enq, .train-avl-enq')) return null;      // train list: dusra step sambhalega
+      if (Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).some(isVisible)) return null;      // visible train list: dusra step sambhalega
       if (Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show')).some(isVisible)) return null;
       var fromEl = null, toEl = null, dateEl = null;
       Array.prototype.slice.call(document.querySelectorAll('input')).filter(isVisible).forEach(function (el) {
@@ -2915,25 +2995,22 @@
       if (!fromEl || !toEl || !btn) return null;
 
       if (irFlow.busy) {
-        if (Date.now() - irFlow.since > 20000) irFlow.busy = false;       // watchdog
-        else return { state: 'filling', note: irFlow.note };
+        if (Date.now() - irFlow.since > 18000) irFlow.busy = false;       // watchdog
+        else return { state: 'filling', tatkalStage: 'search', note: irFlow.note };
       }
       function run1(note, fn) {
         irFlow.busy = true; irFlow.since = Date.now(); irFlow.note = note;
         fn(function () { irFlow.busy = false; });
-        return { state: 'filling', note: note };
+        return { state: 'filling', tatkalStage: 'search', note: note };
       }
       // 1) From  2) To
       if (!stationValueOk(fromEl.value) && irTry('from') <= 4) return run1('From station chun raha hoon...', function (d) { irStation(fromEl, data.fromStation, 'fromStation', d); });
       if (!stationValueOk(toEl.value) && irTry('to') <= 4) return run1('To station chun raha hoon...', function (d) { irStation(toEl, data.toStation, 'toStation', d); });
-      // 3) Date
+      // 3) Date (PrimeNG p-calendar safe commit)
       if (data.journeyDate && dateEl) {
         var want = formatDateForInput(data.journeyDate, (dateEl.type || 'text').toLowerCase(), dateEl.placeholder, dateEl.maxLength > 0 ? dateEl.maxLength : 0);
         if (String(dateEl.value || '').trim() !== want && irTry('date') <= 3) {
-          irNoKeyboard(dateEl);
-          setNativeValue(dateEl, want);
-          try { dateEl.blur && dateEl.blur(); document.body.click(); } catch (e) { /* ignore */ }
-          return { state: 'filling', note: 'Date bhar raha hoon...' };
+          return run1('Date (' + want + ') set kar raha hoon...', function (d) { irSetJourneyDate(dateEl, want, d); });
         }
       }
       // 4) Class  5) Quota
@@ -2947,14 +3024,34 @@
         var qdd = irFindDd('quota');
         if (qdd && !qre.test(irDdLabel(qdd)) && irTry('quota') <= 4) return run1('Quota (' + data.trainQuota + ') chun raha hoon...', function (d) { irPickDropdown(qdd, qre, d); });
       }
-      // 6) Search - sirf ek baar (double click = IRCTC "Sorry!!!")
+      // 6) Search - detect live IRCTC toast errors immediately instead of silently hanging 45s!
       var last = 0, n = 0;
       try { last = parseInt(root.sessionStorage.getItem('sarthi_ir_search_at') || '0', 10); n = parseInt(root.sessionStorage.getItem('sarthi_ir_search_n') || '0', 10); } catch (e) { /* ignore */ }
       var now = Date.now();
-      if (now - last < 45000) return { state: 'waiting', tatkalStage: 'search', note: 'Search ho raha hai...' };
-      if (n >= 3) return { state: 'final', tatkalStage: 'search', note: 'Search 3 baar dabaya - aap khud Search Trains dabayein' };
+      var toastErr = irctcReadToastText();
+      if (last > 0 && toastErr) {
+        var tl = norm(toastErr);
+        if (/tatkal|10:00|11:00|not allowed|cannot be booked|access denied|unable to process|bad request|error/.test(tl)) {
+          return { state: 'user', tatkalStage: 'search', note: 'IRCTC Search Alert: ' + toastErr };
+        }
+        if (/origin|destination|station|journey date|valid date|please select/.test(tl) && n < 3) {
+          try { root.sessionStorage.removeItem('sarthi_ir_search_at'); } catch (e) { /* ignore */ }
+          irFlow.tries = {};
+          return { state: 'filling', tatkalStage: 'search', note: 'IRCTC field check (' + toastErr + ') — dobara set kar raha hoon...' };
+        }
+      }
+      var waitWindow = irctcIsLoadingSpinnerActive() ? 22000 : 12000;
+      if (now - last < waitWindow) return { state: 'waiting', tatkalStage: 'search', note: 'Search Trains response load ho raha hai...' };
+      if (n >= 3) return { state: 'user', tatkalStage: 'search', note: toastErr ? ('IRCTC Search Error: ' + toastErr) : 'Search Trains 3 baar try kiya — ek baar khud Search dabayein ya Phone IP use karein.' };
+
+      irctcCloseOverlays(dateEl);
       try { root.sessionStorage.setItem('sarthi_ir_search_at', String(now)); root.sessionStorage.setItem('sarthi_ir_search_n', String(n + 1)); } catch (e) { /* ignore */ }
       mark(btn, GREEN);
+      try { document.querySelectorAll('[data-sarthi-click]').forEach(function (x) { x.removeAttribute('data-sarthi-click'); }); } catch (eC) { /* ignore */ }
+      btn.setAttribute('data-sarthi-click', 'search');
+      if (root.__sarthiPlaywrightControlled) {
+        return { state: 'next', clicked: 'search trains', clickSelector: '[data-sarthi-click="search"]', tatkalStage: 'search', note: 'Search Trains trusted click ho raha hai...' };
+      }
       clickLikeUser(btn);
       return { state: 'next', clicked: 'search trains', tatkalStage: 'search', note: 'Search Trains dabaya!' };
     } catch (e) { return null; }
@@ -3066,6 +3163,108 @@
     return added;
   }
 
+  var irLastAddPaxAt = 0;
+  function irctcMultiPassengerStep(data) {
+    try {
+      if (!/irctc/.test(irHref()) || !data) return null;
+      if (irPwInputs().length > 0) return null;
+      var wanted = [];
+      for (var n = 1; n <= 4; n++) {
+        var nm = n === 1 ? (data.passenger1Name || data.fullName) : data['passenger' + n + 'Name'];
+        var ag = n === 1 ? (data.passenger1Age || data.age) : data['passenger' + n + 'Age'];
+        var gd = n === 1 ? (data.passenger1Gender || data.gender) : data['passenger' + n + 'Gender'];
+        var br = n === 1 ? (data.passenger1Berth || data.berthPreference) : data['passenger' + n + 'Berth'];
+        if (nm && String(nm).trim()) {
+          wanted.push({
+            name: String(nm).trim(),
+            age: ag ? String(ag).trim() : '',
+            gender: gd ? String(gd).trim() : '',
+            berth: br ? String(br).trim() : '',
+          });
+        }
+      }
+      if (wanted.length <= 1) return null;
+
+      var allVisibleInputs = Array.prototype.slice.call(document.querySelectorAll('input')).filter(function (el) {
+        if (!isVisible(el) || el.disabled || el.readOnly) return false;
+        if (el.closest && el.closest('header, nav, .ui-dialog, .p-dialog, [role="dialog"]')) return false;
+        var tp = (el.type || 'text').toLowerCase();
+        return /^(text|number|tel|search|)$/.test(tp);
+      });
+      var nameInputs = allVisibleInputs.filter(function (el) {
+        var h = hintOf(el);
+        return /passenger.*name|passengername|^passenger name$|^name$/i.test(h) && !/user|father|mother|school|college|train|card/.test(h);
+      });
+      if (!nameInputs.length) return null;
+
+      var ageInputs = allVisibleInputs.filter(function (el) {
+        return /\bage\b|passengerage|umr/i.test(hintOf(el));
+      });
+      var allSelects = Array.prototype.slice.call(document.querySelectorAll('select')).filter(function (el) {
+        if (!isVisible(el) || el.disabled) return false;
+        return !(el.closest && el.closest('header, nav, .ui-dialog, .p-dialog, [role="dialog"]'));
+      });
+      var genderSelects = allSelects.filter(function (el) { return /gender|\bsex\b|passenger ?gender/i.test(hintOf(el)); });
+      var berthSelects = allSelects.filter(function (el) { return /berth|preference|seat/i.test(hintOf(el)); });
+
+      // Fill currently rendered passenger rows (0 .. Math.min(nameInputs.length, wanted.length) - 1)
+      var limit = Math.min(nameInputs.length, wanted.length);
+      var filledCount = 0;
+      for (var i = 0; i < limit; i++) {
+        var pax = wanted[i];
+        var nEl = nameInputs[i];
+        var rowScope = (nEl.closest && nEl.closest('app-passenger-input, .passenger-row, .form-row, .row, tr, [formgroupname]')) || nEl.parentElement;
+        var aEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('input')).find(function (x) { return isVisible(x) && /\bage\b|umr/i.test(hintOf(x)); })) || ageInputs[i] || null;
+        var gEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('select')).find(function (x) { return isVisible(x) && /gender|\bsex\b/i.test(hintOf(x)); })) || genderSelects[i] || null;
+        var bEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('select')).find(function (x) { return isVisible(x) && /berth|preference/i.test(hintOf(x)); })) || berthSelects[i] || null;
+
+        if (nEl && !String(nEl.value || '').trim() && pax.name) {
+          setNativeValue(nEl, pax.name);
+          mark(nEl, GREEN);
+          filledCount++;
+        }
+        if (aEl && !String(aEl.value || '').trim() && pax.age) {
+          setNativeValue(aEl, pax.age);
+          mark(aEl, GREEN);
+          filledCount++;
+        }
+        if (gEl && pax.gender) {
+          var gCur = gEl.selectedIndex >= 0 ? norm(gEl.options[gEl.selectedIndex].text || '') : '';
+          if (!gEl.value || /select|gender|choose/.test(gCur)) {
+            if (selectOption(gEl, pax.gender, 'gender')) {
+              mark(gEl, GREEN);
+              filledCount++;
+            }
+          }
+        }
+        if (bEl && pax.berth) {
+          var bCur = bEl.selectedIndex >= 0 ? norm(bEl.options[bEl.selectedIndex].text || '') : '';
+          if (!bEl.value || /no preference|select|berth|choose/.test(bCur)) {
+            if (selectOption(bEl, pax.berth, 'berthPreference')) {
+              mark(bEl, GREEN);
+              filledCount++;
+            }
+          }
+        }
+      }
+
+      if (nameInputs.length < wanted.length) {
+        var now = Date.now();
+        var addBtn = irFindBtn(/\+?\s*add\s*passenger|add\s*more\s*passenger|\+?\s*add\s*infant/i);
+        if (addBtn && now - irLastAddPaxAt >= 500 && irTry('add_pax_' + nameInputs.length) <= 3) {
+          irLastAddPaxAt = now;
+          mark(addBtn, GREEN);
+          clickLikeUser(addBtn);
+          return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger ' + (nameInputs.length + 1) + ' (' + wanted[nameInputs.length].name + ') add ho raha hai...' };
+        }
+        if (filledCount > 0) {
+          return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details fill ho rahe hain...' };
+        }
+      }
+      return null;
+    } catch (e) { return null; }
+  }
+
   function autopilotCore(payload, opts) {
     opts = opts || {};
     var sorry = irctcSorryPage();
@@ -3074,7 +3273,17 @@
                isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sorry.state, clicked: sorry.clicked || '',
                asks: [], uploads: [], uploadFields: [], done: false, note: sorry.note, profile: 'IRCTC', tatkalStage: sorry.tatkalStage || 'blocked', emptyRequired: 0 };
     }
-    if (opts.reset) { askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; }
+    if (opts.reset) {
+      askedSig = ''; fillingTicks = 0; lastNextSig = ''; profAskedSig = ''; profNoteFor = ''; otpSentAt = {}; otpVerifyAt = {}; forcedNext = {}; tickSig = ''; irctcLastActAt = 0; irctcBookAt = 0; irLastAddPaxAt = 0;
+      try {
+        if (!Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).some(isVisible)) {
+          root.sessionStorage.removeItem('sarthi_ir_search_at');
+          root.sessionStorage.removeItem('sarthi_ir_search_n');
+          irFlow.tries = {};
+          irFlow.busy = false;
+        }
+      } catch (eR) { /* ignore */ }
+    }
 
     // Never touch payment confirmation buttons on IRCTC Payment screen — hand over immediately to user!
     var payCheck = irctcPaymentScreenCheck();
@@ -3097,7 +3306,7 @@
         filled: 0, url: root.location ? root.location.href : '', title: document.title || '',
         hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
         isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
-        state: irStep.state || 'filling', clicked: irStep.clicked || '', asks: [], uploads: [], uploadFields: [],
+        state: irStep.state || 'filling', clicked: irStep.clicked || '', clickSelector: irStep.clickSelector || '', asks: [], uploads: [], uploadFields: [],
         done: false, irctcHandled: true, note: irStep.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: irStep.tatkalStage || 'train_list', emptyRequired: 0
       };
     }
@@ -3105,10 +3314,21 @@
     var sflow = irctcSearchFlow(payload || {});
     if (sflow) {
       return { filled: 0, url: root.location ? root.location.href : '', title: document.title || '', hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
-               isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sflow.state, clicked: sflow.clicked || '',
-               asks: [], uploads: [], uploadFields: [], done: false, note: sflow.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: 'search', emptyRequired: 0, irctcHandled: true };
+               isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [], state: sflow.state, clicked: sflow.clicked || '', clickSelector: sflow.clickSelector || '',
+               asks: [], uploads: [], uploadFields: [], done: false, note: sflow.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: sflow.tatkalStage || 'search', emptyRequired: 0, irctcHandled: true };
     }
     var acctPre = irctcAccountPre(payload);
+    var multiPax = irctcMultiPassengerStep(payload);
+    if (multiPax) {
+      irctcPassengerSmartExtras(payload || {});
+      return {
+        filled: 1, url: root.location ? root.location.href : '', title: document.title || '',
+        hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
+        isPersonalForm: true, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
+        state: multiPax.state || 'filling', clicked: '', asks: [], uploads: [], uploadFields: [], done: false, irctcHandled: true,
+        note: multiPax.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: 'passenger', emptyRequired: 0
+      };
+    }
     var s = run(payload, {});
     var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
     s.filled += sd.filled + irctcPassengerSmartExtras(payload || {});

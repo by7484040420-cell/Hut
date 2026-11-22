@@ -29,7 +29,6 @@ import {
 import { enrichExtractedFields } from '../src/lib/indianStates.js';
 
 const PRIMARY_MODEL = 'gemini-4-hydrogen';
-const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -69,13 +68,16 @@ async function generateContentResilient(
       model: PRIMARY_MODEL,
     });
   } catch (err1) {
-    if (!isRetryableQuotaOrTransient(err1)) {
+    const canRetryTransient = isRetryableQuotaOrTransient(err1);
+    const canFallbackTools = Boolean(params.config?.tools) && isToolUnsupportedError(err1);
+    if (!canRetryTransient && !canFallbackTools) {
       throw err1;
     }
 
-    await sleep(1000);
+    if (canRetryTransient) {
+      await sleep(1100);
+    }
 
-    // Build a lighter-model compatible config by dropping urlContext first
     const origConfig = params.config ? { ...params.config } : undefined;
     if (origConfig && Array.isArray(origConfig.tools)) {
       const filteredTools = origConfig.tools.filter(
@@ -92,7 +94,7 @@ async function generateContentResilient(
     try {
       return await ai.models.generateContent({
         ...params,
-        model: FALLBACK_MODEL,
+        model: PRIMARY_MODEL,
         config: origConfig,
       });
     } catch (err2) {
@@ -109,7 +111,7 @@ async function generateContentResilient(
         }
         return await ai.models.generateContent({
           ...params,
-          model: FALLBACK_MODEL,
+          model: PRIMARY_MODEL,
           config: safeConfig,
         });
       }

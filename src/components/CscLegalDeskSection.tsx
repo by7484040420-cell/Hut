@@ -2,21 +2,26 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase,
   Building2,
+  Calculator,
   CalendarCheck,
   Check,
   Compass,
   Copy,
   Download,
   ExternalLink,
+  FilePlus2,
   FileText,
+  Grid,
   Image as ImageIcon,
   Landmark,
   Loader2,
   Printer,
   Scale,
+  Search,
   ShieldAlert,
   Sparkles,
   Upload,
+  X,
 } from 'lucide-react';
 import type {
   CscDeskMode,
@@ -34,6 +39,15 @@ import {
 import { INDIAN_STATES_AND_UTS } from '../lib/indianStates';
 import { apiFetchJson } from '../lib/api';
 import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
+import {
+  BNS_IPC_QUICK_REF,
+  buildPassportPhotoSheetDataUrl,
+  convertImagesToUnderKbPdf,
+  convertLandArea,
+  downloadWordDoc,
+  LAND_UNIT_LABELS,
+  type LandUnitId,
+} from '../lib/cscTools';
 
 interface CscLegalDeskSectionProps {
   profile: ProfileVault;
@@ -263,7 +277,8 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // ---- Cyber Photo / Signature KB Resizer State ----
+  // ---- Cyber Photo / Signature KB Resizer, PDF Maker & Photo Sheet State ----
+  const [resizerTool, setResizerTool] = useState<'jpg' | 'pdf' | 'sheet'>('jpg');
   const [resizerPresetId, setResizerPresetId] = useState<string>(RESIZER_PRESETS[0].id);
   const [customWidth, setCustomWidth] = useState(200);
   const [customHeight, setCustomHeight] = useState(230);
@@ -284,6 +299,53 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
   } | null>(null);
   const [resizing, setResizing] = useState(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Image -> Under-KB PDF Converter State
+  const [pdfPages, setPdfPages] = useState<Array<{ name: string; dataUrl: string }>>([]);
+  const [pdfMaxKb, setPdfMaxKb] = useState<number>(190);
+  const [pdfBuilding, setPdfBuilding] = useState(false);
+  const [pdfResult, setPdfResult] = useState<{
+    url: string;
+    kb: number;
+    pageCount: number;
+    quality: number;
+  } | null>(null);
+  const pdfPagesInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 6 / 8 Passport Photo Sheet State
+  const [sheetCount, setSheetCount] = useState<6 | 8>(6);
+  const [sheetDataUrl, setSheetDataUrl] = useState<string | null>(null);
+  const [sheetBuilding, setSheetBuilding] = useState(false);
+
+  // Jamin Rakba Area Converter & BNS <-> IPC Quick Finder State
+  const [showLandCalc, setShowLandCalc] = useState(false);
+  const [landAreaVal, setLandAreaVal] = useState('10');
+  const [landAreaUnit, setLandAreaUnit] = useState<LandUnitId>('dismil');
+  const [laggiHath, setLaggiHath] = useState(5.5);
+
+  const [showBnsLookup, setShowBnsLookup] = useState(false);
+  const [bnsQuery, setBnsQuery] = useState('');
+
+  const landConverted = useMemo(
+    () => convertLandArea(parseFloat(landAreaVal) || 0, landAreaUnit, laggiHath),
+    [landAreaVal, landAreaUnit, laggiHath]
+  );
+
+  const filteredBnsList = useMemo(() => {
+    const q = bnsQuery.trim().toLowerCase();
+    if (!q) return BNS_IPC_QUICK_REF.slice(0, 6);
+    return BNS_IPC_QUICK_REF.filter((item) =>
+      `${item.bnsOrBnss} ${item.oldIpcOrCrpc} ${item.title} ${item.hindiMeaning}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [bnsQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfResult?.url) URL.revokeObjectURL(pdfResult.url);
+    };
+  }, [pdfResult?.url]);
 
   const selectPreset = (preset: ResizerPreset) => {
     setResizerPresetId(preset.id);
@@ -405,6 +467,62 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
     }
   }, [customWidth, customHeight, customMaxKb, origFileMeta?.dataUrl]);
 
+  useEffect(() => {
+    if (resizerTool !== 'sheet' || !origFileMeta?.dataUrl) return;
+    let cancelled = false;
+    setSheetBuilding(true);
+    void buildPassportPhotoSheetDataUrl(origFileMeta.dataUrl, sheetCount)
+      .then((url) => {
+        if (!cancelled) setSheetDataUrl(url);
+      })
+      .finally(() => {
+        if (!cancelled) setSheetBuilding(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resizerTool, origFileMeta?.dataUrl, sheetCount]);
+
+  const handleAddPdfPages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).slice(0, 6);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const loaded = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<{ name: string; dataUrl: string }>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({ name: file.name, dataUrl: String(reader.result || '') });
+            reader.onerror = () => reject(new Error('File read failed'));
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+    setPdfPages((prev) => [...prev, ...loaded].slice(0, 6));
+  };
+
+  const handleBuildPdf = async () => {
+    const sources =
+      pdfPages.length > 0
+        ? pdfPages.map((p) => p.dataUrl)
+        : origFileMeta?.dataUrl
+        ? [origFileMeta.dataUrl]
+        : [];
+    if (sources.length === 0 || pdfBuilding) return;
+    setPdfBuilding(true);
+    setError(null);
+    try {
+      const res = await convertImagesToUnderKbPdf(sources, pdfMaxKb);
+      if (pdfResult?.url) URL.revokeObjectURL(pdfResult.url);
+      const url = URL.createObjectURL(res.blob);
+      setPdfResult({ url, kb: res.kb, pageCount: res.pageCount, quality: res.quality });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'PDF conversion failed.');
+    } finally {
+      setPdfBuilding(false);
+    }
+  };
+
   const portalList = mode === 'land' ? LAND_REVENUE_PORTALS : COURT_AND_LEGAL_PORTALS;
 
   return (
@@ -423,9 +541,17 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
         onChange={(e) => void handlePhotoFileChange(e)}
         className="hidden"
       />
+      <input
+        ref={pdfPagesInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(e) => void handleAddPdfPages(e)}
+        className="hidden"
+      />
 
       {/* Header & Interactive Mode Switcher */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4">
+      <div className="no-print bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1 max-w-2xl">
             <h1 className="text-lg sm:text-xl font-bold font-display text-slate-900">
@@ -499,118 +625,406 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
             }`}
           >
             <ImageIcon className="w-4 h-4 shrink-0" />
-            <span>Photo / Sign KB Resizer</span>
+            <span>Photo, PDF &amp; Sheet</span>
           </button>
         </div>
       </div>
 
-      {/* DESK 4: CYBER PHOTO & SIGNATURE KB RESIZER */}
+      {/* DESK 4: CYBER PHOTO, PDF & PRINT SHEET TOOL */}
       {mode === 'resizer' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           <div className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-            <div>
+            <div className="space-y-2">
               <h2 className="text-base font-bold text-slate-900">
-                Cyber Cafe Photo &amp; Signature KB Tool
+                Cyber Cafe Photo, PDF &amp; Sheet Tool
               </h2>
-              <p className="text-xs text-slate-600 mt-0.5">
-                SSC, PAN, Passport, Army aur Court forms ke exact pixel aur KB limit me photo resize karein (100% browser RAM me — server par save nahi hota).
-              </p>
+              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setResizerTool('jpg')}
+                  className={`min-h-[34px] px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 whitespace-nowrap ${
+                    resizerTool === 'jpg'
+                      ? 'bg-[#0B1120] text-white'
+                      : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+                  Photo JPG
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResizerTool('pdf')}
+                  className={`min-h-[34px] px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 whitespace-nowrap ${
+                    resizerTool === 'pdf'
+                      ? 'bg-[#0B1120] text-white'
+                      : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
+                  Under-KB PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResizerTool('sheet')}
+                  className={`min-h-[34px] px-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1 whitespace-nowrap ${
+                    resizerTool === 'sheet'
+                      ? 'bg-[#0B1120] text-white'
+                      : 'text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  <Grid className="w-3.5 h-3.5 shrink-0" />
+                  6/8 Photo Sheet
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-slate-700">
-                Preset Size Chuno
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {RESIZER_PRESETS.map((p) => (
+            {resizerTool === 'jpg' && (
+              <>
+                <p className="text-xs text-slate-600">
+                  SSC, PAN, Passport, Army aur Court forms ke exact pixel aur KB limit me photo resize karein (100% browser RAM me).
+                </p>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Preset Size Chuno
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {RESIZER_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => selectPreset(p)}
+                        className={`min-h-[38px] px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-colors ${
+                          resizerPresetId === p.id
+                            ? 'bg-[#0B1120] text-white border-[#0B1120]'
+                            : 'bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-400'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Width (px)
+                    </label>
+                    <input
+                      type="number"
+                      min={40}
+                      max={2500}
+                      value={customWidth}
+                      onChange={(e) => {
+                        setResizerPresetId('custom');
+                        setCustomWidth(Number(e.target.value) || 200);
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Height (px)
+                    </label>
+                    <input
+                      type="number"
+                      min={40}
+                      max={2500}
+                      value={customHeight}
+                      onChange={(e) => {
+                        setResizerPresetId('custom');
+                        setCustomHeight(Number(e.target.value) || 230);
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Max KB
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={1000}
+                      value={customMaxKb}
+                      onChange={(e) => {
+                        setResizerPresetId('custom');
+                        setCustomMaxKb(Number(e.target.value) || 45);
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="w-full min-h-[44px] px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  Photo / Signature Upload Karein
+                </button>
+              </>
+            )}
+
+            {resizerTool === 'pdf' && (
+              <div className="space-y-3.5">
+                <p className="text-xs text-slate-600">
+                  Parimarjan, Dakhil-Kharij, eCourts ya Sarkari portal ke liye 1 se 6 photo/scan ko jodkar exact KB limit ke andar real <span className="font-mono font-semibold">.PDF</span> banayein.
+                </p>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Target PDF Size Limit
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[95, 190, 400, 950].map((kb) => (
+                      <button
+                        key={kb}
+                        type="button"
+                        onClick={() => setPdfMaxKb(kb)}
+                        className={`min-h-[36px] rounded-xl border text-xs font-mono font-semibold tabular-nums ${
+                          pdfMaxKb === kb
+                            ? 'bg-[#0B1120] text-white border-[#0B1120]'
+                            : 'bg-slate-50 text-slate-800 border-slate-200'
+                        }`}
+                      >
+                        &lt;{kb} KB
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-semibold text-slate-700 shrink-0">
+                    Custom KB:
+                  </label>
+                  <input
+                    type="number"
+                    min={40}
+                    max={5000}
+                    value={pdfMaxKb}
+                    onChange={(e) => setPdfMaxKb(Number(e.target.value) || 190)}
+                    className="w-28 min-h-[36px] px-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={p.id}
                     type="button"
-                    onClick={() => selectPreset(p)}
-                    className={`min-h-[38px] px-3 py-2 rounded-xl border text-left text-xs font-semibold transition-colors ${
-                      resizerPresetId === p.id
+                    onClick={() => pdfPagesInputRef.current?.click()}
+                    className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-900 font-semibold text-xs inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Add Scan Pages ({pdfPages.length}/6)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pdfBuilding || (pdfPages.length === 0 && !origFileMeta?.dataUrl)}
+                    onClick={() => void handleBuildPdf()}
+                    className="flex-1 min-h-[42px] px-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  >
+                    {pdfBuilding ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FilePlus2 className="w-3.5 h-3.5" />
+                    )}
+                    Build Compressed PDF
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {resizerTool === 'sheet' && (
+              <div className="space-y-3.5">
+                <p className="text-xs text-slate-600">
+                  4×6 ya A4 paper par ek click me 6 ya 8 Passport Photos cut-lines ke sath print sheet banayein — cyber cafe counter ke liye ready.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSheetCount(6)}
+                    className={`min-h-[40px] rounded-xl border text-xs font-semibold ${
+                      sheetCount === 6
                         ? 'bg-[#0B1120] text-white border-[#0B1120]'
-                        : 'bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-400'
+                        : 'bg-slate-50 text-slate-800 border-slate-200'
                     }`}
                   >
-                    {p.label}
+                    6 Photos Sheet (2×3)
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setSheetCount(8)}
+                    className={`min-h-[40px] rounded-xl border text-xs font-semibold ${
+                      sheetCount === 8
+                        ? 'bg-[#0B1120] text-white border-[#0B1120]'
+                        : 'bg-slate-50 text-slate-800 border-slate-200'
+                    }`}
+                  >
+                    8 Photos Sheet (2×4)
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="w-full min-h-[44px] px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  {origFileMeta ? 'Change Passport Photo' : 'Passport Photo Upload Karein'}
+                </button>
               </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5">
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Width (px)
-                </label>
-                <input
-                  type="number"
-                  min={40}
-                  max={2500}
-                  value={customWidth}
-                  onChange={(e) => {
-                    setResizerPresetId('custom');
-                    setCustomWidth(Number(e.target.value) || 200);
-                  }}
-                  className="w-full min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Height (px)
-                </label>
-                <input
-                  type="number"
-                  min={40}
-                  max={2500}
-                  value={customHeight}
-                  onChange={(e) => {
-                    setResizerPresetId('custom');
-                    setCustomHeight(Number(e.target.value) || 230);
-                  }}
-                  className="w-full min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  Max KB
-                </label>
-                <input
-                  type="number"
-                  min={5}
-                  max={1000}
-                  value={customMaxKb}
-                  onChange={(e) => {
-                    setResizerPresetId('custom');
-                    setCustomMaxKb(Number(e.target.value) || 45);
-                  }}
-                  className="w-full min-h-[40px] px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => photoInputRef.current?.click()}
-              className="w-full min-h-[44px] px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              Photo / Signature Upload Karein
-            </button>
+            )}
           </div>
 
           <div className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-              <h2 className="text-base font-bold text-slate-900">Live Resized Output</h2>
-              {resizedOutput && (
+              <h2 className="text-base font-bold text-slate-900">
+                {resizerTool === 'pdf'
+                  ? 'Multi-Page Compressed PDF Output'
+                  : resizerTool === 'sheet'
+                  ? `${sheetCount}-Copy Passport Print Sheet`
+                  : 'Live Resized Output'}
+              </h2>
+              {resizerTool === 'jpg' && resizedOutput && (
                 <div className="text-xs font-mono tabular-nums text-emerald-700 font-semibold">
                   {resizedOutput.width}×{resizedOutput.height} px · {resizedOutput.kb} KB · JPG {resizedOutput.quality}%
                 </div>
               )}
+              {resizerTool === 'pdf' && pdfResult && (
+                <div className="text-xs font-mono tabular-nums text-emerald-700 font-semibold">
+                  {pdfResult.pageCount} Page(s) · {pdfResult.kb} KB · JPG {pdfResult.quality}%
+                </div>
+              )}
             </div>
 
-            {!origFileMeta ? (
+            {resizerTool === 'pdf' ? (
+              <div className="space-y-4">
+                {pdfPages.length === 0 && !origFileMeta ? (
+                  <div className="py-12 px-4 text-center space-y-3 border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                    <p className="text-sm font-semibold text-slate-800">
+                      Khatiyan, Aadhaar ya Court paper scans add karein
+                    </p>
+                    <p className="text-xs text-slate-600 max-w-md mx-auto">
+                      1 se 6 photos select karein — AI-free local binary PDF builder bina server upload ke under-{pdfMaxKb} KB real .PDF file banayega.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => pdfPagesInputRef.current?.click()}
+                      className="min-h-[40px] px-4 rounded-xl bg-[#0B1120] text-white text-xs font-semibold inline-flex items-center gap-2 whitespace-nowrap"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      Select Images for PDF
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {(pdfPages.length > 0
+                        ? pdfPages
+                        : [{ name: origFileMeta!.name, dataUrl: origFileMeta!.dataUrl }]
+                      ).map((pg, i) => (
+                        <div
+                          key={`${pg.name}-${i}`}
+                          className="relative p-2 rounded-xl bg-slate-50 border border-slate-200 space-y-1"
+                        >
+                          <div className="flex items-center justify-between gap-1 text-[11px] text-slate-600">
+                            <span className="font-mono font-semibold">Page {i + 1}</span>
+                            {pdfPages.length > 0 && (
+                              <button
+                                type="button"
+                                aria-label={`Remove page ${i + 1}`}
+                                onClick={() =>
+                                  setPdfPages((prev) => prev.filter((_, idx) => idx !== i))
+                                }
+                                className="text-slate-400 hover:text-rose-600"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          <img
+                            src={pg.dataUrl}
+                            alt={`PDF Page ${i + 1}`}
+                            className="w-full h-28 object-contain rounded-lg bg-white border border-slate-200"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {pdfResult && (
+                      <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs text-emerald-950">
+                          <div className="font-bold">
+                            PDF Ready ({pdfResult.kb} KB · {pdfResult.pageCount} page)
+                          </div>
+                          <div className="text-[11px] text-emerald-800">
+                            Target limit &lt;{pdfMaxKb} KB ke andar valid %PDF-1.4 file tayyar hai.
+                          </div>
+                        </div>
+                        <a
+                          href={pdfResult.url}
+                          download={`csc-scan-${Math.round(pdfResult.kb)}kb.pdf`}
+                          className="min-h-[40px] px-4 rounded-xl bg-[#0B1120] hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 whitespace-nowrap"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download PDF ({pdfResult.kb} KB)
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : resizerTool === 'sheet' ? (
+              !origFileMeta ? (
+                <div className="py-12 px-4 text-center space-y-3 border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                  <p className="text-sm font-semibold text-slate-800">
+                    Passport Sheet banane ke liye pehle photo upload karein
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    className="min-h-[40px] px-4 rounded-xl bg-[#0B1120] text-white text-xs font-semibold inline-flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Select Photo
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {sheetBuilding ? (
+                    <div className="py-12 flex items-center justify-center gap-2 text-xs text-slate-600">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Building {sheetCount}-photo print layout...
+                    </div>
+                  ) : (
+                    sheetDataUrl && (
+                      <>
+                        <img
+                          src={sheetDataUrl}
+                          alt={`${sheetCount} passport photo sheet`}
+                          className="w-full max-h-80 object-contain rounded-xl bg-slate-100 border border-slate-200 p-2"
+                        />
+                        <div className="flex flex-wrap gap-2.5">
+                          <a
+                            href={sheetDataUrl}
+                            download={`passport-sheet-${sheetCount}x.jpg`}
+                            className="min-h-[42px] px-4 rounded-xl bg-[#0B1120] hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 whitespace-nowrap"
+                          >
+                            <Download className="w-4 h-4" />
+                            Download {sheetCount}-Photo JPG
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => window.print()}
+                            className="min-h-[42px] px-4 rounded-xl bg-white border border-slate-300 hover:border-slate-500 text-slate-800 text-xs font-semibold inline-flex items-center gap-2 whitespace-nowrap"
+                          >
+                            <Printer className="w-4 h-4" />
+                            Print 4×6 / A4 Sheet
+                          </button>
+                        </div>
+                      </>
+                    )
+                  )}
+                </div>
+              )
+            ) : !origFileMeta ? (
               <div className="py-12 px-4 text-center space-y-3 border border-dashed border-slate-200 rounded-xl bg-slate-50">
                 <p className="text-sm font-semibold text-slate-800">
                   Abhi koi photo upload nahi hui hai
@@ -692,7 +1106,7 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
         </div>
       ) : (
         /* DESK 1, 2, 3: LAND / COURT CASE DOCS / WAKIL & COURT APPOINTMENT */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* Left Column: Intake & Official Portals */}
           <div className="lg:col-span-5 space-y-4">
             <form
@@ -983,6 +1397,204 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
               )}
             </form>
 
+            {/* Quick CSC / Legal Utility Drawer: Jamin Rakba Converter OR BNS<->IPC + eCourts CNR */}
+            {mode === 'land' ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLandCalc((v) => !v)}
+                  className="w-full flex items-center justify-between gap-2 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <Calculator className="w-4 h-4 text-amber-700 shrink-0" />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">
+                        Jamin Rakba (Area) Converter
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Bigha · Kattha · Dhur · Dismil · Acre · Sq Ft (Laggi preset)
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-semibold text-sky-700">
+                    {showLandCalc ? 'Hide' : 'Open'}
+                  </span>
+                </button>
+
+                {showLandCalc && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={landAreaVal}
+                        onChange={(e) => setLandAreaVal(e.target.value)}
+                        className="min-h-[36px] px-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono tabular-nums text-slate-900"
+                      />
+                      <select
+                        value={landAreaUnit}
+                        onChange={(e) => setLandAreaUnit(e.target.value as LandUnitId)}
+                        className="min-h-[36px] px-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900"
+                      >
+                        {LAND_UNIT_LABELS.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={laggiHath}
+                        onChange={(e) => setLaggiHath(Number(e.target.value))}
+                        className="min-h-[36px] px-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900"
+                      >
+                        <option value={4.5}>4.5 Hath Laggi</option>
+                        <option value={5}>5 Hath Laggi</option>
+                        <option value={5.5}>5.5 Hath (Std)</option>
+                        <option value={6}>6 Hath Laggi</option>
+                        <option value={6.5}>6.5 Hath Laggi</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs font-mono tabular-nums">
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Dismil</span>
+                        <span className="font-bold text-slate-900">{landConverted.dismil}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Kattha</span>
+                        <span className="font-bold text-slate-900">{landConverted.kattha}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Bigha</span>
+                        <span className="font-bold text-slate-900">{landConverted.bigha}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Dhur</span>
+                        <span className="font-bold text-slate-900">{landConverted.dhur}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Sq Ft</span>
+                        <span className="font-bold text-slate-900">{landConverted.sqft}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Acre</span>
+                        <span className="font-bold text-slate-900">{landConverted.acre}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const summary = `Kul Rakba: ${landConverted.bigha} Bigha / ${landConverted.kattha} Kattha / ${landConverted.dismil} Dismil (${landConverted.sqft} Sq Ft, ${laggiHath} Hath Laggi).`;
+                        setFactsText((prev) => (prev.trim() ? `${prev.trim()}\n${summary}` : summary));
+                      }}
+                      className="w-full min-h-[34px] rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-950 text-xs font-semibold"
+                    >
+                      + Converted Rakba Problem Box me Jodein
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowBnsLookup((v) => !v)}
+                    className="flex items-center gap-2 text-left"
+                  >
+                    <Scale className="w-4 h-4 text-rose-700 shrink-0" />
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">
+                        BNS ↔ IPC &amp; BNSS ↔ CrPC Section Finder
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Purani IPC/CrPC dhara daalkar nayi BNS/BNSS dhara &amp; jamanat dekhein
+                      </div>
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenBrowser(
+                          'https://services.ecourts.gov.in/ecourtindia_v6/',
+                          referenceNo.trim()
+                            ? `eCourts Services par CNR/Case No "${referenceNo.trim()}" status check karein.`
+                            : 'eCourts India par CNR / Party Name / FIR Case Status search kholein.'
+                        )
+                      }
+                      className="min-h-[30px] px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+                    >
+                      <Compass className="w-3 h-3" />
+                      eCourts Check
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBnsLookup((v) => !v)}
+                      className="text-[11px] font-semibold text-slate-700 hover:underline"
+                    >
+                      {showBnsLookup ? 'Hide' : 'Find Section'}
+                    </button>
+                  </div>
+                </div>
+
+                {showBnsLookup && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={bnsQuery}
+                        onChange={(e) => setBnsQuery(e.target.value)}
+                        placeholder="Search 323, 420, 438, 107, 138, 115, theft, bail..."
+                        className="w-full min-h-[36px] pl-8 pr-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:bg-white focus:border-slate-900 focus:outline-none"
+                      />
+                    </div>
+                    <div className="max-h-52 overflow-y-auto divide-y divide-slate-100">
+                      {filteredBnsList.map((sec) => (
+                        <div
+                          key={`${sec.bnsOrBnss}-${sec.oldIpcOrCrpc}`}
+                          className="py-2 flex items-start justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-mono font-bold text-slate-900">
+                              {sec.bnsOrBnss}{' '}
+                              <span className="text-slate-500 font-normal">
+                                (Old {sec.oldIpcOrCrpc})
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-800 truncate">
+                              {sec.title}
+                            </div>
+                            <div className="text-[11px] text-slate-600">
+                              {sec.hindiMeaning} ·{' '}
+                              <span className="font-semibold text-emerald-700">{sec.bailNote}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const tag = `${sec.bnsOrBnss} (Old ${sec.oldIpcOrCrpc})`;
+                              setOppositeParty((prev) =>
+                                prev.includes(sec.bnsOrBnss)
+                                  ? prev
+                                  : prev.trim()
+                                  ? `${prev.trim()}, ${tag}`
+                                  : tag
+                              );
+                            }}
+                            className="min-h-[28px] px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-[11px] font-semibold text-slate-800 whitespace-nowrap shrink-0"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Verified Official Portals Card */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
@@ -1188,6 +1800,23 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
                         <Download className="w-3.5 h-3.5" />
                         .TXT
                       </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadWordDoc({
+                            filename: `${packet.mode}-petition.doc`,
+                            title: packet.title,
+                            subtitle: `${packet.portalName} · ${packet.feeAndTimeline}`,
+                            bodyText: editablePrimaryDraft,
+                            secondaryTitle: packet.secondaryDraftTitle,
+                            secondaryText: editableSecondaryDraft,
+                          })
+                        }
+                        className="min-h-[34px] px-3 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        .DOC (Word)
+                      </button>
                     </div>
                   </div>
                   <textarea
@@ -1270,6 +1899,50 @@ export const CscLegalDeskSection: React.FC<CscLegalDeskSectionProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Clean A4 / Photo-Sheet Print-Only Views */}
+      {mode === 'resizer' && resizerTool === 'sheet' && sheetDataUrl && (
+        <div className="print-only print-sheet">
+          <img
+            src={sheetDataUrl}
+            alt="Printable Passport Photo Sheet"
+            className="w-full h-auto object-contain"
+          />
+        </div>
+      )}
+      {mode === 'resizer' && resizerTool === 'jpg' && resizedOutput?.dataUrl && (
+        <div className="print-only print-sheet p-6">
+          <img
+            src={resizedOutput.dataUrl}
+            alt="Printable Form Image"
+            className="max-w-full h-auto"
+          />
+        </div>
+      )}
+      {mode !== 'resizer' && packet && (
+        <div className="print-only print-sheet space-y-4">
+          <div className="border-b border-slate-400 pb-2">
+            <h1 className="text-lg font-bold text-black">{packet.title}</h1>
+            <div className="text-xs text-slate-700 mt-0.5">
+              {packet.portalName} · {packet.feeAndTimeline}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-bold text-black mb-1">{packet.primaryDraftTitle}</div>
+            <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-black">
+              {editablePrimaryDraft}
+            </pre>
+          </div>
+          {editableSecondaryDraft.trim() && (
+            <div className="pt-3 border-t border-slate-300">
+              <div className="text-sm font-bold text-black mb-1">{packet.secondaryDraftTitle}</div>
+              <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-black">
+                {editableSecondaryDraft}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

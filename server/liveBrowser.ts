@@ -147,7 +147,11 @@ function buildServerFillPayload(params: {
   }
   const EXPLICIT_DIRECT_KEYS = new Set([
     'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'preferredTrain', 'berthPreference',
-    'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation', 'age',
+    'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation', 'age', 'mobile',
+    'passenger1Name', 'passenger1Age', 'passenger1Gender', 'passenger1Berth',
+    'passenger2Name', 'passenger2Age', 'passenger2Gender', 'passenger2Berth',
+    'passenger3Name', 'passenger3Age', 'passenger3Gender', 'passenger3Berth',
+    'passenger4Name', 'passenger4Age', 'passenger4Gender', 'passenger4Berth',
     'tenthBoard', 'tenthRoll', 'tenthYear', 'tenthPercent',
     'twelfthBoard', 'twelfthRoll', 'twelfthYear', 'twelfthPercent',
     'aadhaarNumber', 'panNumber', 'passportNumber', 'dlNumber', 'voterId',
@@ -165,12 +169,15 @@ function buildServerFillPayload(params: {
       if (isTatkalSessionDoc) map[keyName] = val;
       else map[keyName] = map[keyName] || val;
     };
-    for (const f of doc.fields) {
-      const k = f.key.trim();
-      const v = f.value.trim();
+    for (const f of Array.isArray(doc.fields) ? doc.fields : []) {
+      const k = String(f?.key || '').trim();
+      const v = String(f?.value || '').trim();
       if (!v) continue;
       if (EXPLICIT_DIRECT_KEYS.has(k)) {
         assignField(k, v);
+      }
+      if (/^passenger[1-4](Name|Age|Gender|Berth)$/.test(k)) {
+        continue;
       }
       const lower = `${k} ${f.label}`.toLowerCase();
       if (k === 'fromStation' || lower.includes('from station') || lower.includes('boarding station')) assignField('fromStation', v);
@@ -536,6 +543,7 @@ export class LiveBrowserController {
             Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
           }
           const winAny = window as unknown as Record<string, unknown>;
+          winAny.__sarthiPlaywrightControlled = true;
           if (!winAny.chrome) {
             winAny.chrome = {
               runtime: {},
@@ -593,11 +601,11 @@ export class LiveBrowserController {
           await route.abort();
           return;
         }
-        // Tatkal Turbo filter: drop heavy decorative fonts/media/video, chatbots (AskDisha/Corover), & promo banners while preserving ALL core APIs, scripts, CSS, and CAPTCHA images
+        // Tatkal Turbo filter: drop heavy non-IRCTC decorative fonts/media/video, chatbots (AskDisha/Corover), & promo banners while preserving ALL IRCTC fonts, APIs, scripts, CSS, and CAPTCHA images
         if (this.status.tatkalMode) {
           const rtype = req.resourceType();
           const lower = reqUrl.toLowerCase();
-          if (rtype === 'media' || rtype === 'font') {
+          if (rtype === 'media' || (rtype === 'font' && !isIrctcUrl(lower))) {
             await route.abort();
             return;
           }
@@ -686,13 +694,38 @@ export class LiveBrowserController {
     page.on('response', (resp) => {
       if (this.page !== page || page.isClosed()) return;
       const rUrl = resp.url();
-      if (resp.status() === 403 && isIrctcUrl(rUrl) && /eticketing\/web-services|nget\/train-search/i.test(rUrl)) {
-        this.agentAbort = true;
-        this.status.agentRunning = false;
-        this.status.tatkalStage = 'blocked';
-        this.status.blockedReason =
-          'IRCTC (Akamai) ne is Cloud Server IP ke API request ko 403 Access Denied diya hai — repeat retry se permanent IP block na ho isliye AI ruk gaya hai. Phone / Native App Browser button dabakar seedha apne phone IP par kholein!';
-        this.appendLog('Stopped immediately on IRCTC 403 to prevent rate-limit lock.');
+      const status = resp.status();
+      if (isIrctcUrl(rUrl) && /eticketing\/web-services|nget\/train-search|taen\/avail/i.test(rUrl)) {
+        if (status === 403 || status === 429) {
+          this.agentAbort = true;
+          this.status.agentRunning = false;
+          this.status.tatkalStage = 'blocked';
+          this.status.blockedReason =
+            status === 429
+              ? 'IRCTC server abhi heavy Tatkal traffic/rate-limit (HTTP 429) dikha raha hai — IP lock se bachne ke liye AI ruk gaya hai. Thodi der ruk kar Phone IP button se kholein!'
+              : 'IRCTC (Akamai) ne is Cloud Server IP ke API request ko 403 Access Denied diya hai — repeat retry se permanent IP block na ho isliye AI ruk gaya hai. Phone / Native App Browser button dabakar seedha apne phone IP par kholein!';
+          this.appendLog(`Stopped immediately on IRCTC HTTP ${status} to prevent rate-limit lock.`);
+          this.broadcastStatus();
+        } else if (status >= 500) {
+          this.status.agentStatus = `IRCTC Search/Booking API server busy (HTTP ${status}) — retry ya Phone IP try karein.`;
+          this.appendLog(`IRCTC API warning: HTTP ${status} on ${rUrl.slice(0, 80)}`);
+          this.broadcastStatus();
+        }
+      }
+    });
+
+    page.on('requestfailed', (req) => {
+      if (this.page !== page || page.isClosed()) return;
+      const rUrl = req.url();
+      const errText = req.failure()?.errorText || '';
+      if (
+        isIrctcUrl(rUrl) &&
+        /eticketing\/web-services/i.test(rUrl) &&
+        errText &&
+        !/ERR_ABORTED/i.test(errText)
+      ) {
+        this.status.agentStatus = `IRCTC API connection failed (${errText}) — network ya Phone IP check karein.`;
+        this.appendLog(`IRCTC API failed (${errText}) on ${rUrl.slice(0, 80)}`);
         this.broadcastStatus();
       }
     });
@@ -1332,6 +1365,7 @@ export class LiveBrowserController {
       type TatkalFastSummary = {
         state?: string;
         clicked?: string;
+        clickSelector?: string;
         note?: string;
         filled?: number;
         hasCaptcha?: boolean;
@@ -1351,7 +1385,8 @@ export class LiveBrowserController {
       for (const frame of frames) {
         try {
           await frame.evaluate((src: string) => {
-            const w = window as unknown as { SarthiFill?: unknown };
+            const w = window as unknown as { SarthiFill?: unknown; __sarthiPlaywrightControlled?: boolean };
+            w.__sarthiPlaywrightControlled = true;
             if (!w.SarthiFill) {
               // eslint-disable-next-line no-eval
               (0, eval)(src);
@@ -1368,6 +1403,7 @@ export class LiveBrowserController {
                   ) => {
                     state?: string;
                     clicked?: string;
+                    clickSelector?: string;
                     note?: string;
                     filled?: number;
                     hasCaptcha?: boolean;
@@ -1388,7 +1424,7 @@ export class LiveBrowserController {
             { pl: payload, isReset: tick === 1 }
           );
 
-          if (res && (res.irctcHandled || res.hasCaptcha || res.hasOtp || res.hasPayment || (res.filled || 0) > 0 || res.clicked || !bestSummary)) {
+          if (res && (res.irctcHandled || res.hasCaptcha || res.hasOtp || res.hasPayment || (res.filled || 0) > 0 || res.clicked || res.clickSelector || !bestSummary)) {
             bestSummary = res as TatkalFastSummary;
             activeFrame = frame;
             if (res.irctcHandled || res.hasCaptcha || res.hasOtp || res.hasPayment) break;
@@ -1426,6 +1462,28 @@ export class LiveBrowserController {
           } catch {
             // already populated by SarthiFill DOM engine
           }
+        }
+      }
+
+      // Trusted Playwright click delegation (for Search Trains so Angular & Akamai receive isTrusted: true events)
+      if (bestSummary.clickSelector) {
+        try {
+          const btnLoc = activeFrame.locator(bestSummary.clickSelector).first();
+          if ((await btnLoc.count()) > 0) {
+            const rawBtnText = (
+              (await btnLoc.innerText({ timeout: 350 }).catch(() => '')) ||
+              (await btnLoc.getAttribute('value', { timeout: 350 }).catch(() => '')) ||
+              ''
+            ).trim();
+            const isUnsafePayBtn = /pay\s*now|make\s*payment|proceed\s*to\s*pay|pay\s*&\s*book|pay\s*and\s*book|checkout|confirm\s*pay/i.test(rawBtnText);
+            if (!isUnsafePayBtn) {
+              await page.waitForTimeout(60);
+              await btnLoc.scrollIntoViewIfNeeded({ timeout: 1000 }).catch(() => {});
+              await btnLoc.click({ timeout: 2500 });
+            }
+          }
+        } catch (err) {
+          this.appendLog(`Trusted click skipped: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -1485,6 +1543,8 @@ export class LiveBrowserController {
             ? 'Payment Ready (User Confirmation)'
             : bestSummary.hasOtp
             ? 'Waiting for OTP (User)'
+            : bestSummary.tatkalStage === 'search' && !bestSummary.hasCaptcha
+            ? bestSummary.note || 'IRCTC Search Alert (User Action)'
             : 'Waiting for CAPTCHA (User)';
         this.broadcastStatus();
         await this.captureAndBroadcastFrame();
@@ -1511,7 +1571,7 @@ export class LiveBrowserController {
       }
 
       this.broadcastStatus();
-      if (tick % 3 === 1 || bestSummary.clicked || bestSummary.state === 'next') {
+      if (tick % 3 === 1 || bestSummary.clicked || bestSummary.clickSelector || bestSummary.state === 'next') {
         await this.captureAndBroadcastFrame();
       }
       await page.waitForTimeout(bestSummary.state === 'waiting' ? 520 : 210);

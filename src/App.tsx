@@ -325,12 +325,12 @@ export function App() {
 
   return (
     <div
-      className={`min-h-dvh bg-[#F4F6FA] text-slate-900 flex flex-col ${
+      className={`min-h-dvh bg-[#F4F6FA] text-slate-900 flex flex-col print:pb-0 ${
         activeTab === 'browser' ? 'pb-16 md:pb-2' : 'pb-20 md:pb-6'
       }`}
     >
       {/* Clean 3-Zone Top Bar Contract */}
-      <header className="sticky top-0 z-30 bg-[#0B1120] text-white border-b border-slate-800/90 pt-[env(safe-area-inset-top)]">
+      <header className="no-print sticky top-0 z-30 bg-[#0B1120] text-white border-b border-slate-800/90 pt-[env(safe-area-inset-top)]">
         <div className="max-w-[1440px] mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Single-line Brand Wordmark */}
           <button
@@ -398,7 +398,7 @@ export function App() {
         {serverOfflineMode && (
           <form
             onSubmit={handleConnectServer}
-            className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center gap-2"
+            className="no-print px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center gap-2"
           >
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <Server className="w-4 h-4 text-amber-700 shrink-0" />
@@ -582,7 +582,7 @@ export function App() {
       </main>
 
       {/* Compact Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
+      <nav className="no-print md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
         <div className="grid grid-cols-6 gap-0.5 px-1 py-1">
           {navItems.map((item) => {
             const active = activeTab === item.key;

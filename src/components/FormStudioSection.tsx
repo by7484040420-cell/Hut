@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Check,
@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import type {
   AppCategory,
@@ -20,6 +21,8 @@ import type {
 } from '../types';
 import { CATEGORY_LABELS, formatIsoTime } from '../lib/format';
 import { apiFetchJson } from '../lib/api';
+import { runNativeOnDeviceOcr } from '../lib/nativeBrowserBridge';
+import { downloadWordDoc } from '../lib/cscTools';
 
 interface FormStudioSectionProps {
   applications: ApplicationDraft[];
@@ -82,6 +85,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
   selectedId,
   ephemeralDocs,
   zeroSave,
+  onAddEphemeralDoc,
   onWipeEphemeralDocs,
   onSelectId,
   onApplicationsChange,
@@ -92,14 +96,48 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
   const [targetUrl, setTargetUrl] = useState('');
   const [language, setLanguage] = useState<'hinglish' | 'hindi' | 'english'>('hinglish');
   const [generating, setGenerating] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrNote, setOcrNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const ocrInputRef = useRef<HTMLInputElement | null>(null);
 
   const selected =
     applications.find((a) => a.id === selectedId) || applications[0] || null;
 
   const activeCategoryMeta = CATEGORIES.find((c) => c.id === category) || CATEGORIES[0];
+
+  const handleInlineOcrUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setOcrBusy(true);
+    setError(null);
+    setOcrNote(null);
+    try {
+      let extracted: EphemeralDocumentExtract | null = null;
+      try {
+        const fd = new FormData();
+        fd.append('document', file);
+        const res = await apiFetchJson<{ extracted: EphemeralDocumentExtract }>('/api/ocr/extract', {
+          method: 'POST',
+          body: fd,
+        });
+        extracted = res.extracted;
+      } catch (serverErr) {
+        const nativeExt = await runNativeOnDeviceOcr(file);
+        if (!nativeExt) throw serverErr;
+        extracted = nativeExt;
+      }
+      onAddEphemeralDoc(extracted);
+      setOcrNote(`${extracted.documentType} scanned in RAM (${extracted.fields.length} details ready for Auto-Fill).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Document OCR scan failed.');
+    } finally {
+      setOcrBusy(false);
+    }
+  };
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -272,10 +310,32 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const downloadDraftDoc = (draft: ApplicationDraft) => {
+    const fieldsBlock = draft.fields
+      .map((f) => `${f.label}: ${f.value || '[NEEDS INPUT]'}`)
+      .join('\n');
+    downloadWordDoc({
+      filename: `${draft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}.doc`,
+      title: draft.title,
+      subtitle: `${CATEGORY_LABELS[draft.category]} · ${draft.portalName} (${draft.portalUrl})`,
+      bodyText: fieldsBlock,
+      secondaryTitle: draft.formalLetterText ? 'Formal Application / Letter' : undefined,
+      secondaryText: draft.formalLetterText || undefined,
+    });
+  };
+
   return (
     <div className="space-y-5">
+      <input
+        ref={ocrInputRef}
+        type="file"
+        accept="image/*,.pdf"
+        onChange={(e) => void handleInlineOcrUpload(e)}
+        className="hidden"
+      />
+
       {ephemeralDocs.length > 0 && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="no-print bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="text-emerald-900 font-medium">
             Active OCR Docs in RAM ({ephemeralDocs.length}):{' '}
             {ephemeralDocs.map((d) => d.documentType).join(', ')} (Not saved to disk)
@@ -293,7 +353,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
       {/* AI Form Generator Card */}
       <form
         onSubmit={handleGenerate}
-        className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4"
+        className="no-print bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs space-y-4"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -306,23 +366,43 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                 : 'Live internet research + automatic form filling from your Profile Vault'}
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-1 shrink-0">
-            {(['hinglish', 'hindi', 'english'] as const).map((lang) => (
-              <button
-                key={lang}
-                type="button"
-                onClick={() => setLanguage(lang)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize whitespace-nowrap transition-colors ${
-                  language === lang
-                    ? 'bg-[#0B1120] text-white'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {lang}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={ocrBusy}
+              onClick={() => ocrInputRef.current?.click()}
+              className="min-h-[34px] px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap"
+            >
+              {ocrBusy ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Upload className="w-3.5 h-3.5" />
+              )}
+              Scan Doc (OCR)
+            </button>
+            <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-1 shrink-0">
+              {(['hinglish', 'hindi', 'english'] as const).map((lang) => (
+                <button
+                  key={lang}
+                  type="button"
+                  onClick={() => setLanguage(lang)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize whitespace-nowrap transition-colors ${
+                    language === lang
+                      ? 'bg-[#0B1120] text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {lang}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+        {ocrNote && (
+          <div className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+            {ocrNote}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div className="md:col-span-4">
@@ -392,7 +472,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
       </form>
 
       {/* Saved Drafts Master-Detail View */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-5">
         <aside className="lg:col-span-4 space-y-2.5">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-sm font-bold text-slate-900">
@@ -497,7 +577,15 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                     className="min-h-[38px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    Export .TXT
+                    .TXT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadDraftDoc(selected)}
+                    className="min-h-[38px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    .DOC (Word)
                   </button>
                   <button
                     type="button"
@@ -505,7 +593,7 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
                     className="min-h-[38px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 hover:border-slate-400 text-xs font-semibold text-slate-800 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                   >
                     <Printer className="w-3.5 h-3.5" />
-                    Print
+                    Print A4
                   </button>
                 </div>
               </div>
@@ -667,6 +755,36 @@ export const FormStudioSection: React.FC<FormStudioSectionProps> = ({
           )}
         </section>
       </div>
+
+      {/* Clean A4 Print-Only View */}
+      {selected && (
+        <div className="print-only print-sheet space-y-4">
+          <div className="border-b border-slate-400 pb-2">
+            <h1 className="text-lg font-bold text-black">{selected.title}</h1>
+            <div className="text-xs text-slate-700 mt-0.5">
+              {CATEGORY_LABELS[selected.category]} · {selected.portalName} ({selected.portalUrl})
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+            {selected.fields.map((field, idx) => (
+              <div key={idx} className="border-b border-slate-200 pb-1">
+                <span className="font-semibold text-black">{field.label}: </span>
+                <span className="text-slate-900">{field.value || '________________'}</span>
+              </div>
+            ))}
+          </div>
+
+          {selected.formalLetterText?.trim() && (
+            <div className="pt-3 border-t border-slate-300">
+              <div className="text-sm font-bold text-black mb-1.5">Application / Letter</div>
+              <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-black">
+                {selected.formalLetterText}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
