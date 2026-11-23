@@ -1543,6 +1543,8 @@ export class LiveBrowserController {
             ? 'Payment Ready (User Confirmation)'
             : bestSummary.hasOtp
             ? 'Waiting for OTP (User)'
+            : bestSummary.tatkalStage === 'blocked' && !bestSummary.hasCaptcha
+            ? bestSummary.note || 'IRCTC Session Reset (User Action)'
             : bestSummary.tatkalStage === 'search' && !bestSummary.hasCaptcha
             ? bestSummary.note || 'IRCTC Search Alert (User Action)'
             : 'Waiting for CAPTCHA (User)';

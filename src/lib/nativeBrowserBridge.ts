@@ -11,6 +11,7 @@ export interface SarthiNativeInterface {
   showAsks?: (asksJson: string, note: string) => void;
   closePortal?: () => void;
   wipePortalSession?: () => void;
+  forceWipePortalSession?: () => void;
   scanDocumentOcr?: (base64Image: string, requestId: string) => void;
   stashDocument?: (name: string, mime: string, base64: string) => void;
   getNativeInfo?: () => string;

@@ -50,6 +50,7 @@ import {
   buildAutoFillPayload,
   hasNativePortalBridge,
   launchNativeControlledPortal,
+  preloadNativePortal,
   runNativeOnDeviceOcr,
 } from '../lib/nativeBrowserBridge';
 import { INDIAN_STATES_AND_UTS } from '../lib/indianStates';
@@ -499,9 +500,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           message?: string;
           url?: string;
         };
-        if (parsed.url) setAddressInput(parsed.url);
-        const sig = `${parsed.event || ''} ${parsed.type || ''} ${parsed.status || ''} ${parsed.message || ''}`;
-        if (/(close|closed|exit|back|dismiss|done|finished)/i.test(sig)) {
+        if (parsed.url && parsed.url !== 'about:blank') setAddressInput(parsed.url);
+        if (
+          (parsed.event === 'portal_closed' || parsed.event === 'form_done') &&
+          !/irctc\.co\.in/i.test(parsed.url || '')
+        ) {
           wipeCurrentTaskSession('Portal band hua - sabhi details aur documents saaf kar diye');
           return;
         }
@@ -513,23 +516,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       }
     };
 
-    // Native APK portal screen (< BACK / CLOSE) se wapas aate hi RAM details aur docs wipe karo
-    const handleReturnFromNativePortal = () => {
-      if (document.visibilityState === 'hidden') return;
-      const launchedAt = portalLaunchedAtRef.current;
-      if (launchedAt > 0 && Date.now() - launchedAt > 1200) {
-        wipeCurrentTaskSession('Portal wapas/band hone par sabhi details aur documents delete kar diye');
-      }
-    };
-    document.addEventListener('visibilitychange', handleReturnFromNativePortal);
-    window.addEventListener('focus', handleReturnFromNativePortal);
-
     return () => {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       wsRef.current?.close();
-      document.removeEventListener('visibilitychange', handleReturnFromNativePortal);
-      window.removeEventListener('focus', handleReturnFromNativePortal);
+      delete window.onSarthiNativePortalEvent;
       delete window.onSarthiNativeUnmatched;
       delete window.onSarthiNativeFormDone;
       delete window.onSarthiNativeStuck;
@@ -537,13 +528,15 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     };
   }, []);
 
-  const navigateTo = async (url: string) => {
+  const isIrctcTarget = (u: string) => /irctc\.co\.in/i.test(u || '') || /\birctc\b/i.test(u || '');
+
+  const navigateTo = async (url: string): Promise<'native' | 'cloud' | 'error'> => {
     setError(null);
     setDismissedBlockedBanner(false);
     setShowToolsMenu(false);
     setShowPortalsList(false);
     setAddressInput(url);
-    if (nativeApkMode && serverOfflineMode) {
+    if (nativeApkMode && (serverOfflineMode || isIrctcTarget(url))) {
       portalLaunchedAtRef.current = Date.now();
       launchNativeControlledPortal({
         url,
@@ -552,7 +545,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         zeroSave,
         goal: agentGoal,
       });
-      return;
+      return 'native';
     }
     try {
       const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
@@ -564,6 +557,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         }
       );
       if (data.status) setStatus(data.status);
+      return 'cloud';
     } catch (err) {
       if (nativeApkMode) {
         portalLaunchedAtRef.current = Date.now();
@@ -574,9 +568,10 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
           zeroSave,
           goal: agentGoal,
         });
-        return;
+        return 'native';
       }
       setError(err instanceof Error ? err.message : 'Navigation failed');
+      return 'error';
     }
   };
 
@@ -591,7 +586,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setError(null);
     setShowToolsMenu(false);
     const targetUrl = urlOverride || addressInput;
-    if (nativeApkMode && serverOfflineMode) {
+    if (nativeApkMode && (serverOfflineMode || isIrctcTarget(targetUrl))) {
       portalLaunchedAtRef.current = Date.now();
       launchNativeControlledPortal({
         url: targetUrl,
@@ -882,6 +877,12 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setPrewarmingIrctc(true);
     setError(null);
     setAddressInput('https://www.irctc.co.in/nget/train-search');
+    if (nativeApkMode) {
+      preloadNativePortal('https://www.irctc.co.in/nget/train-search');
+      setNativePortalLogs((prev) => ['IRCTC Phone WebView background me load ho raha hai (Tatkal Ready)', ...prev].slice(0, 30));
+      setPrewarmingIrctc(false);
+      return;
+    }
     try {
       const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
         '/api/live-browser/tatkal-prewarm',
@@ -972,15 +973,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
       : 'https://www.irctc.co.in/nget/train-search';
     const goal = `IRCTC Tatkal Express Auto-Book (${tatkalFrom || 'Source'} -> ${tatkalTo || 'Dest'}, ${tatkalClass}, ${tatkalQuota}). Login ID/Pass + Passenger + BHIM/UPI select karo; sirf CAPTCHA, OTP aur Payment mere liye roko.`;
 
-    if (!status.tatkalMode && !serverOfflineMode) {
-      await apiFetchJson('/api/live-browser/tatkal-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: true }),
-      }).catch(() => {});
-    }
-
-    if (nativeApkMode && serverOfflineMode) {
+    if (nativeApkMode) {
       portalLaunchedAtRef.current = Date.now();
       launchNativeControlledPortal({
         url: 'https://www.irctc.co.in/nget/train-search',
@@ -990,6 +983,14 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
         goal,
       });
       return;
+    }
+
+    if (!status.tatkalMode && !serverOfflineMode) {
+      await apiFetchJson('/api/live-browser/tatkal-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true }),
+      }).catch(() => {});
     }
 
     await startLiveAgent(goal, targetUrl, docs);
@@ -1080,7 +1081,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setAgentGoal('');
     setTypeBox('');
     setShowToolsMenu(false);
-    window.SarthiNative?.wipePortalSession?.();
+    if (window.SarthiNative?.forceWipePortalSession) {
+      window.SarthiNative.forceWipePortalSession();
+    } else {
+      window.SarthiNative?.wipePortalSession?.();
+    }
     if (!serverOfflineMode) {
       try {
         const data = await apiFetchJson<{ status?: LiveBrowserStatus }>(
@@ -2136,7 +2141,9 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                       onClick={() => {
                         setAddressInput(m.url);
                         setAgentGoal(m.goal);
-                        void navigateTo(m.url).then(() => runInstantAutoFill(m.url));
+                        void navigateTo(m.url).then((mode) => {
+                          if (mode === 'cloud') void runInstantAutoFill(m.url);
+                        });
                       }}
                       className="min-h-[34px] px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 whitespace-nowrap transition-colors"
                     >
@@ -2167,7 +2174,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                   {!serverOfflineMode && (
                     <button
                       type="button"
-                      onClick={() => void navigateTo(addressInput).then(() => runInstantAutoFill(addressInput))}
+                      onClick={() =>
+                        void navigateTo(addressInput).then((mode) => {
+                          if (mode === 'cloud') void runInstantAutoFill(addressInput);
+                        })
+                      }
                       className="min-h-[42px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
                     >
                       <Compass className="w-4 h-4" />

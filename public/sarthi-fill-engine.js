@@ -947,6 +947,15 @@
       target = el.querySelector('.ui-dropdown, .p-dropdown, .ui-dropdown-trigger, .p-dropdown-trigger, .mat-select-trigger, .ng-select-container') || el;
     }
     try { target.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { /* ignore */ }
+    // On IRCTC, dispatching pointerdown/mousedown + click can trigger double-click detection ("Sorry!!! Please Try again!!")
+    if (root.location && /irctc\.co\.in/i.test(root.location.hostname || '')) {
+      if (typeof target.click === 'function') {
+        try { target.click(); } catch (e) { /* ignore */ }
+      } else {
+        try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
+      }
+      return;
+    }
     if (root.PointerEvent) {
       ['pointerdown', 'pointerup'].forEach(function (evName) {
         try { target.dispatchEvent(new root.PointerEvent(evName, { bubbles: true, cancelable: true, view: root })); } catch (e) { /* ignore */ }
@@ -1741,7 +1750,7 @@
       var h = String(location.href || '').toLowerCase();
       if (/register|signup/.test(h)) return false;
       var pw = Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).filter(isVisible);
-      return pw.length < 2 && typeof root.SarthiNative !== 'undefined';
+      return pw.length < 2 && (typeof root.SarthiNative !== 'undefined' || typeof root.SarthiCred !== 'undefined');
     } catch (e) { return false; }
   }
 
@@ -1754,40 +1763,36 @@
     } catch (e) { return false; }
   }
 
-  // IRCTC: pehle LOGIN, phir Search. Login nahi hai to LOGIN popup kholo aur user ke CAPTCHA/Sign-in ka intezaar karo.
-  var irWaitMsg = '', irLoginOpenAt = 0;
+  // IRCTC: login status helper (never blind-clicks LOGIN or Sorry links from clickNext)
+  var irWaitMsg = '';
   function irIsLoggedIn() {
-    try { return /\blogout\b/i.test((document.body && document.body.innerText) || ''); } catch (e) { return false; }
+    try {
+      var txt = (document.body && document.body.innerText) || '';
+      if (/\blogout\b|\bsign ?out\b/i.test(txt)) return true;
+      return !!document.querySelector('a[href*="logout"], button[aria-label*="logout" i]');
+    } catch (e) { return false; }
   }
   function irLoginGate() {
     try {
       if (!/irctc\.co\.in/i.test(location.hostname)) return '';
       if (/register|signup/.test(String(location.href || '').toLowerCase())) return '';
       if (irIsLoggedIn()) return '';
-      var now = Date.now();
       var bodyTxt = (document.body && document.body.innerText) || '';
-      // "Sorry! Please try again" page: IRCTC ka "Click here to login" dabao (throttled)
       if (/please try again/i.test(bodyTxt)) {
-        var rb = irFindBtn(/click here to login/i);
-        if (rb && now - irLoginOpenAt > 8000) { irLoginOpenAt = now; clickLikeUser(rb); }
-        irWaitMsg = 'IRCTC session reset - dobara login karo';
+        irWaitMsg = 'IRCTC session reset - Click here to login dabakar dobara kholein';
         return '__wait__';
       }
       if (Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).some(isVisible)) {
-        irWaitMsg = 'IRCTC login: CAPTCHA daalo aur SIGN IN dabao (phir search apne aap hoga)';
+        irWaitMsg = 'IRCTC login: poora CAPTCHA daalo aur SIGN IN dabao';
         return '__wait__';
       }
-      var lb = irFindBtn(/^login$/i);
-      if (lb && now - irLoginOpenAt > 8000) { irLoginOpenAt = now; clickLikeUser(lb); }
-      irWaitMsg = 'Pehle IRCTC login karo - LOGIN popup khol raha hu';
-      return '__wait__';
+      return '';
     } catch (e) { return ''; }
   }
 
   function clickNext() {
     irWaitMsg = '';
-    var gate = irLoginGate();
-    if (gate) return gate;
+    if (/irctc\.co\.in/i.test(location.hostname)) return '';
     if (irNextLocked()) return '__wait__';
     var els = Array.prototype.slice.call(document.querySelectorAll('button,a,input[type="button"],input[type="submit"],[role="button"]'));
     for (var i = 0; i < els.length; i++) {
@@ -2724,57 +2729,42 @@
     return null;
   }
 
-  // run() ke BAAD (jab saari fields bhar chuki): Sign In / Register link / Register submit dabao
+  // run() ke BAAD: Login modal par User/Pass bharne ke baad CAPTCHA/SIGN IN user ke haath me rakho (Tatkal par Register kabhi mat dabao)
   function irctcAccountPost(data) {
     try {
       if (!/irctc/.test(irHref())) return null;
       var pw = irPwInputs();
       if (!pw.length) return null;
-      var hasCreds = !!(String((data && data.loginUserId) || '').trim() && String((data && data.loginPassword) || '').trim());
-      if (!irBookRecent() && !hasCreds) return null;
-      var now = Date.now();
-      if (now - irAcctAt < 4500) return { state: 'waiting', tatkalStage: 'login_captcha', note: 'Sign In response wait...' };
       var isReg = pw.length >= 2 || /register|signup/.test(irHref());
       if (isReg) {
         if (!irCaptchaFilled()) {
           focusSecurityInput();
-          return { state: 'user', hasCaptcha: true, tatkalStage: 'login_captcha', note: 'CAPTCHA aap dalein, phir Register main dabaunga' };
+          return { state: 'user', hasCaptcha: true, tatkalStage: 'login_captcha', note: 'Registration screen par CAPTCHA daalein aur khud Register dabayein' };
         }
-        var rb = irFindBtn(/^(register|sign ?up|submit|create account)$/);
-        if (!rb) return null;
-        irAcctAt = now; mark(rb, GREEN); clickLikeUser(rb);
-        return { state: 'next', clicked: 'register', tatkalStage: 'login_captcha', note: 'Account register ho raha hai - OTP aaye to aap dalein' };
+        return { state: 'user', hasCaptcha: true, tatkalStage: 'login_captcha', note: 'Registration details ready hain — check karke Register dabayein' };
       }
-      // login popup / page
-      if (hasCreds) {
-        var filled = pw.some(function (p) { return String(p.value || '').trim(); });
-        if (!filled) return null;
-        if (!irCaptchaFilled()) {
-          focusSecurityInput();
-          return { state: 'user', hasCaptcha: true, tatkalStage: 'login_captcha', note: 'Login ID & Password auto-fill ho chuke! Ab CAPTCHA daalein — AI turant Sign In kar dega.' };
-        }
-        var sb = irFindBtn(/^(sign ?in|login|log in)$/);
-        if (!sb) return null;
-        irAcctAt = now; mark(sb, GREEN); clickLikeUser(sb);
-        return { state: 'next', clicked: 'sign in', tatkalStage: 'passenger', note: 'IRCTC Sign In ho raha hai...' };
+      // Login popup / Login page: kabhi 4-char CAPTCHA pe auto Sign In mat dabao aur kabhi Register mat dabao!
+      var pwFilled = pw.some(function (p) { return String(p.value || '').trim().length > 0; });
+      var hasCreds = !!(String((data && data.loginUserId) || '').trim() && String((data && data.loginPassword) || '').trim());
+      focusSecurityInput();
+      if (pwFilled || hasCreds) {
+        return {
+          state: 'user',
+          hasCaptcha: true,
+          hasPassword: !pwFilled,
+          tatkalStage: 'login_captcha',
+          note: pwFilled
+            ? 'Login ID & Password bhar chuke hain! Poora CAPTCHA daal kar SIGN IN dabayein.'
+            : 'IRCTC Login khula hai — apna Password aur CAPTCHA daal kar SIGN IN dabayein.'
+        };
       }
-      // Login popup: pehle user ko apna ID/password dalne ka mauka do (25 sec). Tab tak kuch nahi, sirf ek baar Register dabega.
-      if (data.autoRegister === false) return null;
-      var typed = Array.prototype.slice.call(document.querySelectorAll('input[type="text"],input:not([type])')).some(function (el) {
-        return isVisible(el) && String(el.value || '').trim() && !/captcha/.test(hintOf(el));
-      });
-      if (typed) return null;                                         // user khud ID likh raha hai
-      var seen = parseInt(root.sessionStorage ? (root.sessionStorage.getItem('sarthi_ir_login_seen') || '0') : '0', 10);
-      if (!seen) { seen = now; try { root.sessionStorage.setItem('sarthi_ir_login_seen', String(now)); } catch (e) { /* ignore */ } }
-      var already = false;
-      try { already = root.sessionStorage.getItem('sarthi_ir_reg_clicked') === '1'; } catch (e) { /* ignore */ }
-      if (already) return null;
-      if (now - seen < 4000) return { state: 'waiting', note: 'IRCTC ID/password nahi mila - naya account banata hoon' };
-      var rg = irFindBtn(/^(register|sign ?up|new user.*)$/);
-      if (!rg) return null;
-      try { root.sessionStorage.setItem('sarthi_ir_reg_clicked', '1'); } catch (e) { /* ignore */ }
-      irAcctAt = now; mark(rg, GREEN); clickLikeUser(rg);
-      return { state: 'next', clicked: 'register', note: 'ID/password nahi diya - naya IRCTC account bana raha hoon' };
+      return {
+        state: 'user',
+        hasCaptcha: true,
+        hasPassword: true,
+        tatkalStage: 'login_captcha',
+        note: 'IRCTC Login khula hai — User ID, Password aur CAPTCHA daal kar SIGN IN dabayein.'
+      };
     } catch (e) { return null; }
   }
 
@@ -3057,23 +3047,53 @@
     } catch (e) { return null; }
   }
 
-  var irSorryAt = 0, irSorryN = 0, irSorrySeenAt = 0;
+  var irSorrySeenAt = 0;
   function irctcSorryPage() {
     try {
       if (!/irctc/.test(irHref())) return null;
-      var t = norm(((document.body && document.body.innerText) || '').slice(0, 600));
-      if (!/sorry.{0,6}please try again/.test(t)) return null;
+      var t = norm(((document.body && document.body.innerText) || '').slice(0, 800));
+      if (!/sorry.{0,6}please try again/.test(t)) {
+        irSorrySeenAt = 0;
+        return null;
+      }
       var now = Date.now();
+      var sorryN = 0, sorryAt = 0;
+      try {
+        sorryN = parseInt(root.sessionStorage.getItem('sarthi_ir_sorry_n') || '0', 10) || 0;
+        sorryAt = parseInt(root.sessionStorage.getItem('sarthi_ir_sorry_at') || '0', 10) || 0;
+        if (sorryAt && now - sorryAt > 90000) {
+          sorryN = 0;
+          root.sessionStorage.removeItem('sarthi_ir_sorry_n');
+          root.sessionStorage.removeItem('sarthi_ir_sorry_at');
+        }
+      } catch (eS) { /* ignore */ }
+      if (sorryN >= 1) {
+        return {
+          state: 'user',
+          tatkalStage: 'blocked',
+          note: 'IRCTC ne "Sorry!!! Please Try again!!" dikhaya — neeche "Click here to login" ya upar CLOSE dabakar dobara kholein'
+        };
+      }
       if (!irSorrySeenAt) irSorrySeenAt = now;
-      if (now - irSorrySeenAt < 4000) return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC ne \"Sorry Please try again\" dikhaya - 4 sec ruk kar login par wapas jaunga' };
-      if (irSorryN >= 3 || now - irSorryAt < 15000) return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC ne \"Sorry Please try again\" dikhaya - wait' };
+      if (now - irSorrySeenAt < 2500) {
+        return { state: 'waiting', tatkalStage: 'blocked', note: 'IRCTC session reset hua - 2 sec me home par ja raha hu...' };
+      }
       var b = irFindBtn(/click here to login|click here/);
-      if (!b) return null;
-      irSorryAt = now; irSorryN++; irSorrySeenAt = 0;
-      try { root.sessionStorage.removeItem('sarthi_ir_search_at'); root.sessionStorage.removeItem('sarthi_ir_cont_at'); } catch (e) { /* ignore */ }
+      if (!b) {
+        return { state: 'user', tatkalStage: 'blocked', note: 'IRCTC "Sorry" page — CLOSE dabakar dobara kholein' };
+      }
+      irSorrySeenAt = 0;
+      try {
+        root.sessionStorage.setItem('sarthi_ir_sorry_n', String(sorryN + 1));
+        root.sessionStorage.setItem('sarthi_ir_sorry_at', String(now));
+        root.sessionStorage.removeItem('sarthi_ir_search_at');
+        root.sessionStorage.removeItem('sarthi_ir_search_n');
+        root.sessionStorage.removeItem('sarthi_ir_cont_at');
+        root.sessionStorage.removeItem('sarthi_ir_next_at');
+      } catch (e) { /* ignore */ }
       irFlow.tries = {};
       clickLikeUser(b);
-      return { state: 'next', clicked: 'click here to login', tatkalStage: 'search', note: 'IRCTC session error - home par wapas (' + irSorryN + '/3). Ab Search dobara chalega' };
+      return { state: 'next', clicked: 'click here to login', tatkalStage: 'search', note: 'IRCTC session reset — home page khol raha hu (1/1)' };
     } catch (e) { return null; }
   }
 
@@ -3087,9 +3107,12 @@
       var capEl = candidates.find(function (el) { return classifySecurity(hintOf(el)) === 'captcha'; });
       var target = otpEl || capEl || null;
       if (target) {
-        try { target.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (e) { target.scrollIntoView(); }
-        irSoftFocus(target);
         mark(target, AMBER);
+        if (!target.getAttribute('data-sarthi-focused')) {
+          target.setAttribute('data-sarthi-focused', '1');
+          try { target.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (e) { target.scrollIntoView(); }
+          irSoftFocus(target);
+        }
         return true;
       }
     } catch (e) { /* ignore */ }
@@ -3531,19 +3554,28 @@
       return s;
     }
 
+    if (/irctc\.co\.in/i.test(irHref())) {
+      if (irPwInputs().length > 0) {
+        focusSecurityInput();
+        s.hasCaptcha = true;
+        s.tatkalStage = 'login_captcha';
+        s.state = 'user';
+        userHold = { sig: pageSig() };
+        return s;
+      }
+      s.state = 'final';
+      return s;
+    }
+
     var sig = pageSig();
-    if (sig === lastNextSig && Date.now() - lastNextAt < ((/irctc/.test(irHref())) ? 3500 : 10000)) { s.state = 'waiting'; return s; }
+    if (sig === lastNextSig && Date.now() - lastNextAt < 10000) { s.state = 'waiting'; return s; }
     var t = clickNext();
     if (t === '__wait__') {
-      if (/irctc/.test(irHref())) {
-        focusSecurityInput();
-        s.tatkalStage = /please try again/i.test((document.body && document.body.innerText) || '') ? 'blocked' : 'login_captcha';
-      }
       s.state = 'waiting';
       if (irWaitMsg) s.pending = [irWaitMsg];
       return s;
     }
-    if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; if (/irctc/.test(irHref())) s.tatkalStage = 'passenger'; }
+    if (t) { lastNextSig = sig; lastNextAt = Date.now(); s.clicked = t; s.state = 'next'; }
     else { s.state = 'final'; }
     return s;
   }
@@ -3617,15 +3649,20 @@
       if (!relevant || watchRuns >= 80) return;
       try {
         if (root.location && /irctc/i.test(root.location.href || '')) {
+          if (irFlow.busy) return;
           var ct = parseInt(root.sessionStorage.getItem('sarthi_ir_cont_at') || '0', 10);
           if (ct && Date.now() - ct < 30000) return;   // Continue dab chuka: naya page load ho raha hai, usme kuch mat likho
+          var btxt = (document.body && document.body.innerText) || '';
+          if (/sorry!*\s*please try again/i.test(btxt)) return;
+          if (Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).some(isVisible)) return;
+          if (irPwInputs().length > 0) return;
         }
       } catch (eW) { /* ignore */ }
       clearTimeout(watchTimer);
       watchTimer = setTimeout(function () {
         watchRuns++;
         try { run(payload, {}); } catch (e) { /* ignore */ }
-      }, (root.location && /irctc/i.test(root.location.href || '')) ? 350 : 900);
+      }, 900);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
