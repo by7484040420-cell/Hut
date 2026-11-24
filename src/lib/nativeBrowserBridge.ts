@@ -119,7 +119,9 @@ export function buildAutoFillPayload(params: {
       const v = String(f?.value ?? '').trim();
       if (!v) continue;
       const lower = `${k} ${String(f?.label ?? '')}`.toLowerCase();
-      if (lower.includes('income_source') || lower.includes('income source')) {
+      if (/^passenger[1-4](Name|Age|Gender|Berth)$/.test(k) || k === 'age') {
+        map[k] = map[k] || v;
+      } else if (lower.includes('income_source') || lower.includes('income source')) {
         map.incomeSource = map.incomeSource || v;
       } else if (lower.includes('from_station') || lower.includes('from station') || k === 'fromStation') {
         map.fromStation = map.fromStation || v;

@@ -199,6 +199,7 @@ jobs:
                   tickHandler.postDelayed(tickRunnable, delayMs);
               }
               private TextView portalStatusView;
+              private TextView portalGuideBanner;
               private volatile long lastPortalTouchAt = 0;   // user ne portal ko akhri baar kab chhua (keyboard sirf tab khule)
               private String activePayloadJson = "{}";
               private TextRecognizer textRecognizer;
@@ -301,10 +302,15 @@ jobs:
               private volatile String currentPortalUrl = "";
               private volatile boolean irctcSorryDetected = false;
               private volatile boolean irctcLoginRequested = false;
+              private volatile boolean irctcFillingNow = false;
+              private boolean irctcSearchFilledDone = false;
+              private boolean irctcPassengerFilledDone = false;
+              private String lastIrctcScreen = "";
               private String cachedIrctcHelper = null;
               private String[] irctcStaged = null;          // login click par RAM me; login SAFAL hone par hi save
               private boolean irctcFilledThisModal = false;
               private final Runnable irctcRunnable = () -> irctcTick();
+              private final Runnable irctcScreenRunnable = () -> checkIrctcScreen();
 
               private static boolean isIrctcUrl(String u) {
                   if (u == null) return false;
@@ -463,6 +469,157 @@ jobs:
                   } catch (Exception ignored) {}
               }
 
+              private void setGuideBanner(final String text, final boolean userTurn) {
+                  runOnUiThread(() -> {
+                      if (portalGuideBanner == null) return;
+                      if (text == null || text.trim().isEmpty()) {
+                          portalGuideBanner.setVisibility(View.GONE);
+                          return;
+                      }
+                      portalGuideBanner.setVisibility(View.VISIBLE);
+                      portalGuideBanner.setText(text);
+                      if (userTurn) {
+                          portalGuideBanner.setBackgroundColor(Color.parseColor("#FEF3C7"));
+                          portalGuideBanner.setTextColor(Color.parseColor("#92400E"));
+                      } else {
+                          portalGuideBanner.setBackgroundColor(Color.parseColor("#0C4A6E"));
+                          portalGuideBanner.setTextColor(Color.parseColor("#E0F2FE"));
+                      }
+                  });
+              }
+
+              private String getPayloadStr(String json, String key) {
+                  try {
+                      if (json == null || json.isEmpty()) return "";
+                      return new JSONObject(json).optString(key, "").trim();
+                  } catch (Exception e) { return ""; }
+              }
+
+              private boolean hasIrctcSearchData(String json) {
+                  return !getPayloadStr(json, "fromStation").isEmpty() && !getPayloadStr(json, "toStation").isEmpty();
+              }
+
+              private boolean hasIrctcPassengerOrContactData(String json) {
+                  String[] keys = {"passenger1Name", "fullName", "mobile", "passenger2Name"};
+                  for (String k : keys) {
+                      if (!getPayloadStr(json, k).isEmpty()) return true;
+                  }
+                  return false;
+              }
+
+              private boolean hasIrctcLoginCredInPayload(String json) {
+                  return !getPayloadStr(json, "loginUserId").isEmpty() && !getPayloadStr(json, "loginPassword").isEmpty();
+              }
+
+              private void startIrctcScreenWatch() {
+                  tickHandler.removeCallbacks(irctcScreenRunnable);
+                  tickHandler.postDelayed(irctcScreenRunnable, 900);
+              }
+
+              private void checkIrctcScreen() {
+                  try {
+                      if (portalWebView == null || portalOverlay == null || portalOverlay.getVisibility() != View.VISIBLE) return;
+                      String cu = portalWebView.getUrl();
+                      currentPortalUrl = cu == null ? "" : cu;
+                      if (!isIrctcUrl(cu) || irctcBlockedPage()) return;
+                      if (irctcFillingNow) {
+                          tickHandler.postDelayed(irctcScreenRunnable, 1400);
+                          return;
+                      }
+                      final String probeJs = "(function(){try{"
+                          + "var h=(location.href||'').toLowerCase();"
+                          + "var bt=((document.body&&document.body.innerText)||'').slice(0,1800);"
+                          + "if(/sorry!*\\s*please try again/i.test(bt)) return 'sorry';"
+                          + "var vis=function(e){return !!(e&&(e.offsetWidth||e.offsetHeight||e.getClientRects().length));};"
+                          + "var pws=Array.prototype.slice.call(document.querySelectorAll('input[type=\"password\"]')).filter(vis);"
+                          + "if(pws.length>0) return pws.length>=2||/register|signup/.test(h)?'register':'login';"
+                          + "if(/\\/payment|\\/bkgpayment|ipay/i.test(h)||Array.prototype.slice.call(document.querySelectorAll('button,input')).some(function(b){return vis(b)&&/^(pay\\s*&\\s*book|make payment|proceed to pay|pay now)/i.test((b.innerText||b.value||'').trim());})) return 'payment';"
+                          + "var dlgs=Array.prototype.slice.call(document.querySelectorAll('.ui-dialog,.p-dialog,[role=\"dialog\"],app-confirmation-dialog')).filter(vis);"
+                          + "if(dlgs.some(function(d){return !d.querySelector('input:not([type=\"hidden\"])')&&/\\b(yes|i agree|ok|proceed|continue|english)\\b/i.test(d.innerText||'');})) return 'dialog_confirm';"
+                          + "if(/\\/review/i.test(h)||Array.prototype.slice.call(document.querySelectorAll('app-review-booking,.review-booking')).some(vis)) return 'review';"
+                          + "if(Array.prototype.slice.call(document.querySelectorAll('app-passenger input[formcontrolname=\"passengerName\"],input[formcontrolname=\"passengerName\"],app-passenger-input')).some(vis)) return 'passenger';"
+                          + "if(Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq,.train-avl-enq')).some(vis)) return 'train_list';"
+                          + "if(Array.prototype.slice.call(document.querySelectorAll('p-autocomplete input,input[aria-label*=\"From\" i],input[placeholder*=\"From\" i]')).some(vis)) return 'search';"
+                          + "return 'other';"
+                          + "}catch(e){return 'other';}})();";
+                      portalWebView.evaluateJavascript(probeJs, raw -> {
+                          String scr = "other";
+                          try { scr = decodeJsResult(raw); } catch (Exception ignored) {}
+                          if (scr == null) scr = "other";
+                          boolean changed = !scr.equals(lastIrctcScreen);
+                          if ("sorry".equals(scr)) {
+                              irctcSorryDetected = true;
+                              irctcLoginRequested = false;
+                              lastIrctcScreen = "sorry";
+                              setGuideBanner("AB AAP DABAO: IRCTC ne 'Sorry' dikhaya — khud 'Click here to login' ya Close dabakar dobara kholein", true);
+                              emitPortalEvent("IRCTC ne \"Sorry\" page dikhaya — khud Click here to login ya Close dabakar dobara kholein", currentPortalUrl);
+                              return;
+                          }
+                          if ("passenger".equals(scr) && changed) {
+                              irctcPassengerFilledDone = false;
+                          }
+                          if ("search".equals(scr) && ("passenger".equals(lastIrctcScreen) || "train_list".equals(lastIrctcScreen) || "sorry".equals(lastIrctcScreen))) {
+                              irctcSearchFilledDone = false;
+                          }
+                          if ("dialog_confirm".equals(scr) && changed) {
+                              setGuideBanner("AB AAP DABAO: Popup par khud 'English / Yes / I Agree / OK' dabao (AI tap se block hota hai)", true);
+                          } else if ("login".equals(scr) && changed) {
+                              if (hasIrctcLoginCredInPayload(activePayloadJson)) {
+                                  irctcFillingNow = true;
+                                  tickCount = 0;
+                                  setGuideBanner("AI Bhar Raha Hai: Login ID/Password fill ho raha hai...", false);
+                                  runAutoFillOnPortal();
+                              } else {
+                                  setGuideBanner("AB AAP DABAO: ID/Pass check karke CAPTCHA daalein aur khud 'SIGN IN' dabao (AI click se block hota hai)", true);
+                              }
+                          } else if ("register".equals(scr) && changed) {
+                              setGuideBanner("AB AAP DABAO: Registration form check karke CAPTCHA daalein aur khud 'Register' dabao", true);
+                          } else if ("train_list".equals(scr) && changed) {
+                              String pref = getPayloadStr(activePayloadJson, "preferredTrain");
+                              String cls = getPayloadStr(activePayloadJson, "trainClass");
+                              String hint = (pref.isEmpty() ? "Train" : ("Train " + pref)) + (cls.isEmpty() ? " & Class" : (" (" + cls + ")"));
+                              setGuideBanner("AB AAP DABAO: " + hint + " chun kar khud 'Book Now' dabao (AI tap se Sorry block aata hai)", true);
+                              emitPortalEvent("Train List ready: " + hint + " chun kar khud Book Now dabao", currentPortalUrl);
+                          } else if ("passenger".equals(scr)) {
+                              if (!irctcPassengerFilledDone && hasIrctcPassengerOrContactData(activePayloadJson)) {
+                                  irctcPassengerFilledDone = true;
+                                  irctcFillingNow = true;
+                                  tickCount = 0;
+                                  setGuideBanner("AI Bhar Raha Hai: Passenger details, Mobile aur BHIM/UPI fill ho raha hai...", false);
+                                  runAutoFillOnPortal();
+                              } else if (changed) {
+                                  irctcPassengerFilledDone = true;
+                                  setGuideBanner("AB AAP DABAO: Passenger details bhar kar 'AI Fill' dabao ya check karke khud 'Continue' dabao", true);
+                              }
+                          } else if ("review".equals(scr) && changed) {
+                              setGuideBanner("AB AAP DABAO: Review page aa gaya — CAPTCHA type karke khud 'Continue' dabao (Next ke liye)", true);
+                              emitPortalEvent("Review page: CAPTCHA daal kar khud Continue dabao", currentPortalUrl);
+                          } else if ("payment".equals(scr) && changed) {
+                              setGuideBanner("AB AAP DABAO: Payment screen ready! UPI / Bank chuno aur Pay + OTP poora karo", true);
+                              emitPortalEvent("Payment screen ready — UPI / Bank OTP aap poora karein", currentPortalUrl);
+                          } else if ("search".equals(scr)) {
+                              if (!irctcSearchFilledDone && hasIrctcSearchData(activePayloadJson)) {
+                                  irctcSearchFilledDone = true;
+                                  irctcFillingNow = true;
+                                  tickCount = 0;
+                                  setGuideBanner("AI Bhar Raha Hai: From, To, Date, Class aur Quota set ho raha hai...", false);
+                                  runAutoFillOnPortal();
+                              } else if (changed && !irctcFillingNow) {
+                                  if (hasIrctcSearchData(activePayloadJson)) {
+                                      setGuideBanner("AB AAP DABAO: Journey details ready — ab khud 'Search' dabao (AI click se block hota hai)", true);
+                                  } else {
+                                      setGuideBanner("IRCTC Desktop Ready: Login / Search khud karein — form bharne ke liye AI FILL dabayein", false);
+                                  }
+                              }
+                          }
+                          lastIrctcScreen = scr;
+                          if (portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE && isIrctcUrl(currentPortalUrl) && !irctcBlockedPage()) {
+                              tickHandler.postDelayed(irctcScreenRunnable, 1600);
+                          }
+                      });
+                  } catch (Exception ignored) {}
+              }
+
               public class IrctcCredBridge {
                   @JavascriptInterface
                   public void stage(String u, String p) {              // sirf likhta hai, padhne ka koi tareeka nahi
@@ -571,7 +728,17 @@ jobs:
                   fillBtn.setMinWidth(0);
                   fillBtn.setMinimumWidth(0);
                   fillBtn.setPadding(btnPadX, btnPadY, btnPadX, btnPadY);
-                  fillBtn.setOnClickListener(v -> { tickCount = 0; waitTicks = 0; resetAsk = true; runAutoFillOnPortal(); });
+                  fillBtn.setOnClickListener(v -> {
+                      tickCount = 0; waitTicks = 0; resetAsk = true;
+                      if (isIrctcCurrent()) {
+                          lastIrctcScreen = "";
+                          irctcSearchFilledDone = false;
+                          irctcPassengerFilledDone = false;
+                          irctcFillingNow = true;
+                          setGuideBanner("AI Bhar Raha Hai: Current page ke details check ho rahe hain...", false);
+                      }
+                      runAutoFillOnPortal();
+                  });
 
                   Button closeBtn = new Button(this);
                   closeBtn.setText("Close");
@@ -589,6 +756,8 @@ jobs:
                   closeBtn.setOnClickListener(v -> {
                       tickHandler.removeCallbacks(tickRunnable);
                       tickHandler.removeCallbacks(irctcRunnable);
+                      tickHandler.removeCallbacks(irctcScreenRunnable);
+                      irctcFillingNow = false;
                       if (isIrctcCurrent()) {
                           if (irctcBlockedPage() && portalWebView != null) {
                               irctcSorryDetected = false;
@@ -619,6 +788,13 @@ jobs:
                   bar.addView(portalLoginBtn);
                   bar.addView(fillBtn);
                   bar.addView(closeBtn);
+
+                  portalGuideBanner = new TextView(this);
+                  portalGuideBanner.setTextSize(12f);
+                  portalGuideBanner.setTypeface(null, android.graphics.Typeface.BOLD);
+                  portalGuideBanner.setPadding(pad, btnPadY, pad, btnPadY);
+                  portalGuideBanner.setMaxLines(2);
+                  portalGuideBanner.setVisibility(View.GONE);
 
                   // Keyboard sirf tab khule jab USER ne khud field chhua ho (IRCTC par normal Chrome keyboard behaviour)
                   portalWebView = new WebView(this) {
@@ -723,9 +899,14 @@ jobs:
                           tickCount = 0;
                           waitTicks = 0;
                           irctcSorryDetected = false;
+                          irctcFillingNow = false;
+                          irctcSearchFilledDone = false;
+                          irctcPassengerFilledDone = false;
+                          lastIrctcScreen = "";
                           uploadHandled.clear();
                           tickHandler.removeCallbacks(tickRunnable);
                           tickHandler.removeCallbacks(irctcRunnable);
+                          tickHandler.removeCallbacks(irctcScreenRunnable);
                           currentPortalUrl = url == null ? "" : url;
                           applyPortalWebSettings(view, url);
                       }
@@ -746,9 +927,12 @@ jobs:
                                       if (raw != null && raw.contains("1")) {
                                           irctcSorryDetected = true;
                                           irctcLoginRequested = false;
+                                          setGuideBanner("AB AAP DABAO: IRCTC ne 'Sorry' page dikhaya — khud 'Click here to login' ya Close dabakar dobara kholein", true);
                                           emitPortalEvent("IRCTC ne \"Sorry\" page dikhaya — khud \"Click here to login\" ya Close dabakar dobara kholein", url);
                                       } else {
-                                          emitPortalEvent("IRCTC Desktop Ready — khud Login/Search karein, form bharne ke liye AI FILL dabayein", url);
+                                          setGuideBanner("IRCTC Desktop Ready — AI details bhar ke bata dega kahan aapko dabana hai", false);
+                                          emitPortalEvent("IRCTC Desktop Ready — AI details bharega aur aapko step batayega", url);
+                                          startIrctcScreenWatch();
                                       }
                                   });
                               if (loadIrctcCred() != null || irctcLoginRequested) {
@@ -756,12 +940,14 @@ jobs:
                               }
                               return;
                           }
+                          setGuideBanner(null, false);
                           emitPortalEvent("Loaded: " + url, url);
                           scheduleTick(900);
                       }
                   });
 
                   portalOverlay.addView(bar);
+                  portalOverlay.addView(portalGuideBanner);
                   portalOverlay.addView(portalWebView);
                   root.addView(portalOverlay);
               }
@@ -1126,8 +1312,10 @@ jobs:
               private void runAutoFillOnPortal() {
                   if (portalWebView == null) return;
                   final boolean irctcNow = isIrctcCurrent();
+                  if (irctcNow) irctcFillingNow = true;
                   final String engine = loadFillEngine();
                   if (engine == null) {
+                      if (irctcNow) irctcFillingNow = false;
                       emitPortalEvent("Fill engine load nahi hua (sarthi-fill-engine.js missing)", null);
                       return;
                   }
@@ -1147,6 +1335,7 @@ jobs:
                       try {
                           JSONObject res = new JSONObject(decodeJsResult(raw));
                           if (res.has("error")) {
+                              if (irctcNow) irctcFillingNow = false;
                               emitPortalEvent("Fill engine error: " + res.optString("error"), null);
                               return;
                           }
@@ -1174,6 +1363,7 @@ jobs:
                           JSONArray ups = res.optJSONArray("uploads");
                           if (ups != null && ups.length() > 0) msg.append(" | Document upload karo (field pe tap karke file chuno): " + ups.join(", ").replace("\"", ""));
                           if (res.optBoolean("done", false)) {
+                              if (irctcNow) irctcFillingNow = false;
                               emitPortalEvent("Form complete - chat aur documents saaf. Receipt save karke CLOSE dabao", url);
                               handleFormDone();
                               return;
@@ -1198,10 +1388,14 @@ jobs:
                               } catch (Exception ignored2) {}
                           }
                           if (irctcNow) {
-                              if ("filling".equals(st) && tickCount++ < 4) {
-                                  scheduleTick(1200);
+                              String guideMsg = !note.isEmpty() ? note : msg.toString();
+                              if ("filling".equals(st) && tickCount++ < 15) {
+                                  setGuideBanner("AI Bhar Raha Hai: " + guideMsg, false);
+                                  scheduleTick(1000);
                               } else {
+                                  irctcFillingNow = false;
                                   tickHandler.removeCallbacks(tickRunnable);
+                                  setGuideBanner("AB AAP DABAO: " + guideMsg, true);
                               }
                           } else {
                               if ("next".equals(st)) tickCount = 0;   // naya page: ginti dobara (4-6 page ke form ke liye)
@@ -1210,6 +1404,7 @@ jobs:
                               else if (tickCount++ < 60) scheduleTick(3000);
                           }
                       } catch (Exception ignored) {
+                          if (irctcNow) irctcFillingNow = false;
                           emitPortalEvent("AI WebView active", null);
                       }
                   }));
@@ -1387,6 +1582,10 @@ jobs:
                   @JavascriptInterface
                   public void openPortal(String url0, String payloadJson) {
                       activePayloadJson = payloadJson != null ? payloadJson : "{}";
+                      irctcSearchFilledDone = false;
+                      irctcPassengerFilledDone = false;
+                      lastIrctcScreen = "";
+                      irctcFillingNow = false;
                       try {
                           JSONObject o = new JSONObject(activePayloadJson);
                           if ("1".equals(o.optString("autoOpenLogin", "")) || o.optBoolean("autoOpenLogin", false)) {
@@ -1403,6 +1602,7 @@ jobs:
                           portalOverlay.bringToFront();
                           if (isIrctcUrl(url) && irctcActive()) {
                               portalStatusView.setText("IRCTC pehle se khula hai - wahi session (reload nahi kiya)");
+                              startIrctcScreenWatch();
                               if (loadIrctcCred() != null || irctcLoginRequested) {
                                   startIrctcWatch();
                               }
@@ -1437,7 +1637,14 @@ jobs:
                   @JavascriptInterface
                   public void autoFillPortal(String payloadJson) {
                       if (payloadJson != null) activePayloadJson = payloadJson;
-                      runOnUiThread(() -> runAutoFillOnPortal());
+                      irctcSearchFilledDone = false;
+                      irctcPassengerFilledDone = false;
+                      lastIrctcScreen = "";
+                      tickCount = 0;
+                      runOnUiThread(() -> {
+                          runAutoFillOnPortal();
+                          if (isIrctcCurrent()) startIrctcScreenWatch();
+                      });
                   }
 
                   @JavascriptInterface

@@ -216,10 +216,13 @@
   function valueFor(key, data) {
     var n = splitName(data.fullName);
     switch (key) {
+      case 'fullName': return data.fullName || data.passenger1Name || '';
       case 'firstName': return data.firstName || n.first;
       case 'middleName': return data.middleName || n.middle;
       case 'lastName': return data.lastName || n.last;
-      case 'age': return data.age || computeAge(data.dob);
+      case 'age': return data.age || data.passenger1Age || computeAge(data.dob);
+      case 'gender': return data.gender || data.passenger1Gender || '';
+      case 'berthPreference': return data.berthPreference || data.passenger1Berth || '';
       case 'aadhaarNumber': {
         var ad = String(data.aadhaarNumber || '').replace(/\D/g, '');
         return ad.length >= 12 ? ad.slice(0, 12) : '';
@@ -2486,7 +2489,39 @@
     try {
       var href = String((root.location ? root.location.href : '') || '').toLowerCase();
       if (!/irctc/.test(href)) return null;
-      if (isNativeWebViewHost()) return null;
+      if (isNativeWebViewHost()) {
+        if (irPwInputs().length > 0) return null;
+        var nDialogs = Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show, app-confirmation-dialog, app-login')).filter(isVisible);
+        for (var nd = 0; nd < nDialogs.length; nd++) {
+          if (nDialogs[nd].querySelector('input:not([type="hidden"]), select, textarea')) return null;
+          var nBtns = Array.prototype.slice.call(nDialogs[nd].querySelectorAll('button, a, [role="button"]')).filter(isVisible);
+          for (var nb = 0; nb < nBtns.length; nb++) {
+            var nbt = norm(nBtns[nb].innerText || nBtns[nb].value || '');
+            if (/^(yes|i agree|agree|ok|ok proceed|continue|proceed)$/.test(nbt) && !RE_NO_CLICK.test(nbt)) {
+              return { state: 'user', tatkalStage: 'train_list', note: 'Confirmation popup par khud Yes / I Agree dabao (AI tap se block hota hai)' };
+            }
+          }
+        }
+        var nCards = Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).filter(isVisible);
+        if (nCards.length > 0) {
+          var nPref = (data && data.preferredTrain) ? String(data.preferredTrain).trim() : '';
+          if (nPref) {
+            var nMatch = nCards.find(function (c) { return irctcCardMatchesTrain(c.innerText || '', nPref); });
+            if (nMatch && !nMatch.getAttribute('data-sarthi-scrolled')) {
+              try {
+                nMatch.setAttribute('data-sarthi-scrolled', '1');
+                nMatch.scrollIntoView({ block: 'center', behavior: 'smooth' });
+              } catch (eSc) { /* ignore */ }
+            }
+          }
+          return {
+            state: 'user',
+            tatkalStage: 'train_list',
+            note: (nPref ? ('Train ' + nPref + ' ready — ') : 'Train List ready! ') + 'Class chuno aur khud Book Now dabao (AI tap se Sorry error aata hai)'
+          };
+        }
+        return null;
+      }
       var now = Date.now();
 
       // 0) If Login / Password / OTP / CAPTCHA modal is open over the Train List page, hand over IMMEDIATELY!
@@ -3031,7 +3066,7 @@
       // 6) Search - APK WebView me user khud Search dabayega (100% real finger touch, zero Akamai bot flag)
       if (isNativeWebViewHost()) {
         irctcCloseOverlays(dateEl);
-        return { state: 'user', tatkalStage: 'search', note: 'From / To / Date bhar diya — ab khud Search button dabayein!' };
+        return { state: 'user', tatkalStage: 'search', note: 'From / To / Date / Class bhar diya — ab khud Search dabao (AI click se block hota hai)' };
       }
 
       // Cloud Playwright: detect live IRCTC toast errors immediately instead of silently hanging 45s!
@@ -3325,9 +3360,11 @@
   function irctcWelcomeLanguage() {
     try {
       if (!/irctc/.test(irHref())) return null;
-      if (isNativeWebViewHost()) return null;
       var bt = norm(((document.body && document.body.innerText) || '').slice(0, 4000));
       if (!/welcome to irctc/.test(bt) || !/language/.test(bt)) return null;
+      if (isNativeWebViewHost()) {
+        return { state: 'user', tatkalStage: 'search', note: 'Language popup par khud English / OK dabao' };
+      }
       var now = Date.now();
       if (now - irLangAt < 2500) return { state: 'waiting', tatkalStage: 'search', note: 'Language popup band ho raha hai...' };
       var eb = irFindBtn(/^english$/);
