@@ -3371,6 +3371,67 @@
     } catch (e) { return null; }
   }
 
+  var irLoginMenuOpenedAt = 0;
+  function irctcOpenLoginStep(data) {
+    try {
+      if (!/irctc\.co\.in/i.test(irHref())) return null;
+      if (/register|signup/.test(irHref())) return null;
+      if (irIsLoggedIn() || irPwInputs().length > 0) return null;
+      if (Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).some(isVisible)) return null;
+      if (Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show')).some(isVisible)) return null;
+      var wantLogin = !!(data && (
+        data.autoOpenLogin === '1' ||
+        data.autoOpenLogin === true ||
+        (/login|account|sign\s*in/i.test(String(data.goal || '')) && !data.fromStation && !data.toStation) ||
+        (String(data.loginUserId || '').trim() && String(data.loginPassword || '').trim() && !data.fromStation && !data.toStation)
+      ));
+      if (!wantLogin) return null;
+      var now = Date.now();
+      var lastAt = 0;
+      try { lastAt = parseInt(root.sessionStorage.getItem('sarthi_ir_open_login_at') || '0', 10); } catch (e1) { /* ignore */ }
+      if (lastAt && now - lastAt < 25000) {
+        return { state: 'waiting', tatkalStage: 'login_captcha', note: 'IRCTC Login screen khulne ka wait...' };
+      }
+      var loginEls = Array.prototype.slice.call(document.querySelectorAll('a.loginText, button.loginText, a[aria-label*="Click here to Login" i], a[aria-label*="Login" i], button[aria-label*="Login" i], app-header a, app-header button, nav a, nav button, button, a')).filter(isVisible);
+      var btn = null;
+      for (var i = 0; i < loginEls.length; i++) {
+        var el = loginEls[i];
+        var t = norm(el.innerText || el.textContent || el.getAttribute('aria-label') || '');
+        var cls = String(el.className || '');
+        if (/logintext/i.test(cls) || /^(login|sign ?in)$/.test(t)) { btn = el; break; }
+      }
+      if (btn) {
+        try { root.sessionStorage.setItem('sarthi_ir_open_login_at', String(now)); } catch (e2) { /* ignore */ }
+        mark(btn, GREEN);
+        clickLikeUser(btn);
+        return { state: 'next', clicked: 'login', tatkalStage: 'login_captcha', note: 'IRCTC Account Login khol raha hoon...' };
+      }
+      if (now - irLoginMenuOpenedAt > 10000) {
+        var menuEl = document.querySelector('app-header .h_menu_drop_button, a.h_menu_drop_button, button[aria-label*="menu" i], app-header i.fa-bars, app-header i.fa-align-justify, app-header .fa-user');
+        if (menuEl && isVisible(menuEl)) {
+          irLoginMenuOpenedAt = now;
+          var clickTarget = (menuEl.closest && menuEl.closest('a, button')) || menuEl;
+          clickLikeUser(clickTarget);
+          setTimeout(function () {
+            try {
+              var after = Array.prototype.slice.call(document.querySelectorAll('a.loginText, button.loginText, a, button')).filter(isVisible);
+              for (var j = 0; j < after.length; j++) {
+                var t2 = norm(after[j].innerText || after[j].textContent || '');
+                if (/^(login|sign ?in)$/.test(t2) || /logintext/i.test(String(after[j].className || ''))) {
+                  try { root.sessionStorage.setItem('sarthi_ir_open_login_at', String(Date.now())); } catch (e3) { /* ignore */ }
+                  clickLikeUser(after[j]);
+                  break;
+                }
+              }
+            } catch (eM) { /* ignore */ }
+          }, 380);
+          return { state: 'waiting', tatkalStage: 'login_captcha', note: 'Mobile menu se IRCTC Login khol raha hoon...' };
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
   function autopilotCore(payload, opts) {
     opts = opts || {};
     var sorry = irctcSorryPage();
@@ -3420,6 +3481,17 @@
         isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
         state: irStep.state || 'filling', clicked: irStep.clicked || '', clickSelector: irStep.clickSelector || '', asks: [], uploads: [], uploadFields: [],
         done: false, irctcHandled: true, note: irStep.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: irStep.tatkalStage || 'train_list', emptyRequired: 0
+      };
+    }
+
+    var openLoginStep = irctcOpenLoginStep(payload || {});
+    if (openLoginStep) {
+      return {
+        filled: 0, url: root.location ? root.location.href : '', title: document.title || '',
+        hasCaptcha: false, hasOtp: false, hasPassword: false, hasPayment: false,
+        isPersonalForm: false, declarations: 0, needsUser: [], missingFields: [], unmatched: [], filledKeys: [], filledItems: [],
+        state: openLoginStep.state || 'next', clicked: openLoginStep.clicked || 'login', asks: [], uploads: [], uploadFields: [],
+        done: false, irctcHandled: true, note: openLoginStep.note || '', profile: 'IRCTC Ticket Booking', tatkalStage: 'login_captcha', emptyRequired: 0
       };
     }
 

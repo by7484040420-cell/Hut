@@ -139,6 +139,8 @@ export function buildAutoFillPayload(params: {
         map.loginUserId = map.loginUserId || v;
       } else if (lower.includes('login_password') || lower.includes('login password') || k === 'loginPassword') {
         map.loginPassword = map.loginPassword || v;
+      } else if (k === 'autoOpenLogin') {
+        map.autoOpenLogin = v;
       } else if (lower.includes('marital')) {
         map.maritalStatus = map.maritalStatus || v;
       } else if (lower.includes('designation')) {

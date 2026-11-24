@@ -163,6 +163,7 @@ jobs:
 
               private LinearLayout portalOverlay;
               private WebView portalWebView;
+              private Button portalLoginBtn;
               private int tickCount = 0;
               private int waitTicks = 0;   // OTP/CAPTCHA ke intezaar me alag ginti (taaki baad me bhi AI chale)
               // true = website khulne ke baad koi popup nahi: details pehle hi li jaati hain, baaki status line me dikhta hai
@@ -271,7 +272,16 @@ jobs:
                   ps.setSupportZoom(true);
                   ps.setBuiltInZoomControls(true);
                   ps.setDisplayZoomControls(false);
-                  if (isIrctcUrl(url)) {
+                  boolean isIrctc = isIrctcUrl(url);
+                  if (portalLoginBtn != null) {
+                      final boolean showLogin = isIrctc;
+                      runOnUiThread(() -> {
+                          if (portalLoginBtn != null) {
+                              portalLoginBtn.setVisibility(showLogin ? View.VISIBLE : View.GONE);
+                          }
+                      });
+                  }
+                  if (isIrctc) {
                       // Use genuine phone Chrome UA so TLS + Client-Hints match phone during Tatkal rush
                       ps.setUserAgentString(getAndroidChromeUa());
                   } else {
@@ -474,11 +484,17 @@ jobs:
                   int pad = (int) (8 * getResources().getDisplayMetrics().density);
                   bar.setPadding(pad, pad, pad, pad);
 
+                  int btnPadX = (int) (10 * getResources().getDisplayMetrics().density);
+                  int btnPadY = (int) (6 * getResources().getDisplayMetrics().density);
+
                   Button backBtn = new Button(this);
                   backBtn.setText("< Back");
                   backBtn.setTextSize(11f);
                   backBtn.setTextColor(Color.WHITE);
                   backBtn.setBackgroundColor(Color.parseColor("#1E293B"));
+                  backBtn.setMinWidth(0);
+                  backBtn.setMinimumWidth(0);
+                  backBtn.setPadding(btnPadX, btnPadY, btnPadX, btnPadY);
                   backBtn.setOnClickListener(v -> {
                       if (isIrctcCurrent()) {
                           // IRCTC me Back = "Sorry! Please try again". Isliye sirf app screen par wapas, session zinda rehta hai
@@ -501,11 +517,51 @@ jobs:
                   statusParams.setMargins(pad, 0, pad, 0);
                   portalStatusView.setLayoutParams(statusParams);
 
+                  portalLoginBtn = new Button(this);
+                  portalLoginBtn.setText("Login");
+                  portalLoginBtn.setTextSize(11f);
+                  portalLoginBtn.setTextColor(Color.WHITE);
+                  portalLoginBtn.setBackgroundColor(Color.parseColor("#0284C7"));
+                  portalLoginBtn.setMinWidth(0);
+                  portalLoginBtn.setMinimumWidth(0);
+                  portalLoginBtn.setPadding(btnPadX, btnPadY, btnPadX, btnPadY);
+                  portalLoginBtn.setVisibility(isIrctcUrl(lastPortalUrl) ? View.VISIBLE : View.GONE);
+                  LinearLayout.LayoutParams loginParams = new LinearLayout.LayoutParams(
+                      ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                  );
+                  loginParams.setMargins(0, 0, pad / 2, 0);
+                  portalLoginBtn.setLayoutParams(loginParams);
+                  portalLoginBtn.setOnClickListener(v -> {
+                      if (portalWebView == null) return;
+                      if (cachedIrctcHelper == null) {
+                          cachedIrctcHelper = loadAssetText("public/irctc-helper.js");
+                      }
+                      final String h = cachedIrctcHelper == null ? "" : cachedIrctcHelper;
+                      portalWebView.evaluateJavascript(
+                          h + "\n;(function(){return window.SarthiIrctc?window.SarthiIrctc.openLogin():'no_helper';})();",
+                          raw -> {
+                              String r = "";
+                              try { r = decodeJsResult(raw); } catch (Exception ignored) {}
+                              if ("loggedin".equals(r)) {
+                                  emitPortalEvent("IRCTC account pehle se login hai", currentPortalUrl);
+                              } else {
+                                  emitPortalEvent("IRCTC Login khul raha hai — CAPTCHA daal kar SIGN IN karein", currentPortalUrl);
+                                  irctcFilledThisModal = false;
+                                  startIrctcWatch();
+                                  scheduleTick(750);
+                              }
+                          }
+                      );
+                  });
+
                   Button fillBtn = new Button(this);
                   fillBtn.setText("AI Fill");
                   fillBtn.setTextSize(11f);
                   fillBtn.setTextColor(Color.WHITE);
                   fillBtn.setBackgroundColor(Color.parseColor("#059669"));
+                  fillBtn.setMinWidth(0);
+                  fillBtn.setMinimumWidth(0);
+                  fillBtn.setPadding(btnPadX, btnPadY, btnPadX, btnPadY);
                   fillBtn.setOnClickListener(v -> { tickCount = 0; waitTicks = 0; resetAsk = true; runAutoFillOnPortal(); });
 
                   Button closeBtn = new Button(this);
@@ -513,6 +569,9 @@ jobs:
                   closeBtn.setTextSize(11f);
                   closeBtn.setTextColor(Color.WHITE);
                   closeBtn.setBackgroundColor(Color.parseColor("#E11D48"));
+                  closeBtn.setMinWidth(0);
+                  closeBtn.setMinimumWidth(0);
+                  closeBtn.setPadding(btnPadX, btnPadY, btnPadX, btnPadY);
                   LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(
                       ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
                   );
@@ -546,6 +605,7 @@ jobs:
 
                   bar.addView(backBtn);
                   bar.addView(portalStatusView);
+                  bar.addView(portalLoginBtn);
                   bar.addView(fillBtn);
                   bar.addView(closeBtn);
 
@@ -565,6 +625,7 @@ jobs:
                   ));
                   WebSettings ps = portalWebView.getSettings();
                   ps.setJavaScriptEnabled(true);
+                  ps.setJavaScriptCanOpenWindowsAutomatically(true);
                   ps.setDomStorageEnabled(true);
                   ps.setDatabaseEnabled(true);
                   ps.setUseWideViewPort(true);

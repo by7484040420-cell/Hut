@@ -1013,6 +1013,44 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     });
   };
 
+  const openIrctcAccountLogin = async () => {
+    setError(null);
+    const docs = buildTatkalEffectiveDocs();
+    const loginDoc: EphemeralDocumentExtract = {
+      id: `tatkal-login-${Date.now()}`,
+      fileName: 'IRCTC Login Trigger (RAM)',
+      documentType: 'IRCTC Account Login',
+      summary: 'Direct IRCTC account login request',
+      fields: [{ key: 'autoOpenLogin', label: 'Auto Open Login', value: '1' }],
+      extractedAt: new Date().toISOString(),
+    };
+    const allDocs = [loginDoc, ...docs];
+    const target =
+      status.active && /irctc\.co\.in/i.test(status.url || '')
+        ? status.url
+        : 'https://www.irctc.co.in/nget/train-search';
+    const goal =
+      'IRCTC Account Login kholo aur meri User ID/Password fill karo; CAPTCHA main dalunga.';
+
+    if (nativeApkMode) {
+      portalLaunchedAtRef.current = Date.now();
+      launchNativeControlledPortal({
+        url: target,
+        profile,
+        ephemeralDocs: allDocs,
+        zeroSave,
+        goal,
+      });
+      return;
+    }
+
+    await startLiveAgent(
+      goal,
+      status.active && /irctc/i.test(status.url || '') ? undefined : target,
+      allDocs
+    );
+  };
+
   const handleSubmitHumanQuick = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingHumanQuick || status.tatkalStage === 'payment') return;
@@ -1627,6 +1665,16 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
                       <Zap className="w-3 h-3 text-amber-400" />
                     )}
                     Pre-Warm
+                  </button>
+                  <button
+                    type="button"
+                    disabled={status.agentRunning}
+                    onClick={() => void openIrctcAccountLogin()}
+                    title="IRCTC Account Login popup sidha kholein aur ID/Password fill karein"
+                    className="min-h-[30px] px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-[11px] inline-flex items-center gap-1 whitespace-nowrap shrink-0 disabled:opacity-55"
+                  >
+                    <Lock className="w-3 h-3" />
+                    IRCTC Login
                   </button>
                   <button
                     type="button"

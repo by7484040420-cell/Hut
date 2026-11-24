@@ -147,7 +147,7 @@ function buildServerFillPayload(params: {
   }
   const EXPLICIT_DIRECT_KEYS = new Set([
     'fromStation', 'toStation', 'journeyDate', 'trainClass', 'trainQuota', 'preferredTrain', 'berthPreference',
-    'loginUserId', 'loginPassword', 'incomeSource', 'maritalStatus', 'designation', 'age', 'mobile',
+    'loginUserId', 'loginPassword', 'autoOpenLogin', 'incomeSource', 'maritalStatus', 'designation', 'age', 'mobile',
     'passenger1Name', 'passenger1Age', 'passenger1Gender', 'passenger1Berth',
     'passenger2Name', 'passenger2Age', 'passenger2Gender', 'passenger2Berth',
     'passenger3Name', 'passenger3Age', 'passenger3Gender', 'passenger3Berth',

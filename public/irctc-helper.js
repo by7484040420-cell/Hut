@@ -1,6 +1,6 @@
 // IRCTC login helper - APK ke WebView me chalta hai. Password JS ko kabhi wapas nahi diya jata.
 (function () {
-  if (window.SarthiIrctc && window.SarthiIrctc.v === 2) return;
+  if (window.SarthiIrctc && window.SarthiIrctc.v === 3) return;
 
   function visible(el) {
     return !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
@@ -39,7 +39,7 @@
   }
 
   window.SarthiIrctc = {
-    v: 2,
+    v: 3,
     // none | ready | error | loggedin | sorry
     status: function () {
       try {
@@ -54,6 +54,45 @@
         }
         return 'none';
       } catch (e) { return 'none'; }
+    },
+    openLogin: function () {
+      try {
+        if (findFields()) return 'already_open';
+        var txt = (document.body && document.body.innerText) || '';
+        if (/\blogout\b|\bsign ?out\b/i.test(txt) || document.querySelector('a[href*="logout"], button[aria-label*="logout" i]')) {
+          return 'loggedin';
+        }
+        var loginSel = 'a.loginText, button.loginText, a[aria-label*="Click here to Login" i], a[aria-label*="Login" i], button[aria-label*="Login" i]';
+        var candidates = Array.prototype.slice.call(document.querySelectorAll(loginSel + ', app-header a, app-header button, nav a, nav button, button, a'));
+        for (var i = 0; i < candidates.length; i++) {
+          var el = candidates[i];
+          if (!visible(el)) continue;
+          var t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+          var cls = String(el.className || '');
+          if (/loginText/i.test(cls) || /^(login|sign ?in)$/i.test(t)) {
+            el.click();
+            return 'clicked';
+          }
+        }
+        var menuBtn = document.querySelector('app-header .h_menu_drop_button, a.h_menu_drop_button, button[aria-label*="menu" i], app-header i.fa-bars, app-header i.fa-align-justify, app-header .pull-right a, app-header .fa-user');
+        if (menuBtn && visible(menuBtn)) {
+          var clickTarget = (menuBtn.closest && menuBtn.closest('a, button')) || menuBtn;
+          clickTarget.click();
+          setTimeout(function () {
+            var after = document.querySelectorAll('a.loginText, button.loginText, a, button');
+            for (var j = 0; j < after.length; j++) {
+              if (!visible(after[j])) continue;
+              var t2 = (after[j].innerText || after[j].textContent || '').replace(/\s+/g, ' ').trim();
+              if (/^(login|sign ?in)$/i.test(t2) || /loginText/i.test(String(after[j].className || ''))) {
+                after[j].click();
+                break;
+              }
+            }
+          }, 350);
+          return 'menu_opened';
+        }
+        return 'not_found';
+      } catch (e) { return 'error'; }
     },
     fill: function (user, pass) {
       var f = findFields();
