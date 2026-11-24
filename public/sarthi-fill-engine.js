@@ -627,20 +627,25 @@
     var desc = Object.getOwnPropertyDescriptor(proto, 'value');
     if (desc && desc.set) desc.set.call(el, val); else el.value = val;
     var s = String(val == null ? '' : val);
+    var isIrctcSite = !!(root.location && /irctc\.co\.in/i.test(root.location.hostname || ''));
     var lastCh = s ? s.charAt(s.length - 1) : 'Backspace';
     var code = lastCh.length === 1 ? lastCh.toUpperCase().charCodeAt(0) : 8;
-    try {
-      if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keydown', { key: lastCh, keyCode: code, which: code, bubbles: true }));
-    } catch (e) { /* ignore */ }
+    if (!isIrctcSite) {
+      try {
+        if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keydown', { key: lastCh, keyCode: code, which: code, bubbles: true }));
+      } catch (e) { /* ignore */ }
+    }
     try {
       el.dispatchEvent(new InputEvent('input', { bubbles: true, data: s, inputType: s ? 'insertText' : 'deleteContentBackward' }));
     } catch (e) {
       fire(el, ['input']);
     }
-    try {
-      if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: lastCh, keyCode: code, which: code, bubbles: true }));
-    } catch (e) {
-      fire(el, ['keyup']);
+    if (!isIrctcSite) {
+      try {
+        if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: lastCh, keyCode: code, which: code, bubbles: true }));
+      } catch (e) {
+        fire(el, ['keyup']);
+      }
     }
     if (!opts.noBlur) fire(el, ['change', 'blur']);
   }
@@ -916,6 +921,13 @@
 
   function isAutocompleteEl(el) {
     if (!el || el.tagName !== 'INPUT') return false;
+    var acHint = norm([
+      el.name, el.id, el.placeholder,
+      el.getAttribute && el.getAttribute('formcontrolname'),
+      el.getAttribute && el.getAttribute('aria-label')
+    ].join(' '));
+    // IRCTC wraps Passenger Name in <p-autocomplete> for Master List — never treat person names as dropdown autocompletes
+    if (/passenger ?name|full ?name|applicant ?name|candidate ?name|father ?name|mother ?name|^name$/.test(acHint)) return false;
     return Boolean(
       el.getAttribute('role') === 'combobox' ||
       el.getAttribute('role') === 'searchbox' ||
@@ -1029,7 +1041,92 @@
     return out;
   }
 
+  function extractIrctcStationQuery(wanted) {
+    var s = String(wanted || '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    // "PATNA JN - PNBE (PATNA)" or "NEW DELHI - NDLS" -> "PNBE" / "NDLS"
+    var mDash = s.match(/^.+?-\s*([A-Za-z0-9]{2,6})(?:\s*\([^)]+\))?$/);
+    if (mDash) return mDash[1].toUpperCase();
+    // "New Delhi (NDLS)" -> "NDLS"
+    var mParen = s.match(/\(([A-Za-z0-9]{2,6})\)\s*$/);
+    if (mParen) return mParen[1].toUpperCase();
+    // Pure station code like "NDLS", "PNBE", "SV"
+    if (/^[A-Za-z]{2,6}$/.test(s) && s === s.toUpperCase()) return s;
+    return s.replace(/[()\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function extractIrctcWantParts(wanted) {
+    var raw = String(wanted || '').replace(/\s+/g, ' ').trim();
+    var code = '';
+    var mDash = raw.match(/^(.+?)-\s*([A-Za-z0-9]{2,6})(?:\s*\([^)]+\))?$/);
+    var namePart = raw;
+    if (mDash) {
+      namePart = mDash[1].trim();
+      code = mDash[2].toLowerCase();
+    } else {
+      var mParen = raw.match(/^(.+?)\(([A-Za-z0-9]{2,6})\)\s*$/);
+      if (mParen) {
+        namePart = mParen[1].trim();
+        code = mParen[2].toLowerCase();
+      } else if (/^[A-Za-z]{2,6}$/.test(raw) && raw === raw.toUpperCase()) {
+        code = raw.toLowerCase();
+      }
+    }
+    return {
+      code: code,
+      name: norm(namePart),
+      full: norm(raw)
+    };
+  }
+
+  function scoreIrctcStationOption(raw, wanted) {
+    var want = extractIrctcWantParts(wanted);
+    var firstLine = String(raw || '').split(/[\r\n]+/)[0].trim();
+    var optName = norm(firstLine);
+    var optCode = '';
+    var mOpt = firstLine.match(/^(.+?)\s*-\s*([A-Za-z0-9]{1,8})(?:\s*\([^)]+\))?$/);
+    if (mOpt) {
+      optName = norm(mOpt[1]);
+      optCode = norm(mOpt[2]);
+    }
+    var fullNorm = norm(raw);
+    if (!fullNorm || /please select|select station|no record|not found/.test(fullNorm)) return 0;
+
+    if (want.code && optCode && optCode === want.code) return 1000;
+    if (!want.code && want.full && optCode && optCode === want.full) return 990;
+    if (want.name && optName === want.name) return 950;
+    if (want.name && (optName === want.name + ' jn' || optName === want.name + ' junction' || optName === 'new ' + want.name)) return 900;
+
+    var sc = 0;
+    if (want.name && want.name.length >= 2 && (optName.indexOf(want.name + ' ') === 0 || optName === want.name)) {
+      sc = 820;
+    } else if (want.name && want.name.length >= 3 && optName.indexOf(want.name) === 0) {
+      sc = 760;
+    } else if (want.name && want.name.length >= 3) {
+      var esc = want.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('\\b' + esc + '\\b').test(fullNorm)) sc = 650;
+    }
+
+    if (sc > 0 && want.name && /\b(halt|kacheri|outer|cantt|saheb|ghat|road|city|east|west|north|south|cabin)\b/.test(optName)) {
+      var mSub = optName.match(/\b(halt|kacheri|outer|cantt|saheb|ghat|road|city|east|west|north|south|cabin)\b/);
+      if (mSub && want.name.indexOf(mSub[1]) < 0) sc -= 30;
+    }
+    return sc;
+  }
+
   function pickBestOverlayOption(opts, wanted, key, isAutocomplete) {
+    if (key === 'fromStation' || key === 'toStation') {
+      var stBest = null, stBestSc = 0;
+      opts.forEach(function (o) {
+        if (o.getAttribute && o.getAttribute('aria-disabled') === 'true') return;
+        if (o.classList && (o.classList.contains('ui-state-disabled') || o.classList.contains('p-disabled') || o.classList.contains('ui-autocomplete-group'))) return;
+        var rawSt = (o.innerText || o.textContent || '').trim();
+        if (!rawSt || /^-+.*-+$/.test(rawSt)) return;
+        var scSt = scoreIrctcStationOption(rawSt, wanted);
+        if (scSt > stBestSc) { stBestSc = scSt; stBest = o; }
+      });
+      return stBestSc >= 500 ? stBest : null;
+    }
     var wNorm = norm(wanted);
     var best = null, bestSc = 0;
     opts.forEach(function (o) {
@@ -1108,13 +1205,14 @@
             opts = findFallbackDropdownOptions(el);
           }
           if (opts.length === 0 && pollAttempts < maxPollAttempts) {
-            if (job.isAutocomplete && pollAttempts === 9) {
+            if (job.isAutocomplete && pollAttempts === 6) {
               try {
-                el.dispatchEvent(new InputEvent('input', { bubbles: true, data: wanted, inputType: 'insertText' }));
-                if (root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: 'a', keyCode: 65, which: 65, bubbles: true }));
+                var qRetry = (key === 'fromStation' || key === 'toStation') ? extractIrctcStationQuery(wanted) : wanted;
+                el.dispatchEvent(new InputEvent('input', { bubbles: true, data: qRetry, inputType: 'insertText' }));
+                if (!isFastHost && root.KeyboardEvent) el.dispatchEvent(new root.KeyboardEvent('keyup', { key: 'a', keyCode: 65, which: 65, bubbles: true }));
               } catch (e) { /* ignore */ }
             }
-            setTimeout(pollOptions, isFastHost ? 115 : 220);
+            setTimeout(pollOptions, isFastHost ? 120 : 220);
             return;
           }
           var best = pickBestOverlayOption(opts, wanted, key, job.isAutocomplete);
@@ -1139,16 +1237,23 @@
 
       if (job.isAutocomplete && el.tagName === 'INPUT') {
         lastAcAttemptAt = Date.now();
-        clickLikeUser(el);
-        var hadVal = String(el.value || '').trim().length > 0;
-        if (hadVal) {
-          setNativeValue(el, '', { noBlur: true });
+        var acQuery = (key === 'fromStation' || key === 'toStation') ? extractIrctcStationQuery(wanted) : String(wanted);
+        if (isFastHost) {
+          irSoftFocus(el);
+          setNativeValue(el, acQuery, { noBlur: true });
+          setTimeout(pollOptions, 200);
+        } else {
+          clickLikeUser(el);
+          var hadVal = String(el.value || '').trim().length > 0;
+          if (hadVal) {
+            setNativeValue(el, '', { noBlur: true });
+          }
+          setTimeout(function () {
+            typeTextIncrementally(el, acQuery, function () {
+              setTimeout(pollOptions, 380);
+            }, { fast: false });
+          }, hadVal ? 240 : 50);
         }
-        setTimeout(function () {
-          typeTextIncrementally(el, wanted, function () {
-            setTimeout(pollOptions, isFastHost ? 190 : 380);
-          }, { fast: isFastHost });
-        }, hadVal ? (isFastHost ? 110 : 240) : 50);
       } else {
         clickLikeUser(el);
         setTimeout(pollOptions, isFastHost ? 140 : 280);
@@ -1248,7 +1353,7 @@
       var isSelect = el.tagName === 'SELECT';
       var key = matchKey(hint, { type: type, autocomplete: el.getAttribute('autocomplete') || '' });
       var val = key ? valueFor(key, data) : '';
-      var acPending = (key === 'fromStation' || key === 'toStation' || isAutocompleteEl(el)) && !isAutocompleteCommitted(el);
+      var acPending = (key === 'fromStation' || key === 'toStation') && !isAutocompleteCommitted(el);
       var dateNeedsUpdate = key === 'journeyDate' && val && String(el.value || '').trim() !== formatDateForInput(val, type, el.placeholder, el.maxLength > 0 ? el.maxLength : 0);
       var rawCurVal = String(el.value || '').trim();
       var aadhaarNeedsFix = key === 'aadhaarNumber' && val && rawCurVal.replace(/\s+/g, '').length < 12;
@@ -1343,7 +1448,7 @@
         var filledId = el.getAttribute('data-sarthi-id');
         if (!filledId) { filledId = 'sf' + (++uid); el.setAttribute('data-sarthi-id', filledId); }
         var finalVal = val;
-        var isAcInput = !isSelect && (isAutocompleteEl(el) || key === 'fromStation' || key === 'toStation');
+        var isAcInput = !isSelect && (key === 'fromStation' || key === 'toStation' || (!/name$/i.test(key || '') && isAutocompleteEl(el)));
 
         if (isSelect) {
           ok = selectOption(el, val, key);
@@ -2845,10 +2950,18 @@
     return /\s-\s[A-Za-z0-9]{1,8}(\s*\([^)]+\))?$|\([A-Z]{2,5}\)$/.test(v);
   }
   function irTry(k) { irFlow.tries[k] = (irFlow.tries[k] || 0) + 1; return irFlow.tries[k]; }
+  var IR_AC_OPT_SEL = '.p-autocomplete-panel li, .ui-autocomplete-panel li, .p-autocomplete-items li, .ui-autocomplete-items li, .ui-autocomplete-list-item, .p-autocomplete-item';
   function irVisibleOpts(scope) {
     var o = [];
-    if (scope && scope.querySelectorAll) o = Array.prototype.slice.call(scope.querySelectorAll(OPTION_SEL + ', li')).filter(isVisible);
-    if (!o.length) o = Array.prototype.slice.call(document.querySelectorAll(OPTION_SEL)).filter(isVisible);
+    if (scope && scope.querySelectorAll) {
+      o = Array.prototype.slice.call(scope.querySelectorAll(IR_AC_OPT_SEL + ', [role="option"]')).filter(isVisible);
+    }
+    if (!o.length) {
+      var sel = (scope && scope.tagName && /autocomplete/i.test(scope.tagName + ' ' + (scope.className || '')))
+        ? IR_AC_OPT_SEL
+        : OPTION_SEL;
+      o = Array.prototype.slice.call(document.querySelectorAll(sel)).filter(isVisible);
+    }
     return o;
   }
   function irKey(el, k, c) {
@@ -2857,40 +2970,64 @@
     });
   }
 
-  // station: fast human-paced typing -> quick poll -> select best match -> commit Angular ControlValueAccessor
+  // station: clean query -> deterministic station code/name selection -> never blindly ArrowDown+Enter onto wrong station
   function irStation(el, wanted, key, done) {
     var polls = 0;
+    var query = extractIrctcStationQuery(wanted);
+    if (!query) { done(); return; }
+    var isNativeHost = isNativeWebViewHost();
     function finish() {
       try { fire(el, ['change', 'blur']); } catch (e) { /* ignore */ }
       done();
     }
-    function verify(cb) {
+    function verify(attemptsLeft) {
       setTimeout(function () {
         if (stationValueOk(el.value)) {
           mark(el, GREEN);
           finish();
-        } else cb();
-      }, 240);
+        } else if (attemptsLeft > 0) {
+          verify(attemptsLeft - 1);
+        } else {
+          finish();
+        }
+      }, 220);
     }
     function poll() {
       polls++;
       var ac = el.closest ? el.closest('p-autocomplete, .ui-autocomplete, [class*="autocomplete"]') : null;
       var opts = irVisibleOpts(ac);
-      if (!opts.length) { if (polls < 32) { setTimeout(poll, 95); return; } finish(); return; }
+      if (!opts.length) {
+        if (polls === 6) {
+          try {
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: query, inputType: 'insertText' }));
+            if (!isNativeHost) irKey(el, 'ArrowDown', 40);
+          } catch (eR) { /* ignore */ }
+        }
+        if (polls < 28) { setTimeout(poll, 110); return; }
+        finish();
+        return;
+      }
       var best = pickBestOverlayOption(opts, wanted, key, true);
       if (best) {
         clickLikeUser(best);
-        verify(function () {
-          irSoftFocus(el); irKey(el, 'ArrowDown', 40);
-          setTimeout(function () { irKey(el, 'Enter', 13); verify(finish); }, 130);
-        });
+        verify(2);
       } else {
-        irSoftFocus(el); irKey(el, 'ArrowDown', 40);
-        setTimeout(function () { irKey(el, 'Enter', 13); verify(finish); }, 130);
+        // Never pick a random mismatched station — let user choose if nothing matched cleanly
+        finish();
       }
     }
     irSoftFocus(el);
-    typeTextIncrementally(el, String(wanted), function () { setTimeout(poll, 170); }, { fast: true });
+    if (String(el.value || '').trim()) {
+      setNativeValue(el, '', { noBlur: true });
+    }
+    if (isNativeHost || (root.location && /irctc\.co\.in/i.test(root.location.hostname || ''))) {
+      setTimeout(function () {
+        setNativeValue(el, query, { noBlur: true });
+        setTimeout(poll, 210);
+      }, 70);
+    } else {
+      typeTextIncrementally(el, query, function () { setTimeout(poll, 190); }, { fast: true });
+    }
   }
 
   function irClassRe(w) {
@@ -2985,9 +3122,8 @@
     try {
       irNoKeyboard(dateEl);
       irSoftFocus(dateEl);
-      typeTextIncrementally(dateEl, want, function () {
+      function commitDateCell() {
         setTimeout(function () {
-          // If PrimeNG calendar overlay is open, click the matching day cell ONLY when calendar displays the target month/year
           try {
             var dp = document.querySelector('.ui-datepicker, .p-datepicker');
             var parts = want.split(/[\/\-\.]/);
@@ -3005,13 +3141,17 @@
               }
             }
           } catch (eCal) { /* ignore */ }
-          irKey(dateEl, 'Enter', 13);
-          irKey(dateEl, 'Escape', 27);
           fire(dateEl, ['input', 'change', 'blur']);
           irctcCloseOverlays(dateEl);
           done();
-        }, 120);
-      }, { fast: true });
+        }, 140);
+      }
+      if (isNativeWebViewHost() || (root.location && /irctc\.co\.in/i.test(root.location.hostname || ''))) {
+        setNativeValue(dateEl, want, { noBlur: true });
+        commitDateCell();
+      } else {
+        typeTextIncrementally(dateEl, want, commitDateCell, { fast: true });
+      }
     } catch (e) {
       setNativeValue(dateEl, want);
       done();
@@ -3023,13 +3163,20 @@
       if (!/irctc/.test(irHref()) || !data || !data.fromStation || !data.toStation) return null;
       if (Array.prototype.slice.call(document.querySelectorAll('app-train-avl-enq, .train-avl-enq')).some(isVisible)) return null;      // visible train list: dusra step sambhalega
       if (Array.prototype.slice.call(document.querySelectorAll('.ui-dialog, .p-dialog, [role="dialog"], .modal.show')).some(isVisible)) return null;
-      var fromEl = null, toEl = null, dateEl = null;
-      Array.prototype.slice.call(document.querySelectorAll('input')).filter(isVisible).forEach(function (el) {
-        var k = matchKey(hintOf(el), { type: (el.type || 'text').toLowerCase() });
-        if (k === 'fromStation' && !fromEl) fromEl = el;
-        else if (k === 'toStation' && !toEl) toEl = el;
-        else if (k === 'journeyDate' && !dateEl) dateEl = el;
-      });
+      var inSearchContainer = function (el) {
+        return el && isVisible(el) && !(el.closest && el.closest('header, nav, app-header, .ui-dialog, .p-dialog, [role="dialog"]'));
+      };
+      var fromEl = Array.prototype.slice.call(document.querySelectorAll('p-autocomplete[formcontrolname="origin"] input, p-autocomplete#origin input')).find(inSearchContainer) || null;
+      var toEl = Array.prototype.slice.call(document.querySelectorAll('p-autocomplete[formcontrolname="destination"] input, p-autocomplete#destination input')).find(inSearchContainer) || null;
+      var dateEl = Array.prototype.slice.call(document.querySelectorAll('p-calendar[formcontrolname="jDate"] input, p-calendar#jDate input')).find(inSearchContainer) || null;
+      if (!fromEl || !toEl || !dateEl) {
+        Array.prototype.slice.call(document.querySelectorAll('input')).filter(inSearchContainer).forEach(function (el) {
+          var k = matchKey(hintOf(el), { type: (el.type || 'text').toLowerCase() });
+          if (k === 'fromStation' && !fromEl) fromEl = el;
+          else if (k === 'toStation' && !toEl) toEl = el;
+          else if (k === 'journeyDate' && !dateEl) dateEl = el;
+        });
+      }
       var btn = irctcSearchButton();
       if (!fromEl || !toEl || !btn) return null;
 
@@ -3043,8 +3190,14 @@
         return { state: 'filling', tatkalStage: 'search', note: note };
       }
       // 1) From  2) To
-      if (!stationValueOk(fromEl.value) && irTry('from') <= 4) return run1('From station chun raha hoon...', function (d) { irStation(fromEl, data.fromStation, 'fromStation', d); });
-      if (!stationValueOk(toEl.value) && irTry('to') <= 4) return run1('To station chun raha hoon...', function (d) { irStation(toEl, data.toStation, 'toStation', d); });
+      if (!stationValueOk(fromEl.value)) {
+        if (irTry('from') <= 3) return run1('From station (' + data.fromStation + ') chun raha hoon...', function (d) { irStation(fromEl, data.fromStation, 'fromStation', d); });
+        return { state: 'user', tatkalStage: 'search', note: 'From station "' + data.fromStation + '" list me auto-match nahi hua — khud From select karein' };
+      }
+      if (!stationValueOk(toEl.value)) {
+        if (irTry('to') <= 3) return run1('To station (' + data.toStation + ') chun raha hoon...', function (d) { irStation(toEl, data.toStation, 'toStation', d); });
+        return { state: 'user', tatkalStage: 'search', note: 'To station "' + data.toStation + '" list me auto-match nahi hua — khud To select karein' };
+      }
       // 3) Date (PrimeNG p-calendar safe commit)
       if (data.journeyDate && dateEl) {
         var want = formatDateForInput(data.journeyDate, (dateEl.type || 'text').toLowerCase(), dateEl.placeholder, dateEl.maxLength > 0 ? dateEl.maxLength : 0);
@@ -3056,12 +3209,12 @@
       var cre = irClassRe(data.trainClass);
       if (cre) {
         var cdd = irFindDd('class');
-        if (cdd && !cre.test(irDdLabel(cdd)) && irTry('class') <= 4) return run1('Class (' + data.trainClass + ') chun raha hoon...', function (d) { irPickDropdown(cdd, cre, d); });
+        if (cdd && !cre.test(irDdLabel(cdd)) && irTry('class') <= 3) return run1('Class (' + data.trainClass + ') chun raha hoon...', function (d) { irPickDropdown(cdd, cre, d); });
       }
       var qre = irQuotaRe(data.trainQuota);
       if (qre) {
         var qdd = irFindDd('quota');
-        if (qdd && !qre.test(irDdLabel(qdd)) && irTry('quota') <= 4) return run1('Quota (' + data.trainQuota + ') chun raha hoon...', function (d) { irPickDropdown(qdd, qre, d); });
+        if (qdd && !qre.test(irDdLabel(qdd)) && irTry('quota') <= 3) return run1('Quota (' + data.trainQuota + ') chun raha hoon...', function (d) { irPickDropdown(qdd, qre, d); });
       }
       // 6) Search - APK WebView me user khud Search dabayega (100% real finger touch, zero Akamai bot flag)
       if (isNativeWebViewHost()) {
@@ -3271,18 +3424,25 @@
           });
         }
       }
-      if (wanted.length <= 1) return null;
+      if (wanted.length === 0) return null;
 
       var allVisibleInputs = Array.prototype.slice.call(document.querySelectorAll('input')).filter(function (el) {
         if (!isVisible(el) || el.disabled || el.readOnly) return false;
-        if (el.closest && el.closest('header, nav, .ui-dialog, .p-dialog, [role="dialog"]')) return false;
+        if (el.closest && el.closest('header, nav, app-header, .ui-dialog, .p-dialog, [role="dialog"]')) return false;
         var tp = (el.type || 'text').toLowerCase();
         return /^(text|number|tel|search|)$/.test(tp);
       });
-      var nameInputs = allVisibleInputs.filter(function (el) {
-        var h = hintOf(el);
-        return /passenger.*name|passengername|^passenger name$|^name$/i.test(h) && !/user|father|mother|school|college|train|card/.test(h);
+      var nameInputs = Array.prototype.slice.call(document.querySelectorAll(
+        'input[formcontrolname="passengerName"], p-autocomplete[formcontrolname="passengerName"] input, app-passenger input[placeholder*="Name" i], app-passenger-input input[placeholder*="Name" i]'
+      )).filter(function (el) {
+        return isVisible(el) && !el.disabled && !(el.closest && el.closest('header, nav, app-header, .ui-dialog, .p-dialog, [role="dialog"]'));
       });
+      if (!nameInputs.length) {
+        nameInputs = allVisibleInputs.filter(function (el) {
+          var h = hintOf(el);
+          return /passenger.*name|passengername|^passenger name$|^name$/i.test(h) && !/user|father|mother|school|college|train|card|station|country|nationality/.test(h);
+        });
+      }
       if (!nameInputs.length) return null;
 
       var ageInputs = allVisibleInputs.filter(function (el) {
@@ -3290,7 +3450,7 @@
       });
       var allSelects = Array.prototype.slice.call(document.querySelectorAll('select')).filter(function (el) {
         if (!isVisible(el) || el.disabled) return false;
-        return !(el.closest && el.closest('header, nav, .ui-dialog, .p-dialog, [role="dialog"]'));
+        return !(el.closest && el.closest('header, nav, app-header, .ui-dialog, .p-dialog, [role="dialog"]'));
       });
       var genderSelects = allSelects.filter(function (el) { return /gender|\bsex\b|passenger ?gender/i.test(hintOf(el)); });
       var berthSelects = allSelects.filter(function (el) { return /berth|preference|seat/i.test(hintOf(el)); });
@@ -3301,18 +3461,20 @@
       for (var i = 0; i < limit; i++) {
         var pax = wanted[i];
         var nEl = nameInputs[i];
-        var rowScope = (nEl.closest && nEl.closest('app-passenger-input, .passenger-row, .form-row, .row, tr, [formgroupname]')) || nEl.parentElement;
-        var aEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('input')).find(function (x) { return isVisible(x) && /\bage\b|umr/i.test(hintOf(x)); })) || ageInputs[i] || null;
+        var rowScope = (nEl.closest && nEl.closest('app-passenger, app-passenger-input, .passenger-row, .form-row, .row, tr, [formgroupname]')) || nEl.parentElement;
+        var aEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('input')).find(function (x) { return isVisible(x) && /\bage\b|passengerage|umr/i.test(hintOf(x)); })) || ageInputs[i] || null;
         var gEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('select')).find(function (x) { return isVisible(x) && /gender|\bsex\b/i.test(hintOf(x)); })) || genderSelects[i] || null;
         var bEl = (rowScope && Array.prototype.slice.call(rowScope.querySelectorAll('select')).find(function (x) { return isVisible(x) && /berth|preference/i.test(hintOf(x)); })) || berthSelects[i] || null;
 
-        if (nEl && !String(nEl.value || '').trim() && pax.name) {
-          setNativeValue(nEl, pax.name);
+        if (nEl && pax.name && !String(nEl.value || '').trim()) {
+          setNativeValue(nEl, pax.name, { noBlur: true });
+          fire(nEl, ['change']);
           mark(nEl, GREEN);
           filledCount++;
         }
-        if (aEl && !String(aEl.value || '').trim() && pax.age) {
-          setNativeValue(aEl, pax.age);
+        if (aEl && pax.age && !String(aEl.value || '').trim()) {
+          setNativeValue(aEl, pax.age, { noBlur: true });
+          fire(aEl, ['change']);
           mark(aEl, GREEN);
           filledCount++;
         }
@@ -3323,6 +3485,11 @@
               mark(gEl, GREEN);
               filledCount++;
             }
+          }
+        } else if (!gEl && rowScope && pax.gender) {
+          var gDd = rowScope.querySelector('p-dropdown[formcontrolname*="Gender" i], p-dropdown[formcontrolname*="gender" i]');
+          if (gDd && isVisible(gDd) && isCustomPlaceholderText(customDropdownLabelText(gDd))) {
+            enqueueCustomDropdown({ el: gDd, wanted: pax.gender, key: 'gender', isAutocomplete: false });
           }
         }
         if (bEl && pax.berth) {
@@ -3336,6 +3503,20 @@
         }
       }
 
+      // Fill Passenger Mobile if provided and blank
+      if (data.mobile) {
+        var mobClean = String(data.mobile).replace(/\D/g, '').slice(-10);
+        var mobEl = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="mobileNumber"], input#mobileNumber, input[placeholder*="Mobile" i]')).find(function (m) {
+          return isVisible(m) && !m.disabled && !(m.closest && m.closest('header, nav, app-header'));
+        });
+        if (mobEl && mobClean && !String(mobEl.value || '').trim()) {
+          setNativeValue(mobEl, mobClean, { noBlur: true });
+          fire(mobEl, ['change']);
+          mark(mobEl, GREEN);
+          filledCount++;
+        }
+      }
+
       if (nameInputs.length < wanted.length) {
         var now = Date.now();
         var addBtn = irFindBtn(/\+?\s*add\s*passenger|add\s*more\s*passenger|\+?\s*add\s*infant/i);
@@ -3345,9 +3526,9 @@
           clickLikeUser(addBtn);
           return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger ' + (nameInputs.length + 1) + ' (' + wanted[nameInputs.length].name + ') add ho raha hai...' };
         }
-        if (filledCount > 0) {
-          return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details fill ho rahe hain...' };
-        }
+      }
+      if (filledCount > 0) {
+        return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details, Mobile aur BHIM/UPI fill ho rahe hain...' };
       }
       return null;
     } catch (e) { return null; }
@@ -3387,10 +3568,10 @@
     try {
       if (!/irctc/.test(irHref())) return null;
       if (irPwInputs().length > 0) return null;
-      var names = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="passengerName"], app-passenger input[placeholder="Name"]')).filter(isVisible);
+      var names = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="passengerName"], p-autocomplete[formcontrolname="passengerName"] input, app-passenger input[placeholder*="Name" i]')).filter(isVisible);
       if (!names.length) return null;
-      var ages = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="passengerAge"]')).filter(isVisible);
-      var genders = Array.prototype.slice.call(document.querySelectorAll('select[formcontrolname="passengerGender"]')).filter(isVisible);
+      var ages = Array.prototype.slice.call(document.querySelectorAll('input[formcontrolname="passengerAge"], app-passenger input[placeholder*="Age" i]')).filter(isVisible);
+      var genders = Array.prototype.slice.call(document.querySelectorAll('select[formcontrolname="passengerGender"], app-passenger select')).filter(isVisible);
       var now = Date.now();
 
       var sig = names.map(function (n) { return n.value; }).join('|') + '#' + ages.map(function (a) { return a.value; }).join('|') + '#' + genders.map(function (g) { return g.value; }).join('|');
@@ -3398,9 +3579,9 @@
 
       var ready = names.every(function (n) { return String(n.value || '').trim().length >= 3; }) &&
                   ages.length >= names.length && ages.every(function (a) { return String(a.value || '').trim(); }) &&
-                  genders.every(function (g) { return !!g.value; });
+                  (!genders.length || genders.every(function (g) { return !!g.value; }));
       if (!ready) return null;                       // baaki fill engine pehle bhar le
-      var paxWaitMs = isNativeWebViewHost() ? 800 : 2500;
+      var paxWaitMs = isNativeWebViewHost() ? 650 : 2500;
       if (now - irPaxSigAt < paxWaitMs) return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details bhar raha hu...' };
       if (irctcIsLoadingSpinnerActive()) return { state: 'waiting', tatkalStage: 'passenger', note: 'IRCTC loading hai - ruk raha hu' };
       var bad = Array.prototype.slice.call(document.querySelectorAll('app-passenger input.ng-invalid, app-passenger select.ng-invalid, input[formcontrolname="passengerName"].ng-invalid, input[formcontrolname="passengerAge"].ng-invalid, select[formcontrolname="passengerGender"].ng-invalid, input#mobileNumber.ng-invalid')).filter(isVisible);

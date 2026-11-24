@@ -461,7 +461,8 @@ jobs:
                               }
                               if (portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE
                                       && isIrctcUrl(currentPortalUrl)
-                                      && (irctcLoginRequested || loadIrctcCred() != null || irctcStaged != null)) {
+                                      && !"none".equals(st)
+                                      && (irctcLoginRequested || irctcStaged != null || "ready".equals(st))) {
                                   tickHandler.postDelayed(irctcRunnable, 2800);
                               }
                           });
@@ -563,14 +564,19 @@ jobs:
                           }
                           if ("dialog_confirm".equals(scr) && changed) {
                               setGuideBanner("AB AAP DABAO: Popup par khud 'English / Yes / I Agree / OK' dabao (AI tap se block hota hai)", true);
-                          } else if ("login".equals(scr) && changed) {
-                              if (hasIrctcLoginCredInPayload(activePayloadJson)) {
-                                  irctcFillingNow = true;
-                                  tickCount = 0;
-                                  setGuideBanner("AI Bhar Raha Hai: Login ID/Password fill ho raha hai...", false);
-                                  runAutoFillOnPortal();
-                              } else {
-                                  setGuideBanner("AB AAP DABAO: ID/Pass check karke CAPTCHA daalein aur khud 'SIGN IN' dabao (AI click se block hota hai)", true);
+                          } else if ("login".equals(scr)) {
+                              if (loadIrctcCred() != null || irctcLoginRequested || irctcStaged != null) {
+                                  startIrctcWatch();
+                              }
+                              if (changed) {
+                                  if (hasIrctcLoginCredInPayload(activePayloadJson)) {
+                                      irctcFillingNow = true;
+                                      tickCount = 0;
+                                      setGuideBanner("AI Bhar Raha Hai: Login ID/Password fill ho raha hai...", false);
+                                      runAutoFillOnPortal();
+                                  } else {
+                                      setGuideBanner("AB AAP DABAO: ID/Pass check karke CAPTCHA daalein aur khud 'SIGN IN' dabao (AI click se block hota hai)", true);
+                                  }
                               }
                           } else if ("register".equals(scr) && changed) {
                               setGuideBanner("AB AAP DABAO: Registration form check karke CAPTCHA daalein aur khud 'Register' dabao", true);
@@ -613,8 +619,9 @@ jobs:
                               }
                           }
                           lastIrctcScreen = scr;
-                          if (portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE && isIrctcUrl(currentPortalUrl) && !irctcBlockedPage()) {
-                              tickHandler.postDelayed(irctcScreenRunnable, 1600);
+                          // Continuous JS polling band: sirf active auto-fill ke dauran re-check, baaki user touch (ACTION_UP) par
+                          if (irctcFillingNow && portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE && isIrctcUrl(currentPortalUrl) && !irctcBlockedPage()) {
+                              tickHandler.postDelayed(irctcScreenRunnable, 1400);
                           }
                       });
                   } catch (Exception ignored) {}
@@ -805,7 +812,13 @@ jobs:
                       }
                   };
                   portalWebView.setOnTouchListener((v, ev) -> {
-                      if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN) lastPortalTouchAt = System.currentTimeMillis();
+                      if (ev.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+                          lastPortalTouchAt = System.currentTimeMillis();
+                      } else if (ev.getAction() == android.view.MotionEvent.ACTION_UP
+                              && isIrctcCurrent() && !irctcBlockedPage() && !irctcFillingNow) {
+                          tickHandler.removeCallbacks(irctcScreenRunnable);
+                          tickHandler.postDelayed(irctcScreenRunnable, 1300);
+                      }
                       return false;
                   });
                   portalWebView.setLayoutParams(new LinearLayout.LayoutParams(
@@ -935,7 +948,7 @@ jobs:
                                           startIrctcScreenWatch();
                                       }
                                   });
-                              if (loadIrctcCred() != null || irctcLoginRequested) {
+                              if (irctcLoginRequested || irctcStaged != null) {
                                   startIrctcWatch();
                               }
                               return;
@@ -952,11 +965,22 @@ jobs:
                   root.addView(portalOverlay);
               }
 
-              // "Access Denied" (Akamai) page aaye to: UA badal ke koshish (IRCTC par Android Chrome UA + cookies protect)
+              // "Access Denied" (Akamai) page aaye to: IRCTC par kabhi Windows UA ya 3x auto-reload loop nahi (us se IP ban aur lamba hota hai)
               private boolean handleAccessDenied(final WebView view, String url) {
                   try {
                       String t = view.getTitle();
                       if (t == null || !t.toLowerCase().contains("access denied")) return false;
+                      if (isIrctcUrl(url)) {
+                          irctcSorryDetected = true;
+                          irctcFillingNow = false;
+                          irctcLoginRequested = false;
+                          tickHandler.removeCallbacks(tickRunnable);
+                          tickHandler.removeCallbacks(irctcRunnable);
+                          tickHandler.removeCallbacks(irctcScreenRunnable);
+                          setGuideBanner("Access Denied (Akamai): 2 min ruk kar Airplane Mode ON/OFF karke IP refresh karein, phir dobara kholein", true);
+                          emitPortalEvent("Access Denied — Airplane Mode ON/OFF karke IP badlein aur 2 min baad kholein", url);
+                          return true;
+                      }
                       String host = "site";
                       try { host = android.net.Uri.parse(url).getHost(); } catch (Exception ignored) {}
                       if (host == null) host = "site";
@@ -967,13 +991,9 @@ jobs:
                           return true;
                       }
                       deniedTries.put(host, tries + 1);
-                      if (isIrctcUrl(url)) {
-                          view.getSettings().setUserAgentString(tries == 0 ? getAndroidChromeUa() : UA_LIST[uaMode]);
-                      } else {
-                          uaMode = (uaMode + 1) % UA_LIST.length;
-                          view.getSettings().setUserAgentString(UA_LIST[uaMode]);
-                          CookieManager.getInstance().removeAllCookies(null);
-                      }
+                      uaMode = (uaMode + 1) % UA_LIST.length;
+                      view.getSettings().setUserAgentString(UA_LIST[uaMode]);
+                      CookieManager.getInstance().removeAllCookies(null);
                       view.clearCache(true);
                       emitPortalEvent("Access Denied aaya - dobara koshish " + (tries + 1) + "/3", url);
                       final String target = lastPortalUrl;
@@ -1390,12 +1410,17 @@ jobs:
                           if (irctcNow) {
                               String guideMsg = !note.isEmpty() ? note : msg.toString();
                               if ("filling".equals(st) && tickCount++ < 15) {
-                                  setGuideBanner("AI Bhar Raha Hai: " + guideMsg, false);
+                                  setGuideBanner(guideMsg.startsWith("AI ") ? guideMsg : ("AI Bhar Raha Hai: " + guideMsg), false);
                                   scheduleTick(1000);
                               } else {
                                   irctcFillingNow = false;
                                   tickHandler.removeCallbacks(tickRunnable);
-                                  setGuideBanner("AB AAP DABAO: " + guideMsg, true);
+                                  if ((filled == 0 && !res.optBoolean("irctcHandled", false) || "final".equals(st))
+                                          && !hasIrctcSearchData(activePayloadJson)
+                                          && !hasIrctcPassengerOrContactData(activePayloadJson)) {
+                                      guideMsg = "App me Name / Station khali hai — pichhe Tatkal Setup bharein ya Vault Save ON karein";
+                                  }
+                                  setGuideBanner(guideMsg.startsWith("AB AAP DABAO:") ? guideMsg : ("AB AAP DABAO: " + guideMsg), true);
                               }
                           } else {
                               if ("next".equals(st)) tickCount = 0;   // naya page: ginti dobara (4-6 page ke form ke liye)

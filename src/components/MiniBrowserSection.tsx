@@ -538,10 +538,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setAddressInput(url);
     if (nativeApkMode && (serverOfflineMode || isIrctcTarget(url))) {
       portalLaunchedAtRef.current = Date.now();
+      const effectiveDocs = isIrctcTarget(url) ? buildTatkalEffectiveDocs() : ephemeralDocs;
       launchNativeControlledPortal({
         url,
         profile,
-        ephemeralDocs,
+        ephemeralDocs: effectiveDocs,
         zeroSave,
         goal: agentGoal,
       });
@@ -561,10 +562,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     } catch (err) {
       if (nativeApkMode) {
         portalLaunchedAtRef.current = Date.now();
+        const effectiveDocs = isIrctcTarget(url) ? buildTatkalEffectiveDocs() : ephemeralDocs;
         launchNativeControlledPortal({
           url,
           profile,
-          ephemeralDocs,
+          ephemeralDocs: effectiveDocs,
           zeroSave,
           goal: agentGoal,
         });
@@ -586,12 +588,13 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
     setError(null);
     setShowToolsMenu(false);
     const targetUrl = urlOverride || addressInput;
+    const effectiveDocs = docsOverride ?? (isIrctcTarget(targetUrl) ? buildTatkalEffectiveDocs() : ephemeralDocs);
     if (nativeApkMode && (serverOfflineMode || isIrctcTarget(targetUrl))) {
       portalLaunchedAtRef.current = Date.now();
       launchNativeControlledPortal({
         url: targetUrl,
         profile,
-        ephemeralDocs: docsOverride ?? ephemeralDocs,
+        ephemeralDocs: effectiveDocs,
         zeroSave,
         goal,
       });
@@ -607,7 +610,7 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
             goal,
             startUrl: urlOverride || (status.active ? undefined : addressInput),
             zeroSave,
-            ephemeralDocs: docsOverride ?? ephemeralDocs,
+            ephemeralDocs: effectiveDocs,
           }),
         }
       );
@@ -620,7 +623,8 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
   const runInstantAutoFill = async (urlOverride?: string, docsOverride?: EphemeralDocumentExtract[]) => {
     setError(null);
     setShowToolsMenu(false);
-    const activeDocs = docsOverride ?? ephemeralDocs;
+    const targetCheck = urlOverride || status.url || addressInput;
+    const activeDocs = docsOverride ?? ((isIrctcTarget(targetCheck) || isIrctcActive) ? buildTatkalEffectiveDocs() : ephemeralDocs);
     if (nativeApkMode && window.SarthiNative?.autoFillPortal) {
       const payload = buildAutoFillPayload({
         profile,
@@ -817,10 +821,11 @@ export const MiniBrowserSection: React.FC<MiniBrowserSectionProps> = ({
 
       if (nativeApkMode && initialUrl) {
         portalLaunchedAtRef.current = Date.now();
+        const effectiveDocs = isIrctcTarget(initialUrl) ? buildTatkalEffectiveDocs() : ephemeralDocs;
         launchNativeControlledPortal({
           url: initialUrl,
           profile,
-          ephemeralDocs,
+          ephemeralDocs: effectiveDocs,
           zeroSave,
           goal: initialGoal || undefined,
         });
