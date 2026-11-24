@@ -215,13 +215,11 @@ jobs:
 
               private boolean isAdRequest(WebResourceRequest request) {
                   String url = request.getUrl() != null ? request.getUrl().toString().toLowerCase() : "";
+                  if (url.contains("irctc") || (lastPortalUrl != null && lastPortalUrl.contains("irctc"))) {
+                      return false;   // IRCTC par koi script/analytics block nahi — real browser jaise chale
+                  }
                   for (String host : AD_HOSTS) {
                       if (url.contains(host)) return true;
-                  }
-                  if (lastPortalUrl != null && lastPortalUrl.contains("irctc")) {   // IRCTC tez: faltu tracking band
-                      for (String host : IRCTC_JUNK) {
-                          if (url.contains(host)) return true;
-                      }
                   }
                   return false;
               }
@@ -302,6 +300,7 @@ jobs:
               private static final String KS_ALIAS = "sarthi_cred_key";
               private volatile String currentPortalUrl = "";
               private volatile boolean irctcSorryDetected = false;
+              private volatile boolean irctcLoginRequested = false;
               private String cachedIrctcHelper = null;
               private String[] irctcStaged = null;          // login click par RAM me; login SAFAL hone par hi save
               private boolean irctcFilledThisModal = false;
@@ -398,15 +397,16 @@ jobs:
 
               private void startIrctcWatch() {
                   tickHandler.removeCallbacks(irctcRunnable);
-                  tickHandler.postDelayed(irctcRunnable, 800);
+                  tickHandler.postDelayed(irctcRunnable, 1200);
               }
 
               private void irctcTick() {
                   try {
-                      if (portalWebView == null) return;
+                      if (portalWebView == null || portalOverlay == null || portalOverlay.getVisibility() != View.VISIBLE) return;
                       String cu = portalWebView.getUrl();
                       currentPortalUrl = cu == null ? "" : cu;
                       if (!isIrctcUrl(cu)) return;                       // IRCTC se bahar gaye -> watch band
+                      if (!irctcLoginRequested && loadIrctcCred() == null && irctcStaged == null) return;
                       if (cachedIrctcHelper == null) {
                           cachedIrctcHelper = loadAssetText("public/irctc-helper.js");
                       }
@@ -418,6 +418,8 @@ jobs:
                               if ("sorry".equals(st)) {
                                   irctcSorryDetected = true;
                                   irctcFilledThisModal = false;
+                                  irctcLoginRequested = false;
+                                  return;
                               } else if ("ready".equals(st)) {
                                   irctcSorryDetected = false;
                                   portalWebView.evaluateJavascript("SarthiIrctc.hook();", null);
@@ -445,13 +447,19 @@ jobs:
                                       emitPortalEvent("IRCTC login safal - user id/password hamesha ke liye save ho gaya", currentPortalUrl);
                                   }
                                   irctcFilledThisModal = false;
+                                  irctcLoginRequested = false;
+                                  return;
                               } else {
                                   irctcSorryDetected = false;
                                   irctcFilledThisModal = false;
                               }
+                              if (portalOverlay != null && portalOverlay.getVisibility() == View.VISIBLE
+                                      && isIrctcUrl(currentPortalUrl)
+                                      && (irctcLoginRequested || loadIrctcCred() != null || irctcStaged != null)) {
+                                  tickHandler.postDelayed(irctcRunnable, 2800);
+                              }
                           });
                       }
-                      tickHandler.postDelayed(irctcRunnable, 1500);
                   } catch (Exception ignored) {}
               }
 
@@ -533,6 +541,7 @@ jobs:
                   portalLoginBtn.setLayoutParams(loginParams);
                   portalLoginBtn.setOnClickListener(v -> {
                       if (portalWebView == null) return;
+                      irctcLoginRequested = true;
                       if (cachedIrctcHelper == null) {
                           cachedIrctcHelper = loadAssetText("public/irctc-helper.js");
                       }
@@ -543,12 +552,12 @@ jobs:
                               String r = "";
                               try { r = decodeJsResult(raw); } catch (Exception ignored) {}
                               if ("loggedin".equals(r)) {
+                                  irctcLoginRequested = false;
                                   emitPortalEvent("IRCTC account pehle se login hai", currentPortalUrl);
                               } else {
                                   emitPortalEvent("IRCTC Login khul raha hai — CAPTCHA daal kar SIGN IN karein", currentPortalUrl);
                                   irctcFilledThisModal = false;
                                   startIrctcWatch();
-                                  scheduleTick(750);
                               }
                           }
                       );
@@ -578,6 +587,8 @@ jobs:
                   closeParams.setMargins(pad / 2, 0, 0, 0);
                   closeBtn.setLayoutParams(closeParams);
                   closeBtn.setOnClickListener(v -> {
+                      tickHandler.removeCallbacks(tickRunnable);
+                      tickHandler.removeCallbacks(irctcRunnable);
                       if (isIrctcCurrent()) {
                           if (irctcBlockedPage() && portalWebView != null) {
                               irctcSorryDetected = false;
@@ -609,10 +620,11 @@ jobs:
                   bar.addView(fillBtn);
                   bar.addView(closeBtn);
 
-                  // Keyboard sirf tab khule jab USER ne khud field chhua ho (CAPTCHA/OTP/password). AI fill me keyboard nahi khulega.
+                  // Keyboard sirf tab khule jab USER ne khud field chhua ho (IRCTC par normal Chrome keyboard behaviour)
                   portalWebView = new WebView(this) {
                       @Override
                       public boolean onCheckIsTextEditor() {
+                          if (isIrctcCurrent()) return super.onCheckIsTextEditor();
                           return System.currentTimeMillis() - lastPortalTouchAt < 20000;
                       }
                   };
@@ -713,6 +725,7 @@ jobs:
                           irctcSorryDetected = false;
                           uploadHandled.clear();
                           tickHandler.removeCallbacks(tickRunnable);
+                          tickHandler.removeCallbacks(irctcRunnable);
                           currentPortalUrl = url == null ? "" : url;
                           applyPortalWebSettings(view, url);
                       }
@@ -722,22 +735,27 @@ jobs:
                           super.onPageFinished(view, url);
                           CookieManager.getInstance().flush();          // session disk par save
                           currentPortalUrl = url == null ? "" : url;
+                          forceDesktopView(view);
+                          if (handleAccessDenied(view, url)) return;
+                          maybeShowRequirements(url);
                           if (isIrctcUrl(url)) {
-                              ensureMobileViewport(view);
-                              startIrctcWatch();
+                              tickHandler.removeCallbacks(tickRunnable);
                               view.evaluateJavascript(
                                   "(function(){try{return /sorry!*\\s*please try again/i.test((document.body&&document.body.innerText)||'')?'1':'0';}catch(e){return '0';}})();",
                                   raw -> {
                                       if (raw != null && raw.contains("1")) {
                                           irctcSorryDetected = true;
-                                          emitPortalEvent("IRCTC ne \"Sorry\" page dikhaya — Click here to login ya Close dabakar dobara kholein", url);
+                                          irctcLoginRequested = false;
+                                          emitPortalEvent("IRCTC ne \"Sorry\" page dikhaya — khud \"Click here to login\" ya Close dabakar dobara kholein", url);
+                                      } else {
+                                          emitPortalEvent("IRCTC Desktop Ready — khud Login/Search karein, form bharne ke liye AI FILL dabayein", url);
                                       }
                                   });
-                          } else {
-                              forceDesktopView(view);
+                              if (loadIrctcCred() != null || irctcLoginRequested) {
+                                  startIrctcWatch();
+                              }
+                              return;
                           }
-                          if (handleAccessDenied(view, url)) return;
-                          maybeShowRequirements(url);
                           emitPortalEvent("Loaded: " + url, url);
                           scheduleTick(900);
                       }
@@ -782,7 +800,7 @@ jobs:
 
               private void hideImeIfIdle() {
                   try {
-                      if (portalWebView == null) return;
+                      if (portalWebView == null || isIrctcCurrent()) return;
                       if (System.currentTimeMillis() - lastPortalTouchAt < 20000) return;   // user type kar raha hai
                       android.view.inputmethod.InputMethodManager imm =
                           (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
@@ -1107,6 +1125,7 @@ jobs:
 
               private void runAutoFillOnPortal() {
                   if (portalWebView == null) return;
+                  final boolean irctcNow = isIrctcCurrent();
                   final String engine = loadFillEngine();
                   if (engine == null) {
                       emitPortalEvent("Fill engine load nahi hua (sarthi-fill-engine.js missing)", null);
@@ -1119,12 +1138,12 @@ jobs:
                       + "\n;(function(){try{"
                       + "var p=JSON.parse(" + JSONObject.quote(payload) + ");"
                       + "var r=window.SarthiFill.autopilot(p,{reset:" + (rs ? "true" : "false") + "});"
-                      + "window.SarthiFill.watch(p);"
+                      + (irctcNow ? "" : "window.SarthiFill.watch(p);")
                       + "return JSON.stringify(r);"
                       + "}catch(e){return JSON.stringify({error:String(e)});}})();";
 
                   runOnUiThread(() -> portalWebView.evaluateJavascript(js, raw -> {
-                      hideImeIfIdle();
+                      if (!irctcNow) hideImeIfIdle();
                       try {
                           JSONObject res = new JSONObject(decodeJsResult(raw));
                           if (res.has("error")) {
@@ -1178,10 +1197,18 @@ jobs:
                                   emitToReact("onSarthiNativeRecipe", rc);
                               } catch (Exception ignored2) {}
                           }
-                          if ("next".equals(st)) tickCount = 0;   // naya page: ginti dobara (4-6 page ke form ke liye)
-                          boolean waitingUser = "user".equals(st) || "otp".equals(st);
-                          if (waitingUser) { if (waitTicks++ < 900) scheduleTick(2000); }   // OTP/CAPTCHA: user dale tab tak ~30 min poll
-                          else if (tickCount++ < 60) scheduleTick(3000);
+                          if (irctcNow) {
+                              if ("filling".equals(st) && tickCount++ < 4) {
+                                  scheduleTick(1200);
+                              } else {
+                                  tickHandler.removeCallbacks(tickRunnable);
+                              }
+                          } else {
+                              if ("next".equals(st)) tickCount = 0;   // naya page: ginti dobara (4-6 page ke form ke liye)
+                              boolean waitingUser = "user".equals(st) || "otp".equals(st);
+                              if (waitingUser) { if (waitTicks++ < 900) scheduleTick(2000); }   // OTP/CAPTCHA: user dale tab tak ~30 min poll
+                              else if (tickCount++ < 60) scheduleTick(3000);
+                          }
                       } catch (Exception ignored) {
                           emitPortalEvent("AI WebView active", null);
                       }
@@ -1338,6 +1365,19 @@ jobs:
                   } catch (Exception ignored) {}
               }
 
+              private boolean hasIrctcPayloadData(String json) {
+                  try {
+                      if (json == null || json.trim().isEmpty() || "{}".equals(json.trim())) return false;
+                      JSONObject o = new JSONObject(json);
+                      if ("1".equals(o.optString("autoOpenLogin", "")) || o.optBoolean("autoOpenLogin", false)) return true;
+                      String[] keys = {"fromStation", "toStation", "passenger1Name", "fullName", "loginUserId"};
+                      for (String k : keys) {
+                          if (o.optString(k, "").trim().length() > 0) return true;
+                      }
+                  } catch (Exception ignored) {}
+                  return false;
+              }
+
               public class SarthiNativeBridge {
                   @JavascriptInterface
                   public boolean isNativeApk() {
@@ -1347,6 +1387,12 @@ jobs:
                   @JavascriptInterface
                   public void openPortal(String url0, String payloadJson) {
                       activePayloadJson = payloadJson != null ? payloadJson : "{}";
+                      try {
+                          JSONObject o = new JSONObject(activePayloadJson);
+                          if ("1".equals(o.optString("autoOpenLogin", "")) || o.optBoolean("autoOpenLogin", false)) {
+                              irctcLoginRequested = true;
+                          }
+                      } catch (Exception ignored) {}
                       // http:// se kholne par IRCTC/Passport "Access Denied" dete hain -> hamesha https
                       final String url = (url0 != null && url0.startsWith("http://")) ? "https://" + url0.substring(7) : url0;
                       lastPortalUrl = url == null ? "" : url;
@@ -1357,8 +1403,13 @@ jobs:
                           portalOverlay.bringToFront();
                           if (isIrctcUrl(url) && irctcActive()) {
                               portalStatusView.setText("IRCTC pehle se khula hai - wahi session (reload nahi kiya)");
-                              startIrctcWatch();
-                              scheduleTick(400);
+                              if (loadIrctcCred() != null || irctcLoginRequested) {
+                                  startIrctcWatch();
+                              }
+                              if (hasIrctcPayloadData(activePayloadJson)) {
+                                  tickCount = 0;
+                                  scheduleTick(400);
+                              }
                               return;
                           }
                           irctcSorryDetected = false;

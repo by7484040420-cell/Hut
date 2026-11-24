@@ -644,9 +644,21 @@
 
   // Character-by-character typing for masked Aadhaar / custom Angular directives (e.g. SSC OTR)
 
-  // Keyboard na khule: focus se pehle inputmode=none (user khud tap kare to wapas normal)
+  function isNativeWebViewHost() {
+    try {
+      return (typeof root.SarthiCred !== 'undefined' || typeof root.SarthiNative !== 'undefined') && !root.__sarthiPlaywrightControlled;
+    } catch (e) { return false; }
+  }
+  function isIrctcNativeManual() {
+    try {
+      return isNativeWebViewHost() && !!(root.location && /irctc\.co\.in/i.test(root.location.hostname || ''));
+    } catch (e) { return false; }
+  }
+
+  // Keyboard na khule: focus se pehle inputmode=none (IRCTC par keyboard kabhi block nahi karte)
   function irNoKeyboard(el) {
     try {
+      if (root.location && /irctc\.co\.in/i.test(root.location.hostname || '')) return;
       if (!el || el.tagName !== 'INPUT' || el.getAttribute('data-sarthi-im')) return;
       el.setAttribute('data-sarthi-im', el.getAttribute('inputmode') || '-');
       el.setAttribute('inputmode', 'none');
@@ -742,6 +754,7 @@
   }
 
   function mark(el, color) {
+    if (isIrctcNativeManual()) return;
     try { el.style.outline = '2px solid ' + color; el.style.outlineOffset = '1px'; } catch (e) { /* ignore */ }
   }
   var GREEN = '#10b981', AMBER = '#f59e0b', BLUE = '#3b82f6';
@@ -1515,7 +1528,7 @@
         }
         return;
       }
-      if (RE_DECLARATION.test(h)) {
+      if (RE_DECLARATION.test(h) && !isIrctcNativeManual()) {
         if (/newsletter|subscribe|promotion|marketing|offers|updates|advertis|alert/.test(h)) return;
         summary.declarations++;
         if (!cb.checked) {
@@ -1528,7 +1541,7 @@
     });
 
     // dependent dropdown: pehla select hone ke baad doosre ke options load hote hain -> thodi der baad dobara
-    if (summary.portalSelects > 0 && !opts._retry) {
+    if (summary.portalSelects > 0 && !opts._retry && !isIrctcNativeManual()) {
       setTimeout(function () { try { run(data, { _retry: true }); } catch (e) { /* ignore */ } }, 1200);
     }
 
@@ -2473,6 +2486,7 @@
     try {
       var href = String((root.location ? root.location.href : '') || '').toLowerCase();
       if (!/irctc/.test(href)) return null;
+      if (isNativeWebViewHost()) return null;
       var now = Date.now();
 
       // 0) If Login / Password / OTP / CAPTCHA modal is open over the Train List page, hand over IMMEDIATELY!
@@ -3014,7 +3028,13 @@
         var qdd = irFindDd('quota');
         if (qdd && !qre.test(irDdLabel(qdd)) && irTry('quota') <= 4) return run1('Quota (' + data.trainQuota + ') chun raha hoon...', function (d) { irPickDropdown(qdd, qre, d); });
       }
-      // 6) Search - detect live IRCTC toast errors immediately instead of silently hanging 45s!
+      // 6) Search - APK WebView me user khud Search dabayega (100% real finger touch, zero Akamai bot flag)
+      if (isNativeWebViewHost()) {
+        irctcCloseOverlays(dateEl);
+        return { state: 'user', tatkalStage: 'search', note: 'From / To / Date bhar diya — ab khud Search button dabayein!' };
+      }
+
+      // Cloud Playwright: detect live IRCTC toast errors immediately instead of silently hanging 45s!
       var last = 0, n = 0;
       try { last = parseInt(root.sessionStorage.getItem('sarthi_ir_search_at') || '0', 10); n = parseInt(root.sessionStorage.getItem('sarthi_ir_search_n') || '0', 10); } catch (e) { /* ignore */ }
       var now = Date.now();
@@ -3055,6 +3075,13 @@
       if (!/sorry.{0,6}please try again/.test(t)) {
         irSorrySeenAt = 0;
         return null;
+      }
+      if (isNativeWebViewHost()) {
+        return {
+          state: 'user',
+          tatkalStage: 'blocked',
+          note: 'IRCTC ne "Sorry" page dikhaya — khud "Click here to login" ya Close dabakar dobara kholein'
+        };
       }
       var now = Date.now();
       var sorryN = 0, sorryAt = 0;
@@ -3099,6 +3126,7 @@
 
   function focusSecurityInput() {
     try {
+      if (isIrctcNativeManual()) return false;
       var candidates = Array.prototype.slice.call(document.querySelectorAll('input, textarea')).filter(function (el) {
         var tp = (el.type || '').toLowerCase();
         return !/^(hidden|submit|button|checkbox|radio|file)$/.test(tp) && isVisible(el) && !el.disabled;
@@ -3297,6 +3325,7 @@
   function irctcWelcomeLanguage() {
     try {
       if (!/irctc/.test(irHref())) return null;
+      if (isNativeWebViewHost()) return null;
       var bt = norm(((document.body && document.body.innerText) || '').slice(0, 4000));
       if (!/welcome to irctc/.test(bt) || !/language/.test(bt)) return null;
       var now = Date.now();
@@ -3313,7 +3342,7 @@
   // ---------------------------------------------------------------
   // IRCTC FIX 2: Passenger page -> details poori bharne ke baad
   //   (a) "Pay through BHIM/UPI" apne aap chuno
-  //   (b) "Continue" SIRF EK BAAR dabao (double click = "Sorry! Please try again")
+  //   (b) "Continue" APK WebView me user khud dabayega (real touch = zero Sorry block)
   // CAPTCHA aur payment ka final step user hi karega.
   // ---------------------------------------------------------------
   var irPaxSig = '', irPaxSigAt = 0, irUpiTryAt = 0;
@@ -3334,13 +3363,11 @@
                   ages.length >= names.length && ages.every(function (a) { return String(a.value || '').trim(); }) &&
                   genders.every(function (g) { return !!g.value; });
       if (!ready) return null;                       // baaki fill engine pehle bhar le
-      // typing abhi chal rahi ho to ruko (value 1.5 sec stable honi chahiye)
-      if (now - irPaxSigAt < 2500) return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details bhar raha hu...' };
-      // IRCTC loader chal raha ho to Continue mat dabao (fare/berth update ke beech click = Sorry page)
+      var paxWaitMs = isNativeWebViewHost() ? 800 : 2500;
+      if (now - irPaxSigAt < paxWaitMs) return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger details bhar raha hu...' };
       if (irctcIsLoadingSpinnerActive()) return { state: 'waiting', tatkalStage: 'passenger', note: 'IRCTC loading hai - ruk raha hu' };
-      // koi passenger/contact field galat ya khali (Angular invalid) ho to Continue mat dabao
       var bad = Array.prototype.slice.call(document.querySelectorAll('app-passenger input.ng-invalid, app-passenger select.ng-invalid, input[formcontrolname="passengerName"].ng-invalid, input[formcontrolname="passengerAge"].ng-invalid, select[formcontrolname="passengerGender"].ng-invalid, input#mobileNumber.ng-invalid')).filter(isVisible);
-      if (bad.length) { bad.forEach(function (b) { mark(b, AMBER); }); return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger form me ' + bad.length + ' field galat/khali hai (peela) - theek karke Continue dabayein' }; }
+      if (bad.length) { bad.forEach(function (b) { mark(b, AMBER); }); return { state: 'filling', tatkalStage: 'passenger', note: 'Passenger form me ' + bad.length + ' field galat/khali hai - theek karke Continue dabayein' }; }
 
       // (a) BHIM/UPI payment mode
       var lbls = Array.prototype.slice.call(document.querySelectorAll('label, span')).filter(function (el) {
@@ -3358,7 +3385,11 @@
         }
       }
 
-      // (b) Continue - sirf ek baar, phir 30 sec tak kuch nahi
+      if (isNativeWebViewHost()) {
+        return { state: 'user', tatkalStage: 'passenger', note: 'Passenger details + BHIM/UPI bhar diya — check karke khud Continue dabayein' };
+      }
+
+      // (b) Continue - sirf ek baar (Cloud Playwright only), phir 30 sec tak kuch nahi
       var lastAt = 0;
       try { lastAt = parseInt(root.sessionStorage.getItem('sarthi_ir_cont_at') || '0', 10); } catch (e1) { /* ignore */ }
       if (lastAt && now - lastAt < 30000) return { state: 'waiting', tatkalStage: 'review_captcha', note: 'Continue dab chuka - IRCTC ka page khulne ka wait (dobara click nahi karunga)' };
@@ -3382,8 +3413,10 @@
       var wantLogin = !!(data && (
         data.autoOpenLogin === '1' ||
         data.autoOpenLogin === true ||
-        (/login|account|sign\s*in/i.test(String(data.goal || '')) && !data.fromStation && !data.toStation) ||
-        (String(data.loginUserId || '').trim() && String(data.loginPassword || '').trim() && !data.fromStation && !data.toStation)
+        (!isNativeWebViewHost() && (
+          (/login|account|sign\s*in/i.test(String(data.goal || '')) && !data.fromStation && !data.toStation) ||
+          (String(data.loginUserId || '').trim() && String(data.loginPassword || '').trim() && !data.fromStation && !data.toStation)
+        ))
       ));
       if (!wantLogin) return null;
       var now = Date.now();
@@ -3517,7 +3550,7 @@
     var sd = smartDefaults(payload || {});      // form-style wale sawalon ke samajhdaar default
     s.filled += sd.filled + irctcPassengerSmartExtras(payload || {});
     s.smartMissing = sd.missing;
-    if (sd.unlockedSection && !opts._afterUnlock) {
+    if (sd.unlockedSection && !opts._afterUnlock && !isIrctcNativeManual()) {
       setTimeout(function () { try { run(payload || {}, { _afterUnlock: true }); } catch (e) { /* ignore */ } }, 450);
     }
     var curSig = pageSig();
@@ -3707,6 +3740,9 @@
   function watch(payload) {
     unwatch();
     if (typeof MutationObserver === 'undefined') return;
+    try {
+      if (root.location && /irctc\.co\.in/i.test(root.location.hostname || '')) return;
+    } catch (eW) { /* ignore */ }
     watchRuns = 0;
     observer = new MutationObserver(function (muts) {
       var relevant = false;

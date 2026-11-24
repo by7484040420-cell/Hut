@@ -33,7 +33,7 @@
   function setV(el, v) {
     var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     setter.call(el, v);
-    ['input', 'change', 'blur'].forEach(function (n) {
+    ['input', 'change'].forEach(function (n) {
       el.dispatchEvent(new Event(n, { bubbles: true }));
     });
   }
